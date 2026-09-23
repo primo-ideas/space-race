@@ -17,8 +17,11 @@ use tracing::info;
 use crate::directory::{Directory, OnlineGuard};
 use crate::lobby::Membership;
 
-/// Time given to the client to complete the handshake.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Time given to the client to complete the handshake. Generous, because a web client answers
+/// from the page's main thread, which its first frames can hold for seconds at a time while the
+/// browser compiles shaders: 5 seconds was not enough for a page opened with `?nickname=` to
+/// connect on its first load, even on a desktop GPU.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Persistent player identity: their public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

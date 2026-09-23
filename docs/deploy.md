@@ -22,7 +22,7 @@ Both build the game server for Linux and the client for the browser, upload them
 `deploy/install.sh` replaces exactly three things:
 
 ```text
-/home/space-race/space-race-server     the binary, renamed over the old one
+/home/space-race/space-race-server   the binary, renamed over the old one
 /home/space-race/data/               tracks and car tuning, reloaded while it runs
 /var/www/html/space-race/            the web client: index.html, the bindings, the module
 ```
@@ -95,7 +95,7 @@ in the Actions tab by itself. The same key serves the other game's repository.
 ```text
 /etc/systemd/system/space-race.service   its own user, loopback port 8081, RUST_LOG=info
 /etc/apache2/space-race.conf             the WebSocket proxy, the wasm media type, the directory
-<the TLS virtual host>                 one Include line, inside the SSLEngine block
+<the TLS virtual host>                   one Include line, inside the SSLEngine block
 /home/space-race/                        the server's home, owned by the space-race user
 /var/www/html/space-race/                where the web client goes
 ```
