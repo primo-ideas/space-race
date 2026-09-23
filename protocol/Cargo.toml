@@ -1,0 +1,23 @@
+[package]
+name = "space-race-protocol"
+version = "0.1.18"
+edition = "2024"
+license = "Unlicense"
+
+[dependencies]
+bitcode.workspace = true
+# The messages carry the simulation's own types -- a `Car` in every snapshot, a `TrackDescription`
+# in the welcome -- so the wire format depends on the simulation and never the other way round.
+space-race-sim.workspace = true
+ed25519-dalek = "3.0.0"
+getrandom.workspace = true
+
+# In the browser, randomness comes from the Web Crypto API.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+
+[dev-dependencies]
+# Only the round-trip test names a vector directly; it builds a track by hand.
+glam.workspace = true
+# The round-trip test reads the server's own car tuning, the one that really crosses the wire.
+ron.workspace = true

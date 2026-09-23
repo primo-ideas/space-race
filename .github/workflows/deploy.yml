@@ -1,0 +1,185 @@
+# Puts the commit online, at https://primo-ideas.xyz/space-race/.
+#
+# There was a workflow like this once and it was deleted, because it could not work: the machine
+# had no IPv4 address and GitHub-hosted runners have no IPv6 egress, so a runner could not reach
+# it -- and github.com has no AAAA record at all, so the machine could not fetch from GitHub
+# either. The machine was replaced in September 2026 and has an A record now, which closes the
+# first of those. See docs/ci.md#deploying.
+#
+# The machine must have been set up by the maintainer's setup-server.sh, which lives outside this
+# repository because it sets up the whole host, both games included. The DEPLOY_SSH_KEY secret must
+# hold a private key that machine's root accepts. docs/deploy.md has both.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One at a time, and never cancelled halfway. install.sh swaps a binary, a data directory and a
+# web directory one after another; a run killed between two of them leaves the machine serving a
+# client and a server that disagree.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # The three names this workflow has of its own. A rename of the game is these three lines.
+  HOST: primo-ideas.xyz
+  WEB_PATH: /space-race
+  NAME: space-race
+
+jobs:
+  # The same tests the "Test server" workflow runs, restored from its cache and never saving to
+  # it: that workflow owns the key. Nothing goes online on a red test.
+  test:
+    # A fork that pushes to its own main has no key and no business deploying anywhere.
+    if: github.repository == 'primo-ideas/space-race'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: test-server-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-server-
+
+      - run: cargo test --locked -p space-race-server -p space-race-protocol -p space-race-sim -p space-race-logger
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    # Referenced, not configured: GitHub creates it on the first run. Adding a required reviewer
+    # to it, later, is how a deployment gets a human gate without touching this file.
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Add the Rust targets
+        run: rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
+
+      # The registry only, deliberately not `target`. A release build of Bevy for wasm leaves a
+      # target directory of several gigabytes, and the whole repository shares one 10 GB cache:
+      # saving it here would evict the four check caches that run on every pull request, to speed
+      # up the job that runs least often. The runner is far faster than the maintainer's machine
+      # and builds it cold in the time this would have saved.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: deploy-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: deploy-registry-
+
+      # The CLI has to match the crate exactly, so the version is read from the lock file rather
+      # than written down here, where it would drift. The published build is a download; building
+      # it from source is minutes, and only happens if there is no build for this version.
+      - name: Install wasm-bindgen
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/[",]/, "", $3); print $3; exit }' Cargo.lock)
+          test -n "$version" || { echo "::error::no wasm-bindgen in Cargo.lock"; exit 1; }
+          echo "wasm-bindgen $version"
+          dir="wasm-bindgen-$version-x86_64-unknown-linux-musl"
+          url="https://github.com/rustwasm/wasm-bindgen/releases/download/$version/$dir.tar.gz"
+          if curl -fsSL "$url" | tar -xz -C /tmp; then
+            echo "/tmp/$dir" >> "$GITHUB_PATH"
+          else
+            echo "no published build for $version; building the CLI from source"
+            cargo install wasm-bindgen-cli --version "$version" --locked
+          fi
+
+      # Halves the module. Not having it, or its failing, is no reason to stop a deployment -- the
+      # game works either way, the download is just twice as long -- so this never fails the run.
+      - name: Install wasm-opt
+        continue-on-error: true
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends binaryen
+
+      # Both builds name a single crate, which is what the project otherwise avoids: each target
+      # has a cache of its own, so neither disturbs the other
+      # (see docs/architecture.md#feature-unification).
+      - name: Build the game server for Linux
+        run: cargo build --locked --release -p space-race-server --target x86_64-unknown-linux-musl
+
+      - name: Build the web client
+        run: cargo build --locked --release -p space-race-client --target wasm32-unknown-unknown
+
+      # The same contents deploy/deploy.ps1 stages, so a deployment from a runner and one from the
+      # maintainer's machine put the same three things on the server. The fonts are not here
+      # because they are not files: `include_bytes!` puts them in the module.
+      - name: Stage what goes to the machine
+        run: |
+          rm -rf target/deploy
+          mkdir -p target/deploy/web
+          cp deploy/install.sh target/deploy/
+          cp "target/x86_64-unknown-linux-musl/release/$NAME-server" target/deploy/
+          cp -r server/data target/deploy/data
+          cp client/web/index.html target/deploy/web/
+          wasm-bindgen --target web --no-typescript --out-dir target/deploy/web \
+            --out-name "$NAME-client" \
+            "target/wasm32-unknown-unknown/release/$NAME-client.wasm"
+          module="target/deploy/web/${NAME}-client_bg.wasm"
+          before=$(stat -c%s "$module")
+          if command -v wasm-opt >/dev/null && wasm-opt -Os "$module" -o "$module.opt"; then
+            mv "$module.opt" "$module"
+            echo "module $(stat -c%s "$module") bytes, down from $before"
+          else
+            rm -f "$module.opt"
+            echo "::warning::the module ships unshrunk ($before bytes)"
+          fi
+          tar -czf "/tmp/$NAME-deploy.tar.gz" -C target/deploy .
+
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "::error::the DEPLOY_SSH_KEY secret is not set; see docs/deploy.md"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          # Scanned rather than pinned. A pinned host key is stronger, but a machine rebuilt would
+          # then break deployments with a confusing error, and what pinning defends against --
+          # somebody answering for this host on a GitHub runner's first connection to it -- is not
+          # in this project's threat model (see docs/deploy.md#what-this-deliberately-does-not-do).
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          test -s ~/.ssh/known_hosts || { echo "::error::$HOST did not answer on port 22"; exit 1; }
+
+      # install.sh refuses to run on a machine setup-server.sh has not prepared, so a
+      # missing user or service stops here with a message instead of half-installing.
+      - name: Upload and install
+        run: |
+          archive="/tmp/$NAME-deploy.tar.gz"
+          scp -i ~/.ssh/deploy -o BatchMode=yes "$archive" "root@$HOST:$archive"
+          ssh -i ~/.ssh/deploy -o BatchMode=yes "root@$HOST" "set -e; rm -rf /tmp/$NAME-deploy; mkdir -p /tmp/$NAME-deploy; tar -xzf $archive -C /tmp/$NAME-deploy; cd /tmp/$NAME-deploy; sh install.sh; rm -rf /tmp/$NAME-deploy $archive"
+
+      # The page is fetched back, so a deployment that cannot be played does not pass for a good
+      # one. The three things that can be wrong are each asked about separately.
+      - name: Check the game is up
+        run: |
+          url="https://$HOST$WEB_PATH/"
+          page=$(curl -fsS -o /dev/null -w '%{http_code}' "$url")
+          type=$(curl -fsSI "${url}${NAME}-client_bg.wasm" | tr -d '\r' \
+            | awk -F': ' 'tolower($1) == "content-type" { print $2 }')
+          # Apache answers 404 when nothing proxies this path, and the game server answers 400 to
+          # a request that is not a WebSocket upgrade. So 404 is the one that means broken.
+          ws=$(curl -s -o /dev/null -w '%{http_code}' "$url"ws)
+          echo "page $page, module $type, websocket $ws"
+          case "$type" in
+            application/wasm*) ;;
+            *) echo "::warning::the module is served as '${type:-nothing}'; browsers refuse that" ;;
+          esac
+          if [ "$ws" = 404 ]; then
+            echo "::error::$WEB_PATH/ws is not proxied to the game server; re-run setup-server.sh on it"
+            exit 1
+          fi
+          echo "Space Race is live at $url" >> "$GITHUB_STEP_SUMMARY"

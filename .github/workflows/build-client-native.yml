@@ -1,0 +1,65 @@
+# The desktop client compiles on Linux, tests included (built, not run: they need no screen, but
+# running them is the "Test server" workflow's job).
+name: Build client (native)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # What Bevy needs to link on Linux. A runner image carries none of the -dev packages, and a
+      # missing one shows up as a pkg-config failure deep in a build script, so the whole set is
+      # installed rather than the one that happened to fail:
+      #   alsa   bevy_audio, through rodio
+      #   udev   gamepads, through gilrs
+      #   wayland, xkbcommon, x11 and its cursor/input/randr extensions
+      #          winit, which builds both display backends and chooses at runtime
+      - name: Install Bevy's Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev
+
+      - uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: build-client-native-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: build-client-native-
+
+      - run: cargo build --locked -p space-race-client --all-targets
+
+      # Saved even when the step above failed: actions/cache writes only on success,
+      # and a red build is exactly when the next run should not start from nothing.
+      # Skipped on an exact hit, since that key already holds this Cargo.lock.
+      - uses: actions/cache/save@v4
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: build-client-native-${{ hashFiles('**/Cargo.lock') }}

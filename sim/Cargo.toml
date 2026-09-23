@@ -1,0 +1,17 @@
+[package]
+name = "space-race-sim"
+version = "0.1.18"
+edition = "2024"
+license = "Unlicense"
+
+[dependencies]
+# Cars, tracks and race progress cross the wire inside protocol messages, so they derive the
+# encoding here rather than being converted at the boundary.
+bitcode.workspace = true
+glam.workspace = true
+# Tracks and car tuning are written in RON and read by the server.
+serde.workspace = true
+
+[dev-dependencies]
+# For the tests that read track scenery written in RON, as the server does.
+ron.workspace = true
