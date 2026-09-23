@@ -1,0 +1,8 @@
+[package]
+name = "space-race-logger"
+version = "0.1.18"
+edition = "2024"
+license = "Unlicense"
+
+[dependencies]
+tracing-subscriber.workspace = true

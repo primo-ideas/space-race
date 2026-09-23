@@ -1,0 +1,17 @@
+# `cargo run --target wasm32-unknown-unknown` cannot run a module the way it runs a binary, so the
+# wasm target gets a runner: wasm-server-runner generates the JavaScript bindings, serves the game
+# on http://127.0.0.1:1334 and stays up until stopped. See docs/web.md.
+#
+# Nothing here sets rustflags on purpose. A flag under this target would be a compilation input,
+# and changing one invalidates the whole wasm cache -- a quarter of an hour of Bevy.
+[target.wasm32-unknown-unknown]
+runner = "wasm-server-runner"
+
+# Cross-compiling the server to Linux from a machine that has no C toolchain. The musl target
+# brings its own libc and CRT objects (link-self-contained is on by default for it), but the
+# linker it reaches for is still `cc`, which Windows does not have: `linker `cc` not found`.
+# rust-lld ships with the toolchain and rustc finds it by name in its own sysroot, so nothing has
+# to be installed. Every crate the server uses is pure Rust, so no cross C compiler is needed
+# either. See docs/deploy.md.
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"

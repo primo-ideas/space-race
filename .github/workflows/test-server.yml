@@ -1,0 +1,48 @@
+# Everything that can be tested without a screen: the server, the protocol, the simulation and the
+# logger (see docs/architecture.md#testing). The simulation is the bulk of it, and the one the
+# game lives or dies by: an autopilot has to lap every shipped track, gripping and drifting.
+name: Test server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/cache/restore@v4
+        id: cache
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: test-server-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-server-
+
+      # These tests never count snapshots or assume timing: a runner is slower than a desktop and
+      # a test waits for the state it expects, with a timeout.
+      - run: cargo test --locked -p space-race-server -p space-race-protocol -p space-race-sim -p space-race-logger
+
+      # Saved even when the step above failed: actions/cache writes only on success,
+      # and a red build is exactly when the next run should not start from nothing.
+      # Skipped on an exact hit, since that key already holds this Cargo.lock.
+      - uses: actions/cache/save@v4
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: test-server-${{ hashFiles('**/Cargo.lock') }}

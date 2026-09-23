@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["client", "logger", "protocol", "server", "sim"]
+
+[workspace.dependencies]
+anyhow = "1.0.104"
+bitcode = { version = "0.6.9", features = ["glam"] }
+space-race-logger = { path = "logger" }
+space-race-protocol = { path = "protocol" }
+space-race-sim = { path = "sim" }
+getrandom = "0.4.3"
+# Must stay the version Bevy uses, so `Vec2` is the same type on the client. The pin lives here
+# and nowhere else: four crates now speak this type, and a second pin is a mismatch waiting to
+# happen (see docs/architecture.md#workspace-layout).
+glam = { version = "0.32.1", default-features = false, features = ["std"] }
+ron = "0.12.2"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = "1.53.1"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+# Bevy recommends optimizing dependencies even in debug builds,
+# otherwise the game is unplayable during development.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

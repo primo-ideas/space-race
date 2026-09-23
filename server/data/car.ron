@@ -1,0 +1,71 @@
+// Car tuning. The server checks this file every second while it runs: edit, save, keep driving.
+// An invalid file is reported in the server log and ignored. See docs/simulation.md.
+(
+    // Speeds in m/s (40 m/s = 144 km/h), accelerations in m/s². No brake: full speed all the time,
+    // and letting go of the accelerator only coasts.
+    top_speed: 40.0,
+    acceleration: 22.0,
+    coasting: 4.0,
+
+    // Turning radius at full lock, in meters: when slow, and at top speed.
+    turn_radius_slow: 6.0,
+    turn_radius_fast: 32.0,
+    // The car always steers at least as if it went this fast (m/s), so it can turn away from a wall
+    // it is stuck against.
+    min_steering_speed: 4.0,
+    // Per second: how quickly the rotation follows the stick, and how quickly sliding dies out.
+    steering_response: 12.0,
+    grip: 10.0,
+    // Pull down the slope of banked turns, in m/s² (9.81 is Earth's). 0 makes banking purely visual.
+    gravity: 9.81,
+
+    // Drift: hold the drift button with the stick turned. The car switches to skating: it winds
+    // into the drift radius, its body swings out sideways, it keeps its speed and builds up a charge,
+    // and letting go of the button turns the charge into a boost.
+    // Slowest speed a drift starts or keeps going at (m/s).
+    drift_min_speed: 15.0,
+    // How far off the axis of travel the nose must come to start a drift, and how far back into
+    // it the car must come to end one, in degrees. Nothing but turning hard reaches the first:
+    // full lock while gripping puts the nose about 7 degrees off the travel.
+    drift_entry_angle: 5.0,
+    drift_exit_angle: 2.5,
+    // Turning radius while drifting with the stick fully into the drift, in meters. The stick is
+    // signed: centered runs straight and against the drift steers out of it, which is how a slide
+    // is caught and how a drift is ended.
+    drift_radius_tight: 26.0,
+    // Per second: how quickly the direction of travel catches up with the nose. This one number
+    // is the feel of the drift. Low means the car stays off its axis: it unscrews into the turn
+    // and runs wide while doing so, which is what a 28 m road is for. High means it snaps back
+    // into line and barely drifts at all.
+    drift_grip: 4.0,
+    // Per second: how quickly the rotation follows the stick in a drift. High, so the car comes
+    // round at once rather than ploughing on while its rotation builds up.
+    drift_steering_response: 10.0,
+    // What holding the drift button multiplies the drift radius by, and the extra deceleration it
+    // costs, in m/s². The button is never needed: it tightens the turn, and held as the car comes
+    // back into line it keeps the drift alive instead of ending it.
+    drift_button_tighten: 0.7,
+    drift_button_drag: 1.5,
+    // Speed a drift loses, in m/s² when it begins, then that much more per second of charge: the
+    // longer a drift is held, the harder it brakes, so it has to be let go of.
+    drift_drag: 1.0,
+    drift_drag_ramp: 0.5,
+    // Charge before any boost (s), seconds of boost per second of charge beyond it, and the
+    // longest boost (s). The charge grows from half to one and a half times real time, tighter drifts
+    // faster.
+    drift_min_charge: 0.3,
+    drift_boost_rate: 0.8,
+    drift_max_boost: 1.5,
+    // Boost: top speed (m/s, 52 = 187 km/h) and acceleration (m/s²), in full up to top_speed and
+    // fading out above it. After it, the car settles back to top_speed at the coasting rate.
+    boost_top_speed: 52.0,
+    boost_acceleration: 35.0,
+    // Boost for a perfect start (s), pressing the accelerator right at the start. Grades from S to
+    // E give from all of it to none.
+    start_boost: 1.5,
+
+    // Walls. The bounce is the share of the impact speed that comes back, from 0 to 1.
+    collision_radius: 1.2,
+    wall_bounce: 0.2,
+    wall_friction: 1.5,
+)

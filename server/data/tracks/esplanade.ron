@@ -1,0 +1,217 @@
+// The circuit, and the only one: 28 m from wall to wall, 1.62 km a lap, and hardly a straight on
+// it. Nineteen turns run into one another, most of them joined by nothing at all, the rest by a
+// connector of twenty or thirty meters; the longest straight is the run to the line, and it is
+// there for the starting grid. Width is what a drift needs -- a slide worth having carries the car
+// several meters off its line before the path comes round -- and three bottlenecks take that width
+// away again, at the three places where a drift that runs wide should cost something.
+//
+// The lap, in order:
+//
+//   T1    a long banked left, taken flat out of the start straight
+//   T2-T4 a right kink, a left, a right: three turns with no road between them
+//   the funnel  the road pinches to 15 m and stays there into the tight left
+//   T5-T6 a tight left and a banked right, back to back
+//   T7    the longest turn of the lap, a banked left held for 120 m
+//   T8-T9 esses, right then left
+//   the gate    13 m, the tightest of the three, at the end of the only real breathing space
+//   T10   a fast right, still narrow, into
+//   T11   the hairpin: 165 degrees of banked left around 28 m, the slowest corner and the
+//         longest drift of the lap
+//   T12-T13  a hard right out of it, then a tight left
+//   T14-T16  three fast sweepers, right, left, right, taken nearly flat
+//   the squeeze  14 m, out of the last of them and on toward the banked left
+//   T17-T19  a banked left, a kink and the final banked left onto the line
+//
+// The turn angles add up to one full turn to the left, and the loop closes on the start line: the
+// five straights were solved for, which is why they carry decimals. The road never comes within
+// 39 m of another part of itself. The format is described in docs/tracks.md.
+(
+    name: "Esplanade",
+    width: 28.0,
+    segments: [
+        // Out of the start line.
+        Straight(length: 39.47),
+        // T1: the opening sweeper, banked, meant to be taken flat.
+        Turn(angle: 75.0, radius: 62.0, transition: 22.0, banking: 12.0),
+        // T2 to T4: a right, a left and a right, chained with no road between them.
+        Turn(angle: -35.0, radius: 55.0, transition: 16.0),
+        Turn(angle: 60.0, radius: 42.0, transition: 16.0),
+        Turn(angle: -45.0, radius: 38.0, transition: 14.0),
+        // The funnel: the road is already down to 15 m here.
+        Straight(length: 23.39),
+        // T5: the tight left the funnel spits the car into.
+        Turn(angle: 70.0, radius: 34.0, transition: 14.0),
+        // T6: banked right, straight out of it.
+        Turn(angle: -60.0, radius: 36.0, transition: 14.0, banking: 14.0),
+        Straight(length: 24.0),
+        // T7: the longest turn of the lap, banked and held for 120 m.
+        Turn(angle: 85.0, radius: 68.24, transition: 18.0, banking: 12.0),
+        // T8 and T9: esses, handing the car from one side to the other.
+        Turn(angle: -50.0, radius: 40.0, transition: 15.0),
+        Turn(angle: 55.0, radius: 38.0, transition: 15.0),
+        // The only stretch of open road on the lap, and the gate waits at the end of it.
+        Straight(length: 57.18),
+        // T10: a fast right, entered through the gate.
+        Turn(angle: -40.0, radius: 70.0, transition: 18.0),
+        // T11: the hairpin. The slowest corner of the lap and the longest drift.
+        Turn(angle: 165.0, radius: 28.0, transition: 12.0, banking: 16.0),
+        Straight(length: 28.0),
+        // T12 and T13: a hard right out of the hairpin, then a tight left.
+        Turn(angle: -75.0, radius: 42.0, transition: 16.0),
+        Turn(angle: 70.0, radius: 36.0, transition: 15.0),
+        Straight(length: 22.0),
+        // T14 to T16: the fast part of the lap, three sweepers taken nearly flat.
+        Turn(angle: -35.0, radius: 65.0, transition: 16.0),
+        Turn(angle: 45.0, radius: 99.4, transition: 20.0),
+        Turn(angle: -50.0, radius: 84.68, transition: 18.0),
+        // The squeeze, between the last sweeper and the run home.
+        Straight(length: 32.61),
+        // T17: banked left.
+        Turn(angle: 85.0, radius: 46.4, transition: 20.0, banking: 12.0),
+        // T18: a kink, barely a lift.
+        Turn(angle: -25.0, radius: 80.0, transition: 18.0),
+        // T19: the last banked left, onto the run to the line.
+        Turn(angle: 65.0, radius: 38.15, transition: 18.0, banking: 10.0),
+        // The run to the line. The starting grid sits along it.
+        Straight(length: 72.29),
+    ],
+    // Three bottlenecks, each at a place where a drift that runs wide should cost something. The
+    // road keeps its line and the walls come in around it, so a bottleneck is not a new corner: it
+    // is the same corner with the room taken away.
+    narrows: [
+        // The funnel: the walls close through the right-hander before it and stay in until the
+        // tight left has begun. 15 m is a little over half the road.
+        (at: 292.0, length: 30.0, width: 15.0, blend: 26.0),
+        // The gate: the tightest, at the end of the lap's one stretch of open road, and it stays
+        // narrow into the fast right that leads to the hairpin. It closes late enough for a car
+        // that drifted the esses wide to come back into line, and not a moment later.
+        (at: 712.0, length: 30.0, width: 13.0, blend: 28.0),
+        // The squeeze: out of the last fast sweeper, and narrow along the straight after it.
+        (at: 1312.0, length: 34.0, width: 14.0, blend: 28.0),
+    ],
+    // The circuit is dressed all the way round: stands around the turns that are worth watching,
+    // marker boards into every turn, pylons at the apexes and along the fast stretches, arches over
+    // the line and over each of the three bottlenecks, and slabs far out in the dark to turn
+    // against. Left is the infield, since the lap runs counter-clockwise.
+    scenery: [
+        // Start and finish: the arch over the line, the main stand along the inside of the run to
+        // it, and panels to measure the launch against.
+        Gantry(at: 0.0),
+        Grandstand(at: 1552.0, side: Left, offset: 6.0, length: 62.0, rows: 10),
+        Grandstand(at: 6.0, side: Left, offset: 6.0, length: 30.0, rows: 7),
+        Billboard(at: 1578.0, side: Right, offset: 5.0, width: 12.0, height: 6.0),
+        Billboard(at: 18.0, side: Right, offset: 5.0, width: 12.0, height: 6.0),
+        Pylon(at: 1556.0, side: Right, offset: 4.0, height: 20.0),
+        Pylon(at: 1600.0, side: Right, offset: 4.0, height: 20.0),
+        Pylon(at: 30.0, side: Right, offset: 4.0, height: 20.0),
+
+        // T1, the opening sweeper: a stand around its outside, a board into it, a pylon at the
+        // apex.
+        Chevrons(at: 52.0, side: Right, offset: 1.5, count: 4),
+        Grandstand(at: 62.0, side: Right, offset: 7.0, length: 56.0, rows: 8),
+        Pylon(at: 92.0, side: Left, offset: 3.0, height: 14.0),
+        Pylon(at: 132.0, side: Right, offset: 5.0, height: 18.0),
+
+        // T2 to T4, the three chained turns. Boards on the outside of each, which changes side
+        // every time.
+        Chevrons(at: 152.0, side: Left, offset: 1.5, count: 3),
+        Billboard(at: 172.0, side: Left, offset: 4.0, width: 10.0, height: 5.0),
+        Chevrons(at: 202.0, side: Right, offset: 1.5, count: 3),
+        Pylon(at: 226.0, side: Left, offset: 3.0, height: 14.0),
+        Chevrons(at: 262.0, side: Left, offset: 1.5, count: 3),
+
+        // The funnel: an arch where the road is narrowest, and a pylon on each side at both ends,
+        // hard against the walls, so the gap is read from far back.
+        Gantry(at: 300.0),
+        Pylon(at: 292.0, side: Left, offset: 0.5, height: 12.0),
+        Pylon(at: 292.0, side: Right, offset: 0.5, height: 12.0),
+        Pylon(at: 322.0, side: Left, offset: 0.5, height: 12.0),
+        Pylon(at: 322.0, side: Right, offset: 0.5, height: 12.0),
+
+        // T5 and T6.
+        Chevrons(at: 332.0, side: Right, offset: 1.5, count: 4),
+        Pylon(at: 352.0, side: Left, offset: 3.0, height: 14.0),
+        Chevrons(at: 386.0, side: Left, offset: 1.5, count: 3),
+        Grandstand(at: 382.0, side: Left, offset: 7.0, length: 44.0, rows: 7),
+        Pylon(at: 408.0, side: Right, offset: 3.0, height: 14.0),
+
+        // T7, the long banked left: the biggest stand of the circuit around its outside.
+        Chevrons(at: 462.0, side: Right, offset: 1.5, count: 4),
+        Grandstand(at: 468.0, side: Right, offset: 8.0, length: 72.0, rows: 11),
+        Pylon(at: 512.0, side: Left, offset: 4.0, height: 16.0),
+        Pylon(at: 548.0, side: Right, offset: 5.0, height: 18.0),
+
+        // The esses.
+        Chevrons(at: 580.0, side: Left, offset: 1.5, count: 3),
+        Pylon(at: 600.0, side: Right, offset: 3.0, height: 13.0),
+        Billboard(at: 616.0, side: Left, offset: 5.0, width: 10.0, height: 5.0),
+        Chevrons(at: 630.0, side: Right, offset: 1.5, count: 3),
+        Pylon(at: 652.0, side: Left, offset: 3.0, height: 13.0),
+
+        // The gate, at the end of the open road: a panel before it, then the arch and its four
+        // posts.
+        Billboard(at: 694.0, side: Right, offset: 4.0, width: 10.0, height: 5.0),
+        Gantry(at: 720.0),
+        Pylon(at: 712.0, side: Left, offset: 0.5, height: 12.0),
+        Pylon(at: 712.0, side: Right, offset: 0.5, height: 12.0),
+        Pylon(at: 742.0, side: Left, offset: 0.5, height: 12.0),
+        Pylon(at: 742.0, side: Right, offset: 0.5, height: 12.0),
+
+        // T10, the fast right into the hairpin, its board read through the gate.
+        Chevrons(at: 736.0, side: Left, offset: 1.5, count: 3),
+        Pylon(at: 772.0, side: Right, offset: 3.0, height: 15.0),
+
+        // T11, the hairpin: two marker boards into it, a stand wrapped around its outside, and
+        // pylons on the inside, where the road doubles back on itself.
+        Chevrons(at: 800.0, side: Right, offset: 1.5, count: 5),
+        Chevrons(at: 822.0, side: Right, offset: 1.5, count: 4),
+        Grandstand(at: 804.0, side: Right, offset: 9.0, length: 74.0, rows: 12),
+        Pylon(at: 842.0, side: Left, offset: 2.0, height: 12.0),
+        Pylon(at: 866.0, side: Left, offset: 2.0, height: 12.0),
+
+        // T12 and T13, out of the hairpin.
+        Chevrons(at: 928.0, side: Left, offset: 1.5, count: 4),
+        Grandstand(at: 932.0, side: Left, offset: 7.0, length: 48.0, rows: 8),
+        Pylon(at: 958.0, side: Right, offset: 3.0, height: 14.0),
+        Chevrons(at: 998.0, side: Right, offset: 1.5, count: 3),
+        Billboard(at: 1022.0, side: Right, offset: 4.0, width: 10.0, height: 5.0),
+
+        // The fast sweepers. Pylons and panels go by quickly here, which is the point of them.
+        Chevrons(at: 1078.0, side: Left, offset: 1.5, count: 3),
+        Pylon(at: 1102.0, side: Right, offset: 4.0, height: 18.0),
+        Chevrons(at: 1136.0, side: Right, offset: 1.5, count: 3),
+        Billboard(at: 1162.0, side: Right, offset: 5.0, width: 12.0, height: 6.0),
+        Pylon(at: 1182.0, side: Left, offset: 4.0, height: 16.0),
+        Pylon(at: 1212.0, side: Right, offset: 4.0, height: 16.0),
+        Chevrons(at: 1236.0, side: Left, offset: 1.5, count: 3),
+        Billboard(at: 1272.0, side: Left, offset: 5.0, width: 12.0, height: 6.0),
+
+        // The squeeze: the third arch, and its posts.
+        Gantry(at: 1322.0),
+        Pylon(at: 1312.0, side: Left, offset: 0.5, height: 12.0),
+        Pylon(at: 1312.0, side: Right, offset: 0.5, height: 12.0),
+        Pylon(at: 1346.0, side: Left, offset: 0.5, height: 12.0),
+        Pylon(at: 1346.0, side: Right, offset: 0.5, height: 12.0),
+
+        // T17 to T19, the last three turns.
+        Chevrons(at: 1358.0, side: Right, offset: 1.5, count: 4),
+        Grandstand(at: 1364.0, side: Right, offset: 7.0, length: 58.0, rows: 9),
+        Pylon(at: 1402.0, side: Left, offset: 3.0, height: 15.0),
+        Chevrons(at: 1444.0, side: Left, offset: 1.5, count: 3),
+        Chevrons(at: 1498.0, side: Right, offset: 1.5, count: 4),
+        Grandstand(at: 1496.0, side: Right, offset: 7.0, length: 44.0, rows: 7),
+        Pylon(at: 1522.0, side: Left, offset: 3.0, height: 14.0),
+
+        // Far out in the dark: slabs on the outside of the circuit, and three standing in the
+        // infield, which is empty enough to hold them.
+        Monolith(at: 110.0, side: Right, offset: 95.0, height: 44.0, width: 14.0),
+        Monolith(at: 520.0, side: Right, offset: 90.0, height: 42.0, width: 14.0),
+        Monolith(at: 830.0, side: Right, offset: 85.0, height: 48.0, width: 16.0),
+        Monolith(at: 1150.0, side: Right, offset: 100.0, height: 40.0, width: 13.0),
+        Monolith(at: 1270.0, side: Right, offset: 75.0, height: 34.0, width: 11.0),
+        Monolith(at: 1590.0, side: Right, offset: 110.0, height: 38.0, width: 12.0),
+        Monolith(at: 250.0, side: Left, offset: 120.0, height: 36.0, width: 12.0),
+        Monolith(at: 700.0, side: Left, offset: 130.0, height: 40.0, width: 13.0),
+        Monolith(at: 1200.0, side: Left, offset: 140.0, height: 34.0, width: 11.0),
+    ],
+)
