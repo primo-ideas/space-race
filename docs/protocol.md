@@ -22,7 +22,11 @@ of just failing.
 
 ## Handshake
 
-The server allows 5 seconds (`HANDSHAKE_TIMEOUT`) for the whole exchange.
+The server allows 20 seconds (`HANDSHAKE_TIMEOUT`) for the whole exchange. That is far more than
+the exchange takes, on purpose: a web client runs its session on the page's main thread, between
+frames, and the first frames of a page can hold that thread for several seconds each while the
+browser compiles shaders. With 5 seconds, a page opened with `?nickname=`, which connects at once,
+timed out on its first load even on a desktop GPU; a phone is slower.
 
 ```
 Client                                        Server
