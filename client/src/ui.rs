@@ -7,7 +7,7 @@ pub mod hud;
 mod lobbies;
 mod login;
 mod navigation;
-mod theme;
+pub mod theme;
 pub mod thumbnail;
 pub mod touch;
 mod widgets;

@@ -42,104 +42,122 @@ and loses some speed doing so. **Drift** builds on that slide.
 
 ### Drift
 
-Drift is the heart of the gameplay, in the spirit of Rocket Racing, and it is not a mode the player
-switches on. **The car drifts when it comes off its axis**: turn hard enough and the rotation puts
-the nose ahead of where the car travels, and past `drift_entry_angle` that slide is a drift.
-Nothing is held down to start one, and nothing needs to be held to keep one.
+Drift is the heart of the gameplay, in the spirit of Rocket Racing, and the model is drawn from a
+recording of it: the car snaps sideways in a third of a second, holds 45 to 55 degrees across its
+travel all through the turn, keeps its line and its speed, and pays a boost when it straightens.
+The player taps the drift button to go into a drift and lets go of it at once; holding it is only
+for tightening a turn further.
 
-`Car::slip` is that angle, between the velocity and the heading. It is the slide itself and not a
-drawing of it: the steering rotates the nose, the grip pulls the velocity back toward it, and the
-gap between the two is both what the player sees and what the simulation reads.
+That is two things kept apart. **Where the car goes** is set by the stick: in a drift, the stick
+turns the travel itself, on a curve of its own. **Where the body points** is the drift angle,
+`Car::body`, which swings far across the travel and back: it is drawn, and it decides when a drift
+ends, but it never carries the car anywhere. A slide that moved the car would run it wide of every
+corner by as far as its travel lags its nose; this one does not.
 
-- **Starting.** Above `drift_min_speed`, the slip angle reaching `drift_entry_angle` starts a
-  drift, toward whichever side the nose has come round. With the shipped tuning, full lock at speed
-  puts the nose about 7 degrees off the travel and the entry sits at 5, so a firm turn breaks away
-  and a gentle one does not.
-- **Turning.** The stick sets a **signed curvature**: fully into the drift turns on
-  `drift_radius_tight`, centered runs straight, and against the drift steers out of the slide. That
-  sign is the whole of the control, and what lets a drift end at all -- a stick that could only
-  turn more or less tightly could never bring the car back into line. The rotation follows it at
-  `drift_steering_response`, high, so the car comes round at once instead of ploughing on while its
-  rotation builds up.
-- **Sliding.** The direction of travel swings toward the nose at `drift_grip`, **without losing
-  speed**: a drift carries its speed through a turn that gripping would scrub it in. Only the drag
-  slows it. `drift_grip` is the one number that decides the feel, and it is a trade: low means the
-  car stays off its axis, unscrews into the turn and runs wide doing it; high means it snaps back
-  into line and barely slides at all.
-- **The button.** Never needed, and it does two things. Held, it multiplies the drift radius by
-  `drift_button_tighten`, pulling the turn tighter than the stick alone can, and costs
-  `drift_button_drag` in deceleration. Held as the car comes back into line, it keeps the drift
-  alive instead of ending it, so a drift can be carried down a straight and into the next turn.
-- **Braking.** The drag is `drift_drag` when the drift begins, plus `drift_drag_ramp` for every
-  second of charge: the longer a drift is held, the harder it brakes.
+- **Starting.** Above `drift_min_speed`, a press of the drift button with the stick turned at
+  least a fifth of the way throws the car into a drift toward the stick, on the tick it is pressed.
+  A press is a press: a button held down since before starts nothing. Turning hard enough starts
+  one too, without the button: while the car grips, `Car::slip` is the real angle between its nose
+  and its travel, and its reaching `drift_entry_angle` breaks the car away toward the side it came
+  round. With the shipped tuning, full lock at speed puts the nose about 7 degrees off the travel
+  and the entry sits at 5.
+- **The angle.** The body swings toward `drift_angle` times the square root of how far the stick
+  points into the drift: most of the angle with the first touch of the stick, all of it at full
+  lock, none with the stick centered or against the drift. It follows at `drift_angle_response`:
+  with the shipped 55 degrees and 9 per second, 49 degrees a quarter of a second after the press.
+  When a drift starts, the body takes over whatever slide the car had and the heading becomes the
+  travel, so nothing on screen jumps.
+- **Turning.** The stick sets a **signed curvature**: fully to one side turns on
+  `drift_radius_tight`, centered runs straight, whichever side the drift is on. The curve follows
+  the stick at `drift_steering_response`, and the travel keeps all of its speed as it turns.
+- **Speed.** A drift costs nothing: without the button, the car keeps its speed however long it
+  drifts, as in the recording.
+- **The button.** Never needed after the press, and holding it does three things. It multiplies
+  the drift radius by `drift_button_tighten`, pulling the turn tighter than the stick alone can. It
+  keeps the drift alive when the body comes back into line, so a drift can be carried down a
+  straight; and with the stick more than half way against the drift, it carries the drift over to
+  the other side, charge and all, so an S is one drift. And it costs speed: `drift_button_drag`
+  from the moment it is pressed, plus `drift_button_drag_ramp` for every second it stays held, so a
+  drift tightened for long brakes harder and harder.
 - **Charging.** The drift builds a charge: seconds of drift, counted from half to one and a half
   times real time as the stick goes from centered to fully into the drift. Steering out of the
   drift charges at the slow end, never backwards.
-- **Ending.** The slip angle falling below `drift_exit_angle` ends the drift and pays out, unless
-  the button is held at that moment. Falling below `drift_min_speed` ends it and pays out too. The
-  exit angle sits below the entry angle, so a drift does not flicker on and off around one
-  threshold.
+- **Ending.** The body back within `drift_exit_angle` of the travel, with the stick keeping it
+  there, centered or against the drift, ends the drift and pays out, unless the button is held.
+  With the shipped tuning, a drift ends a quarter of a second after the stick straightens. Falling
+  below `drift_min_speed` ends it and pays out too.
 - **Boost.** Ending the drift converts the charge beyond `drift_min_charge` into
-  `drift_boost_rate` seconds of boost per second, up to `drift_max_boost`. A boost raises the top
-  speed to `boost_top_speed` and pushes at `boost_acceleration`, in full up to `top_speed` and
-  fading out above it, even without the accelerator. After it, the car settles back to `top_speed`
-  at the `coasting` rate.
-- **Losing it.** A drift that touches a wall ends at once and pays nothing. Nothing more is needed
-  to stop it restarting on the spot: a wall scrubs the sideways speed, which is exactly what puts
-  the car back on its axis.
+  `drift_boost_rate` seconds of boost per second, up to `drift_max_boost`: with the shipped tuning,
+  the full second of boost takes two to three seconds of drift. A boost raises the top speed to
+  `boost_top_speed`, a fifth above `top_speed` as in the recording, and pushes at
+  `boost_acceleration`, in full up to `top_speed` and fading out above it, even without the
+  accelerator. After it, the car settles back to `top_speed` at the `coasting` rate.
+- **Losing it.** A drift that touches a wall ends at once and pays nothing. The body settles back
+  into line on its own, and the button, still held, starts nothing until it is pressed again.
 
-The car state carries all of it (`slip`, `drift`, `drift_charge`, `boost`), so the simulation stays
-one deterministic step and the client will be able to predict drifts too.
+The car state carries all of it (`slip`, `body`, `drift`, `drift_charge`, `drift_held`,
+`drift_button`, `boost`), so the simulation stays one deterministic step, and the client predicts
+a drift exactly as it predicts the rest.
 
 The tuning stays on the server, so the snapshots carry two gauges the server works out for the HUD:
 the boost that ending the drift now would give, and the boost left, both as shares of
-`drift_max_boost`.
+`drift_max_boost`. The client draws the first twice: as the green DRIFT gauge over the speed, and
+as Rocket Racing does, an arc of green segments on the road around the back of the player's car,
+lit from the middle outward as the charge builds and gone when the car is not drifting. The arc
+follows the travel rather than the body, so it stays under the car and square to the camera.
 
-#### Why the slide had to become real
+#### How the drift got here
 
-The two models before this one made the slide a drawing. The path followed the heading closely
-(`drift_grip` 30, so the travel caught the nose up in a thirtieth of a second) and a separate
-angle, turned into the drift and settled back afterward, showed a slide that never moved the car.
-That was deliberate: the first model, with a real lag at `drift_grip` 3.5, carried the car about
-`speed / drift_grip` -- some 11 m at 40 m/s -- before it turned at all, and it felt thrown to the
-outside of every corner.
+Four models came before this one, and each taught something.
 
-The cost of drawing the slide was that the car never actually came off its axis, so the drift
-needed a button to say when it was on. Once the drift had to start by going off the axis and end by
-coming back into it, the angle had to become real: there is nothing else to measure.
+1. **v0.1.12.** The button, held with the stick turned, locked a side, and the travel caught up with
+   the nose at `drift_grip` 3.5. That real lag carried the car about `speed / drift_grip`, some
+   11 m at 40 m/s, before it turned at all: the drift felt thrown to the outside of every corner.
+2. **v0.1.13 to v0.1.18.** The slide became a drawing: the path followed the heading closely and a
+   separate angle, 20 to 45 degrees, showed a slide that never moved the car. The button said when
+   the drift was on, since the car never came off its axis.
+3. **2026-09-20.** The drift was to start by going off the axis and end by coming back into it,
+   the button no longer needed, so the angle had to become real, at `drift_grip` 4. It settled at
+   20 degrees, 26 with the button held, a second to get there, and the travel a quarter of a second
+   behind the nose ran the car several car widths wide: why `serpentine` went and the roads grew to
+   28 m. The drift also dragged, harder the longer it lasted.
+4. **2026-09-27.** A recording of Rocket Racing showed what the drift is meant to be: twice the
+   angle, at once, on the line, with no speed lost, and the button only tapped. A real angle that
+   large would run the car tens of meters wide, so the angle is a drawing again; but it is the
+   drawing that decides, which keeps the rule of 2026-09-20: off the axis starts a drift, back into
+   line ends it, and the button held keeps it. The cost moved from the drift to the button, since
+   the recording drifts for seconds at top speed without holding anything.
 
-That brings the width back, and it is paid in road. At 35 m/s with `drift_grip` 4 the travel is
-about a quarter of a second behind the nose, several car widths before the path comes round. On a
-16 m road that is a wall; on the 28 m of the esplanade, the circuit that came with this model, it
-was a line, and the 34 m of the skyway leave it room to spare. This is why the drift and the width
-of the roads were settled in the same change, and why `serpentine`, 18 m wide with turns of 18 to
-28 m chained with no straight between them, could not survive it and was removed (see
-[Tracks](tracks.md)).
+Measured at full lock from top speed on an open road, with the shipped tuning:
 
-The other side of that was what the esplanade's bottlenecks were for: the road was 28 m wide
-because a drift needs the room, and three stretches of it were 13 to 15 m because a drift that
-takes more room than it has earned should find a wall.
+| | 2026-09-20 | Now | Rocket Racing, recorded |
+| --- | --- | --- | --- |
+| Into a drift | after 0.27 s of full lock | on the press | on the press |
+| Angle | 20 degrees, 26 held, after a second | 49 degrees at 0.25 s, 55 at 0.5 s | 45 to 55, at 0.35 s |
+| Speed after 2 s | 5% lost, 9% held | none, 6% held | none |
+| Back into line | 0.65 s after straightening | 0.23 s | about 0.2 s |
+| Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | 21% over |
 
 #### What drifting is worth
 
 Measured with the shipped tuning, the autopilot lapping each circuit twice: once never touching the
-drift button, once holding it through the turns. Both laps slide, since going off the axis is no
-longer a choice; only the button differs.
+drift button, once tapping it into the turns. The rows below the skyway were measured with the
+models of their time.
 
-| Track | Without the button | Holding it |
+| Track | Without the button | With it |
 | --- | --- | --- |
-| **skyway** (34 m, relief from 3 to 47 m) | 49.9 s | **46.9 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 49.9 s | **46.0 s** |
+| skyway, with the drift of 2026-09-20 | 49.9 s | 46.9 s |
 | esplanade (28 m, bottlenecks of 13 to 15 m), no longer shipped | 41.5 s | 39.2 s |
 | esplanade, as it was before v0.1.16 | 48.4 s | 46.6 s |
 | four-corners (16 m), no longer shipped | 18.2 s | 17.2 s |
 | hippodrome (16 m), no longer shipped | 14.9 s | 14.8 s |
 
 The hippodrome was the thin margin, and it should have been: its turns were 38 m sweepers taken
-nearly flat, where tightening the line buys little and the drag costs real speed. The redrawn
-esplanade was the opposite, a circuit of nothing but turns, and holding the button was worth 2.3 s
-a lap on it, 5.5%. The skyway goes further: its legs are slaloms and its hairpins bowls, the
-drifting lap spends 25 s of its 47 sliding in ten drifts, and holding the button is worth 3.0 s a
-lap, 6%, the most of any circuit so far.
+nearly flat, where tightening the line buys little and the drag costs real speed. The skyway is the
+opposite, slaloms and bowls with hardly a straight, and drifting is worth 3.8 s a lap on it, 8%,
+the most of any circuit so far: ten drifts, 24 s of the 46 spent sliding, and a boost out of every
+one. Without the button, the autopilot never turns hard enough on it to break away.
 
 The rule `shipped_tracks_are_drivable` enforces is what holds whatever the table says: on every
 shipped circuit the drifting lap must be the faster one, and a tuning or a road where holding the
@@ -216,24 +234,24 @@ feel can be tuned while driving, without recompiling or reconnecting (see
 opponent: it exists so tests can prove a circuit is drivable — a full lap, fast enough, without
 touching a wall — and so the client can drive itself for unattended checks.
 
-It drives in one of two styles, and they differ only in the button: `Style::Grip` never holds it,
-`Style::Drift` holds it through the turns. Neither can promise not to drift, since going off the
-axis is no longer a choice -- a car that turns hard enough slides whatever the style -- so the two
-laps measure what the button is worth rather than what drifting is worth.
+It drives in one of two styles, and they differ only in the button: `Style::Grip` never touches
+it, `Style::Drift` taps it into the turns. Gripping can still drift, since turning hard enough
+breaks the car away without the button, though on the skyway it never turns that hard; so the two
+laps measure what the button is worth.
 
-Both decide from the road ahead rather than from their own steering, which swings as soon as a
-drift turns the car harder: a turn of more than 0.25 rad over the next 16 m is taken at full lock,
-which is what breaks the car off its axis, and the button is held while the road keeps turning that
-way. `LapReport` counts drifts, the longest one, and ticks spent drifting and boosting.
+Both decide from the road ahead rather than from their own steering: the drifting style taps the
+button, with the stick into the turn, when the road turns by more than 0.25 rad over the next
+16 m. A press is a press, so a tap that came too early to start anything is let go of and made
+again. `LapReport` counts drifts, the longest one, and ticks spent drifting and boosting.
 
-In a drift the stick sets a curvature, not a rotation, and steering from the angle to the target
-fails: a gain high enough to correct swings between the tightest and widest drifts, a lower one
-lets the car slide into the inside wall. The drifting autopilot compares curvatures instead: the
-arc through its target, tangent to its heading, against the one it drives, its yaw rate over its
-speed, and pushes the stick into the drift when it needs a tighter arc. It aims 0.3 s ahead rather
-than 0.5 s, which at drifting speeds cut through the inside of a hairpin. The shipped-track test
-requires a boosting lap on every track, faster with the button than without, and clean but for a
-graze: a tuning or a track where holding the drift stops paying fails CI.
+In a drift the stick sets the curve the travel follows, as it sets the nose's rotation while the
+car grips, on a radius of the same kind, so the one pursuit drives both: full lock for 0.25 rad
+between the heading and a point on the centerline ahead. A drift aims 0.3 s ahead rather than
+0.5 s, which at drifting speeds cut through the inside of a hairpin, and holds the button only
+while the pursuit asks for more than full lock into the drift, since holding costs speed. Coming out
+of the turn, the stick straightens, the body comes back into line, and the drift pays its boost.
+The shipped-track test requires a boosting lap on every track, faster with the button than without,
+and clean but for a graze: a tuning or a track where drifting stops paying fails CI.
 
 `drive_lap` can make the autopilot decide from a car state several ticks old, as a client does
 through snapshots and interpolation. A steering controller that works on live state can oscillate
@@ -244,7 +262,7 @@ around 18. The esplanade, with its bottlenecks, left late information less room:
 its gripping lap stayed clean (40.8 s), but the drifting one scraped into every bottleneck, 19 ticks
 against the walls in a lap. A drift decided on old information runs wider, and a bottleneck is
 where that shows. The skyway, 34 m wide and never pinched, is clean six ticks late in both styles:
-50.0 s gripping, 47.2 s drifting.
+50.0 s gripping, 46.4 s drifting.
 
 That margin also turned out to be a latency detector. The first drivable client displayed the race
 770 ms late because of a time-origin bug, and the autopilot, fine in every test, crashed on screen.
@@ -257,12 +275,15 @@ A player would have felt the same delay without being able to name it.
 - Car: acceleration toward top speed, coasting to a stop, steering direction, turning away from a
   wall while stopped against it, walls holding, a banked turn pulling a standing car to its inside,
   a climb slowing the car and a dive speeding it up, input quantization, tuning validation.
-- Drift: turning hard starts one and gentle steering does not, with no button and none too slow,
-  and its side is the way the car came round; it turns further and slides more than gripping; the
-  button tightens it and costs speed; coming back into the axis ends it and pays out, unless the
-  button is held through that moment; it runs wide but within the width of a road built for it;
-  holding it brakes harder and harder; a boost pushes hard even at top speed; a short one gives
-  nothing; one into a wall is lost.
+- Drift: a press of the button starts one at once toward the stick, but not with the stick
+  centered nor too slow; turning hard starts one without the button and gentle steering does not,
+  toward the side the car came round; the body swings most of the way across in a third of a
+  second, further with the stick further into the drift; the car travels the curve the stick asks
+  for without running wide; a drift keeps its speed, and only the button brakes it, harder the
+  longer it is held; straightening ends it and pays out, unless the button is held; the button
+  held with the stick against the drift carries it over to the other side with its charge; a
+  boost pushes hard even at top speed; a short drift gives nothing; one into a wall is lost, the
+  body settles back and the held button starts nothing.
 - Start: grades follow the distance to the start either way, from the press that counts (held
   through the start, pressed again late, or never pressed).
 - Autopilot: a full lap of an oval without touching the walls, from live state and with 3, 6 and 9

@@ -773,6 +773,7 @@ impl Lobby {
                     speed = member.car.velocity.length(),
                     heading = member.car.heading,
                     slip = member.car.slip,
+                    body = member.car.body,
                     drift = member.car.drift,
                     drift_charge = member.car.drift_charge,
                     boost = member.car.boost,

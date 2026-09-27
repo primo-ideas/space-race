@@ -21,46 +21,48 @@
     // visual.
     gravity: 9.81,
 
-    // Drift: hold the drift button with the stick turned. The car switches to skating: it winds
-    // into the drift radius, its body swings out sideways, it keeps its speed and builds up a charge,
-    // and letting go of the button turns the charge into a boost.
+    // Drift, as in Rocket Racing: a tap of the drift button with the stick turned throws the car
+    // into a drift, and so does turning hard enough to break away. The stick then sets the curve
+    // the car travels on, the body swings far across it without carrying the car wide, the speed
+    // holds and a charge builds up. Bringing the body back into line, stick centered or against
+    // the drift, ends it and turns the charge into a boost.
     // Slowest speed a drift starts or keeps going at (m/s).
     drift_min_speed: 15.0,
-    // How far off the axis of travel the nose must come to start a drift, and how far back into
-    // it the car must come to end one, in degrees. Nothing but turning hard reaches the first:
-    // full lock while gripping puts the nose about 7 degrees off the travel.
+    // How far off its axis of travel a gripping car must come to break into a drift without the
+    // button, in degrees: full lock at speed puts the nose about 7 degrees off the travel.
     drift_entry_angle: 5.0,
-    drift_exit_angle: 2.5,
-    // Turning radius while drifting with the stick fully into the drift, in meters. The stick is
-    // signed: centered runs straight and against the drift steers out of it, which is how a slide
-    // is caught and how a drift is ended.
+    // How far back into line the body must come, with the stick keeping it there, for a drift to
+    // end, in degrees. Holding the button keeps the drift alive whatever the body does.
+    drift_exit_angle: 8.0,
+    // How far the body swings across the travel with the stick fully into the drift, in degrees,
+    // most of it with the first touch of the stick, and how quickly it swings there and back, per
+    // second.
+    drift_angle: 55.0,
+    drift_angle_response: 9.0,
+    // Radius of the curve the car drifts on with the stick fully to one side, in meters. The stick
+    // is signed: centered runs straight and against the drift turns the other way. The car goes
+    // where the stick says; it does not run wide.
     drift_radius_tight: 26.0,
-    // Per second: how quickly the direction of travel catches up with the nose. This one number
-    // is the feel of the drift. Low means the car stays off its axis: it unscrews into the turn
-    // and runs wide while doing so, which is what a 34 m road is for. High means it snaps back
-    // into line and barely drifts at all.
-    drift_grip: 4.0,
-    // Per second: how quickly the rotation follows the stick in a drift. High, so the car comes
-    // round at once rather than ploughing on while its rotation builds up.
+    // Per second: how quickly the curve follows the stick in a drift.
     drift_steering_response: 10.0,
-    // What holding the drift button multiplies the drift radius by, and the extra deceleration it
-    // costs, in m/s². The button is never needed: it tightens the turn, and held as the car comes
-    // back into line it keeps the drift alive instead of ending it.
+    // Holding the drift button multiplies the drift radius by this: it tightens the turn beyond
+    // what the stick alone gives. Held with the stick well against the drift, it carries the drift
+    // over to the other side, charge and all, through an S.
     drift_button_tighten: 0.7,
+    // What holding the button costs, in m/s² when it is pressed, then that much more per second it
+    // stays held: a drift costs nothing, tightening it does, harder and harder.
     drift_button_drag: 1.5,
-    // Speed a drift loses, in m/s² when it begins, then that much more per second of charge: the
-    // longer a drift is held, the harder it brakes, so it has to be let go of.
-    drift_drag: 1.0,
-    drift_drag_ramp: 0.5,
+    drift_button_drag_ramp: 0.5,
     // Charge before any boost (s), seconds of boost per second of charge beyond it, and the
     // longest boost (s). The charge grows from half to one and a half times real time, tighter drifts
-    // faster.
+    // faster, so a full charge takes two to three seconds of drift.
     drift_min_charge: 0.3,
-    drift_boost_rate: 0.8,
-    drift_max_boost: 1.5,
-    // Boost: top speed (m/s, 52 = 187 km/h) and acceleration (m/s²), in full up to top_speed and
-    // fading out above it. After it, the car settles back to top_speed at the coasting rate.
-    boost_top_speed: 52.0,
+    drift_boost_rate: 0.4,
+    drift_max_boost: 1.0,
+    // Boost: top speed (m/s, 48 = 173 km/h, a fifth above top_speed) and acceleration (m/s²), in
+    // full up to top_speed and fading out above it. After it, the car settles back to top_speed at
+    // the coasting rate.
+    boost_top_speed: 48.0,
     boost_acceleration: 35.0,
     // Boost for a perfect start (s), pressing the accelerator right at the start. Grades from S to
     // E give from all of it to none.

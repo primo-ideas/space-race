@@ -24,11 +24,14 @@ come within 81 m of each other, centerline to centerline, 22 m apart in height; 
 legs are slaloms, three turns swapping sides with no road between them, and the hairpins are
 bowls: one at the bottom of the lap, 3 m up, one that climbs 12 m as it turns, and one at the top,
 banked 34 degrees, 47 m up, from which the fourth leg dives 35 m in 235. That is where the drift
-lives: the drifting autopilot laps it in 46.9 s without touching a wall, against 49.9 s gripping.
+lives: the drifting autopilot laps it in 46.0 s without touching a wall, against 49.9 s gripping.
 
-Width is the point. A slide worth having carries the car several meters off its line before the
-path comes round (see [Simulation](simulation.md#drift)), and on a 16 m road that is already a
-wall. Four other circuits lived here and are gone: `hippodrome.ron`, a 16 m oval that was the
+Width is the point. It was first a matter of room: while the drift's slide was real, from
+2026-09-20 to 2026-09-27, it carried the car several meters off its line before the path came
+round, and on a 16 m road that was already a wall. The drift no longer runs wide (see
+[Simulation](simulation.md#drift)), and the width is now what leaves a line to choose through a
+turn, room to drift with the body swung far across the road, and room for a pack. Four other
+circuits lived here and are gone: `hippodrome.ron`, a 16 m oval that was the
 first test track, `four-corners.ron`, a 16 m rounded rectangle, `serpentine.ron`, 18 m wide with
 turns of 18 to 28 m chained without a straight between them, and `esplanade.ron`, 28 m wide, flat
 but for six banked turns and pinched by three bottlenecks. The first three were drawn before the
