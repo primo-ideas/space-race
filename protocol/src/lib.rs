@@ -16,7 +16,7 @@ use space_race_sim::track::TrackDescription;
 pub mod auth;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -371,7 +371,7 @@ mod tests {
         use glam::Vec2;
 
         use space_race_sim::track::scenery::{Prop, Side};
-        use space_race_sim::track::{Narrows, Segment};
+        use space_race_sim::track::{Elevation, Narrows, Segment};
 
         let welcome = ServerMessage::Welcome {
             tracks: vec![TrackInfo {
@@ -386,6 +386,16 @@ mod tests {
                             radius: 30.0,
                             transition: 10.0,
                             banking: 15.0,
+                        },
+                    ],
+                    elevation: vec![
+                        Elevation {
+                            at: 0.0,
+                            height: 4.0,
+                        },
+                        Elevation {
+                            at: 70.0,
+                            height: 12.5,
                         },
                     ],
                     narrows: vec![Narrows {
@@ -477,7 +487,7 @@ mod tests {
     fn lobby_settings_validation() {
         let settings = LobbySettings {
             name: "Friday night".into(),
-            track: "esplanade".into(),
+            track: "skyway".into(),
             laps: 3,
             min_players: 2,
             max_players: 8,

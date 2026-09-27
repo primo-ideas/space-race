@@ -57,7 +57,7 @@ With no command line, the web client reads its settings from the page address:
 | `server=ws://…` | `--server` | the page's own host (see below) |
 | `nickname=…` | `--nickname` | none: the login screen |
 | `lobby=…` | `--lobby` | none: the lobby list |
-| `track=…` | `--track` | the esplanade |
+| `track=…` | `--track` | the skyway |
 | `laps=…`, `min_players=…` | `--laps`, `--min-players` | 3, 2 |
 | `create_dialog` | `--create-dialog` | off |
 | `identity=…` | `--identity` | the browser's main identity |

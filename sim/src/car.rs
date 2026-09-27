@@ -98,8 +98,9 @@ pub struct CarTuning {
     /// How quickly sliding sideways dies out, per second, when not drifting. Higher feels like
     /// rails.
     pub grip: f32,
-    /// Pull down a banked road, in m/s² (9.81 is Earth's). It draws the car toward the inside of a
-    /// banked turn; zero makes banking purely visual.
+    /// Pull down the slopes of the road, in m/s² (9.81 is Earth's). It slows a car climbing, speeds
+    /// one diving and draws one toward the inside of a banked turn; zero makes the relief and the
+    /// banking purely visual.
     pub gravity: f32,
 
     /// Slowest speed a drift starts at or keeps going at, in m/s.
@@ -490,6 +491,7 @@ mod tests {
     use super::*;
     use crate::TICK_RATE;
     use crate::test_support::{banked_oval, open_track, oval, tuning};
+    use crate::track::Elevation;
 
     /// A car standing still in the middle of the first banked turn's arc, on the centerline, drifts
     /// down toward the inside; on flat road it stays put.
@@ -515,6 +517,39 @@ mod tests {
     /// A long straight, so a car can accelerate without reaching a turn.
     fn long_track() -> Track {
         Track::build(&oval(2000.0, 60.0, 0.0)).unwrap()
+    }
+
+    /// Climbing costs speed and diving gives it: gravity pulls along the road as well as across it.
+    #[test]
+    fn a_climb_slows_the_car_and_a_descent_speeds_it_up() {
+        // The first kilometer after the start line climbs `rise` meters, and the rest of the lap
+        // comes back down.
+        let sloped = |rise: f32| {
+            let mut description = oval(2000.0, 60.0, 0.0);
+            description.elevation = vec![
+                Elevation {
+                    at: 0.0,
+                    height: 0.0,
+                },
+                Elevation {
+                    at: 1000.0,
+                    height: rise,
+                },
+            ];
+            Track::build(&description).unwrap()
+        };
+        let speed_after = |track: &Track| {
+            let mut car = Car::new(Vec2::ZERO, 0.0);
+            run(&mut car, ACCELERATE, 3.0, track);
+            car.forward_speed()
+        };
+        let flat = speed_after(&long_track());
+        let climbing = speed_after(&sloped(60.0));
+        let diving = speed_after(&sloped(-60.0));
+        assert!(
+            climbing < flat - 0.5 && diving > flat + 0.5,
+            "{climbing} {flat} {diving}"
+        );
     }
 
     fn run(car: &mut Car, input: CarInput, seconds: f32, track: &Track) {

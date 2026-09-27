@@ -47,6 +47,7 @@ fn oval_of_width(
                 length: straight / 2.0,
             },
         ],
+        elevation: Vec::new(),
         narrows: Vec::new(),
         scenery: Vec::new(),
     }

@@ -62,7 +62,7 @@ The server reads its content from a data directory, `server/data` by default (`-
 ```text
 server/data/
   car.ron                   car tuning, shared by every lobby
-  tracks/esplanade.ron      one file per track, named by its key
+  tracks/skyway.ron         one file per track, named by its key
 ```
 
 Every track in `tracks/` is loaded and offered to lobby creators. All files are validated at
@@ -157,9 +157,11 @@ now go through a single conversion, `seconds_since_startup`.
 blue every 4 m, a neon blue dashed centerline and a checkered start line. The stripes and dashes
 matter more than they look: on a plain road, speed is nearly invisible. It is two vertex-colored
 meshes, one per material: lit surfaces, and unlit neon that stays bright whatever the lighting.
-The road is cut into strips across its width so it follows the curve of banked turns, walls stand
-on its edges with their outer face down to the ground, and cars sit on the surface, leaning with
-its slope. The camera follows the car's height but stays level.
+The road is cut into strips across its width so it follows the curve of banked turns, and it
+climbs and dives with the relief. It is a slab 1.5 m thick with an underside, floating wherever the
+relief carries it, and the walls stand on its edges with their outer face running down to that
+underside, so a road seen from lower down the relief is solid rather than a sheet that vanishes
+from below. Cars sit on the surface, leaning with its slope.
 Quads derive their triangle winding from their intended normal, so no face can end up invisible
 by mistake.
 
@@ -171,7 +173,11 @@ that lags slightly behind it, so a turn reads as the car rotating rather than th
 spinning around a fixed car. It follows the **direction of travel**, not the heading: in a drift
 the car is sideways on screen, which is the whole point, and a camera locked to the heading would
 hide the slide and swing the track instead. Below walking speed it falls back to the heading, which
-has no direction of travel to follow. The field of view widens with speed. Tone mapping is off:
+has no direction of travel to follow. It hangs behind along the road rather than level with the
+car, climbing and diving with the slope under it, lagging the same way the heading does: level, it
+would sink into the road behind a car going down a hill and stare into the road ahead of one going
+up. No camera, the finish shots included, is ever let below the road under it. The field of view
+widens with speed. Tone mapping is off:
 Bevy's default one desaturates bright colors, which turned the neon blue into a dull sky blue.
 
 ## Build profiles

@@ -38,6 +38,9 @@ const FOV_FULL_SPEED: f32 = 40.0;
 /// Below this forward speed, in m/s, the camera follows the heading rather than the direction of
 /// travel.
 const MIN_TRAVEL_SPEED: f32 = 5.0;
+/// No camera goes lower than this over the road beneath it, in meters: a shot worked out from the
+/// car alone would otherwise end up under a road that climbs toward it, or rises into a bank.
+const ROAD_CLEARANCE: f32 = 0.8;
 
 /// How long one shot of the finish lasts, in seconds. Short enough that no shot outstays its
 /// welcome, long enough to read what the car is doing.
@@ -88,6 +91,9 @@ pub struct MainCamera;
 struct ChaseCamera {
     /// The heading the camera looks along, lagging behind the car's.
     heading: Option<f32>,
+    /// How steeply the road climbs along that heading, lagging the same way: the camera climbs
+    /// and dives with the road rather than staying level behind the car.
+    grade: Option<f32>,
     /// The shot playing since the player finished: its place in [`SHOTS`], and when it started.
     shot: Option<(usize, f64)>,
     /// Where a shot that stands still was put when it started.
@@ -167,23 +173,34 @@ fn follow_car(
         matches!(membership.own_status(), Some(PlayerStatus::Finished { .. }))
     });
 
+    let track = track.map(|track| Arc::clone(&track.0));
     let car_position = world::position(car.position, view.followed_height);
+    let slope = view.followed_gradient;
     let fov = if finished {
-        let track = track.map(|track| Arc::clone(&track.0));
         show_finish(
             &mut transform,
             &mut chase,
             track.as_deref(),
             &car,
             car_position,
+            slope,
             &time,
         )
     } else {
         // Back behind the car, from wherever the last shot left the camera.
         if chase.shot.take().is_some() {
             chase.heading = None;
+            chase.grade = None;
         }
-        chase_car(&mut transform, &mut chase, &car, car_position, &time)
+        chase_car(
+            &mut transform,
+            &mut chase,
+            track.as_deref(),
+            &car,
+            car_position,
+            slope,
+            &time,
+        )
     };
 
     if let Projection::Perspective(perspective) = projection.as_mut() {
@@ -193,25 +210,36 @@ fn follow_car(
 
 /// The camera hanging behind the car the player drives. Returns the field of view to see it with,
 /// which widens with speed.
+///
+/// It hangs behind along the road rather than level with the car, so it climbs a hill behind the
+/// car and dives with it: level, it would sink into a climb behind a car going downhill, and look
+/// into the road ahead of one going up.
 fn chase_car(
     transform: &mut Transform,
     chase: &mut ChaseCamera,
+    track: Option<&Track>,
     car: &Car,
     car_position: Vec3,
+    slope: Vec2,
     time: &Time,
 ) -> f32 {
+    let follow = 1.0 - (-HEADING_FOLLOW * time.delta_secs()).exp();
     let target = travel_heading(car);
     let heading = match chase.heading {
-        Some(current) => {
-            let follow = 1.0 - (-HEADING_FOLLOW * time.delta_secs()).exp();
-            current + shortest_angle(current, target) * follow
-        }
+        Some(current) => current + shortest_angle(current, target) * follow,
         None => target,
     };
     chase.heading = Some(heading);
+    let target_grade = slope.dot(Vec2::from_angle(heading));
+    let grade = match chase.grade {
+        Some(current) => current + (target_grade - current) * follow,
+        None => target_grade,
+    };
+    chase.grade = Some(grade);
 
-    let forward = world::direction(Vec2::from_angle(heading));
-    transform.translation = car_position - forward * DISTANCE + Vec3::Y * HEIGHT;
+    let forward = along_the_road(heading, grade);
+    transform.translation =
+        above_the_road(track, car_position - forward * DISTANCE + Vec3::Y * HEIGHT);
     transform.look_at(
         car_position + forward * LOOK_AHEAD + Vec3::Y * LOOK_HEIGHT,
         Vec3::Y,
@@ -229,6 +257,7 @@ fn show_finish(
     track: Option<&Track>,
     car: &Car,
     car_position: Vec3,
+    slope: Vec2,
     time: &Time,
 ) -> f32 {
     let now = time.elapsed_secs_f64();
@@ -248,7 +277,8 @@ fn show_finish(
 
     let shot = SHOTS[index];
     let heading = travel_heading(car);
-    let forward = world::direction(Vec2::from_angle(heading));
+    // Along the road, climbing or diving with it, so a shot ahead or behind the car stays over it.
+    let forward = along_the_road(heading, slope.dot(Vec2::from_angle(heading)));
     let left_of_car = world::direction(Vec2::from_angle(heading).perp());
     let elapsed = (now - started) as f32;
     // Without a track — which should not happen in a lobby — every shot falls back to the car.
@@ -263,9 +293,25 @@ fn show_finish(
         (Shot::Beside { left }, Some(track)) => beside_over_the_road(track, car, left, elapsed),
         _ => from_car(elapsed),
     };
-    transform.translation = eye;
+    transform.translation = above_the_road(track, eye);
     transform.look_at(car_position + Vec3::Y * LOOK_HEIGHT, Vec3::Y);
     shot.fov(car)
+}
+
+/// The world direction of `heading`, climbing by `grade` meters per meter: along a road that climbs
+/// or dives.
+fn along_the_road(heading: f32, grade: f32) -> Vec3 {
+    (world::direction(Vec2::from_angle(heading)) + Vec3::Y * grade).normalize()
+}
+
+/// `eye`, lifted if need be to stand at least [`ROAD_CLEARANCE`] over the road beneath it. Beside
+/// the road, that is the height of its nearest edge.
+fn above_the_road(track: Option<&Track>, eye: Vec3) -> Vec3 {
+    let Some(track) = track else {
+        return eye;
+    };
+    let road = track.surface(Vec2::new(eye.x, -eye.z)).height;
+    Vec3::new(eye.x, eye.y.max(road + ROAD_CLEARANCE), eye.z)
 }
 
 /// A camera on a post beside the road ahead, high enough to see over the walls: the car comes to
@@ -352,7 +398,7 @@ fn travel_heading(car: &Car) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Segment, TrackDescription};
+    use space_race_sim::track::{Elevation, Segment, TrackDescription};
 
     use super::*;
 
@@ -405,6 +451,11 @@ mod tests {
     /// A banked oval, as tight as the drift circuit's hairpins: a shot placed by dead reckoning
     /// alone would end up through a wall here.
     fn oval() -> Track {
+        oval_through(Vec::new())
+    }
+
+    /// [`oval`], climbing and diving through the heights of `elevation`.
+    fn oval_through(elevation: Vec<Elevation>) -> Track {
         let turn = Segment::Turn {
             angle: 180.0,
             radius: 20.0,
@@ -421,10 +472,47 @@ mod tests {
                 turn,
                 Segment::Straight { length: 30.0 },
             ],
+            elevation,
             narrows: Vec::new(),
             scenery: Vec::new(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn along_the_road_climbs_with_it() {
+        let forward = along_the_road(0.0, 0.25);
+        // A quarter of a meter up for every meter along `+x`, the world direction of heading 0.
+        assert!((forward.y / forward.x - 0.25).abs() < 1e-5, "{forward}");
+        assert!(forward.z.abs() < 1e-6 && (forward.length() - 1.0).abs() < 1e-5);
+    }
+
+    /// A shot worked out from the car alone can end up under a road that climbs toward it: it is
+    /// lifted back over the road, and a shot already over it is left where it is.
+    #[test]
+    fn no_shot_goes_under_the_road() {
+        let track = oval_through(vec![
+            Elevation {
+                at: 0.0,
+                height: 0.0,
+            },
+            Elevation {
+                at: 100.0,
+                height: 15.0,
+            },
+        ]);
+        let point = track.point_at(60.0);
+        let road = track.height_beside(&point, 0.0);
+        assert!(road > 5.0, "{road} m up");
+
+        let under = world::position(point.position, road - 2.0);
+        let lifted = above_the_road(Some(&track), under);
+        assert!(
+            (lifted.y - (road + ROAD_CLEARANCE)).abs() < 0.05,
+            "{lifted}"
+        );
+        let over = world::position(point.position, road + 4.0);
+        assert_eq!(above_the_road(Some(&track), over), over);
     }
 
     /// A car `lateral` meters from the centerline, `at` meters along the lap.

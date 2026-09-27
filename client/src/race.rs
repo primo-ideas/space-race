@@ -67,6 +67,9 @@ pub struct RaceView {
     pub own_snapshot: Option<CarSnapshot>,
     /// Height of the road under the followed car, for the camera.
     pub followed_height: f32,
+    /// How the road climbs under the followed car (see `Surface::gradient`), so the camera can
+    /// climb and dive with it.
+    pub followed_gradient: Vec2,
     /// The server tick displayed, between two ticks most of the time. `None` before the first
     /// snapshot.
     pub tick: Option<f64>,
@@ -229,7 +232,9 @@ fn display_cars(
     view.own_car = own.map(|(_, car)| car);
     view.own_snapshot = own_id.and_then(|id| cars.iter().find(|car| car.id == id).copied());
     view.followed = followed;
-    view.followed_height = followed.map_or(0.0, |(_, car)| surface(&car).height);
+    let followed_surface = followed.map(|(_, car)| surface(&car));
+    view.followed_height = followed_surface.map_or(0.0, |surface| surface.height);
+    view.followed_gradient = followed_surface.map_or(Vec2::ZERO, |surface| surface.gradient);
     view.tick = buffer
         .displayed_time()
         .map(|time| time / f64::from(TICK_SECONDS));

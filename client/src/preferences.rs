@@ -23,7 +23,7 @@ pub const DEFAULT_LAPS: u8 = 3;
 pub const DEFAULT_MIN_PLAYERS: u8 = 2;
 pub const DEFAULT_MAX_PLAYERS: u8 = 8;
 /// The track offered first, when the server has it.
-pub const DEFAULT_TRACK: &str = "esplanade";
+pub const DEFAULT_TRACK: &str = "skyway";
 
 pub struct PreferencesPlugin {
     pub store: IdentityStore,
@@ -161,7 +161,7 @@ mod tests {
             nickname: Some("Turbo Otter".into()),
             lobby: LobbyPreferences {
                 name: Some("Friday night".into()),
-                track: Some("esplanade".into()),
+                track: Some("skyway".into()),
                 laps: 5,
                 min_players: 3,
                 max_players: 4,
@@ -206,7 +206,7 @@ mod tests {
     fn only_a_lobby_name_the_player_typed_is_kept() {
         let settings = |name: &str| LobbySettings {
             name: name.into(),
-            track: "esplanade".into(),
+            track: "skyway".into(),
             laps: 3,
             min_players: 2,
             max_players: 8,

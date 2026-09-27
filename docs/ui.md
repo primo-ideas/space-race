@@ -189,7 +189,7 @@ scale factor and all, so the interface is laid out in exactly the size asked for
 cannot show is a thumb: the pads only light up under a real finger, and the gestures themselves
 are covered by the tests in `ui/touch.rs`.
 
-A lobby created by `--lobby` races on the esplanade, or on the track `--track` names.
+A lobby created by `--lobby` races on the skyway, or on the track `--track` names.
 
 The autopilot waits for the start on screen before pressing the accelerator, so its start is
 graded S, and a capture about 14 s after entering a lobby of one shows the grade over "GO!".

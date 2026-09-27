@@ -50,7 +50,7 @@ pub struct Script {
 #[derive(Clone)]
 pub struct ScriptedLobby {
     pub name: String,
-    /// Used if the lobby has to be created. No track picks the esplanade.
+    /// Used if the lobby has to be created. No track picks the skyway.
     pub track: Option<String>,
     pub laps: u8,
     pub min_players: u8,

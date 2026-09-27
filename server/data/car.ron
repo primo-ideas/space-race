@@ -16,7 +16,9 @@
     // Per second: how quickly the rotation follows the stick, and how quickly sliding dies out.
     steering_response: 12.0,
     grip: 10.0,
-    // Pull down the slope of banked turns, in m/s² (9.81 is Earth's). 0 makes banking purely visual.
+    // Pull down the slopes of the road, in m/s² (9.81 is Earth's): it slows a climb, speeds a dive
+    // and draws the car to the inside of a banked turn. 0 makes the relief and the banking purely
+    // visual.
     gravity: 9.81,
 
     // Drift: hold the drift button with the stick turned. The car switches to skating: it winds
@@ -35,7 +37,7 @@
     drift_radius_tight: 26.0,
     // Per second: how quickly the direction of travel catches up with the nose. This one number
     // is the feel of the drift. Low means the car stays off its axis: it unscrews into the turn
-    // and runs wide while doing so, which is what a 28 m road is for. High means it snaps back
+    // and runs wide while doing so, which is what a 34 m road is for. High means it snaps back
     // into line and barely drifts at all.
     drift_grip: 4.0,
     // Per second: how quickly the rotation follows the stick in a drift. High, so the car comes

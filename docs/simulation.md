@@ -7,8 +7,9 @@ predict its own car between server updates; nothing in it knows the wire exists 
 
 ## Conventions
 
-- Cars move on a plane: `x` and `y` in meters, speeds in m/s. Banked roads add a height over that
-  plane, which the car follows but does not simulate in three dimensions.
+- Cars move on a plane: `x` and `y` in meters, speeds in m/s. The relief and the banking of the
+  road add a height over that plane, which the car follows but does not simulate in three
+  dimensions.
 - Angles are radians counter-clockwise from `+x`, so **a positive angle turns left**. Track files
   use degrees with the same sign, because people write them.
 - Steering input is the exception: **positive steers right**, like a gamepad stick. The car code
@@ -109,14 +110,15 @@ coming back into it, the angle had to become real: there is nothing else to meas
 
 That brings the width back, and it is paid in road. At 35 m/s with `drift_grip` 4 the travel is
 about a quarter of a second behind the nose, several car widths before the path comes round. On a
-16 m road that is a wall; on the 28 m of `esplanade` it is a line. This is why the drift and the
-width of the roads were settled in the same change, and why `serpentine`, 18 m wide with turns of
-18 to 28 m chained with no straight between them, could not survive it and was removed (see
+16 m road that is a wall; on the 28 m of the esplanade, the circuit that came with this model, it
+was a line, and the 34 m of the skyway leave it room to spare. This is why the drift and the width
+of the roads were settled in the same change, and why `serpentine`, 18 m wide with turns of 18 to
+28 m chained with no straight between them, could not survive it and was removed (see
 [Tracks](tracks.md)).
 
-The other side of that is what the esplanade's bottlenecks are for: the road is 28 m wide because a
-drift needs the room, and three stretches of it are 13 to 15 m because a drift that takes more room
-than it has earned should find a wall.
+The other side of that was what the esplanade's bottlenecks were for: the road was 28 m wide
+because a drift needs the room, and three stretches of it were 13 to 15 m because a drift that
+takes more room than it has earned should find a wall.
 
 #### What drifting is worth
 
@@ -126,15 +128,18 @@ longer a choice; only the button differs.
 
 | Track | Without the button | Holding it |
 | --- | --- | --- |
-| **esplanade** (28 m, bottlenecks of 13 to 15 m) | 41.5 s | **39.2 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 49.9 s | **46.9 s** |
+| esplanade (28 m, bottlenecks of 13 to 15 m), no longer shipped | 41.5 s | 39.2 s |
 | esplanade, as it was before v0.1.16 | 48.4 s | 46.6 s |
 | four-corners (16 m), no longer shipped | 18.2 s | 17.2 s |
 | hippodrome (16 m), no longer shipped | 14.9 s | 14.8 s |
 
 The hippodrome was the thin margin, and it should have been: its turns were 38 m sweepers taken
 nearly flat, where tightening the line buys little and the drag costs real speed. The redrawn
-esplanade is the opposite, a circuit of nothing but turns, and holding the button is worth 2.3 s a
-lap on it, 5.5%, the most of any circuit so far.
+esplanade was the opposite, a circuit of nothing but turns, and holding the button was worth 2.3 s
+a lap on it, 5.5%. The skyway goes further: its legs are slaloms and its hairpins bowls, the
+drifting lap spends 25 s of its 47 sliding in ten drifts, and holding the button is worth 3.0 s a
+lap, 6%, the most of any circuit so far.
 
 The rule `shipped_tracks_are_drivable` enforces is what holds whatever the table says: on every
 shipped circuit the drifting lap must be the faster one, and a tuning or a road where holding the
@@ -157,8 +162,9 @@ instead of floats that could differ in their last bits.
 
 ### Slopes
 
-The road is a height field over the plane (see [Tracks](tracks.md#banking)): the car still moves in
-two dimensions, and the track tells it the height and uphill direction under it. Each tick, gravity
+The road is a height field over the plane (see [Tracks](tracks.md#relief)): the car still moves in
+two dimensions, and the track tells it the height and uphill direction under it, the relief and the
+banking together. Each tick, gravity
 pulls the car downhill by `gravity × gradient / (1 + |gradient|²)`, the horizontal part of the pull
 on a body resting on the surface. It comes before the grip, which then holds against it the way
 tires would.
@@ -166,10 +172,18 @@ tires would.
 In a banked turn that pull points to the inside of the turn: a slow or coasting car drifts down
 the slope, and at speed it helps hold the line, a little. With the current grip the effect is
 modest (the autopilot lapped the banked hippodrome, a circuit the game no longer ships, in 15.02 s
-against 15.12 s flat); `gravity` in `car.ron` scales it, and 0 makes banking purely visual.
+against 15.12 s flat); `gravity` in `car.ron` scales it, and 0 makes the relief and the banking
+purely visual.
 
-Only the planar motion is simulated: climbing the bank does not cost speed, and cars do not leave
-the road.
+Along the road the same pull slows a car climbing and speeds one diving. Flat out, a climb costs
+speed where the engine's push, which fades to nothing at top speed, meets the pull: on a 15% climb
+the shipped car settles at 37 m/s instead of 40. A dive does not carry it far past top speed:
+above it, the accelerator pulls the car back at the coasting rate, 4 m/s², more than the 3.8 m/s²
+the steepest centerline a track may have pulls it forward with. Only a boost goes faster downhill
+than on the flat.
+
+Only the planar motion is simulated, and that pull is all the slopes do: cars never leave the road,
+and a crest taken flat out does not throw them into the air.
 
 ### Walls
 
@@ -226,10 +240,11 @@ through snapshots and interpolation. A steering controller that works on live st
 into the walls once its information is late, so the tests check both: every shipped circuit must
 have one style that laps it cleanly six ticks late. On the hippodrome, which the game no longer
 ships, the autopilot stayed clean up to about 15 ticks (250 ms) of delay and started hitting walls
-around 18. The redrawn esplanade leaves late information less room: six ticks late, the gripping
-lap is still clean (40.8 s), but the drifting one scrapes into every bottleneck, 19 ticks against
-the walls in a lap. A drift decided on old information runs wider, and a bottleneck is where that
-shows.
+around 18. The esplanade, with its bottlenecks, left late information less room: six ticks late,
+its gripping lap stayed clean (40.8 s), but the drifting one scraped into every bottleneck, 19 ticks
+against the walls in a lap. A drift decided on old information runs wider, and a bottleneck is
+where that shows. The skyway, 34 m wide and never pinched, is clean six ticks late in both styles:
+50.0 s gripping, 47.2 s drifting.
 
 That margin also turned out to be a latency detector. The first drivable client displayed the race
 770 ms late because of a time-origin bug, and the autopilot, fine in every test, crashed on screen.
@@ -241,7 +256,7 @@ A player would have felt the same delay without being able to name it.
   and projections find the right distance and side; a road running over itself is found.
 - Car: acceleration toward top speed, coasting to a stop, steering direction, turning away from a
   wall while stopped against it, walls holding, a banked turn pulling a standing car to its inside,
-  input quantization, tuning validation.
+  a climb slowing the car and a dive speeding it up, input quantization, tuning validation.
 - Drift: turning hard starts one and gentle steering does not, with no button and none too slow,
   and its side is the way the car came round; it turns further and slides more than gripping; the
   button tightens it and costs speed; coming back into the axis ends it and pays out, unless the
@@ -254,6 +269,10 @@ A player would have felt the same delay without being able to name it.
   ticks of delay, and of a banked oval; drifting laps that drift and boost.
 - Banking: the parabolic cross-section, a slope matching the height change, the smooth rise along
   transitions, flat surfaces on flat tracks.
+- Relief: the road passes through every height with a grade that never jumps, and across the start
+  line too; the slope along the road matches the height change, in a turn and along a transition,
+  and climbs more steeply on the inside of a turn; a single height lifts the whole road; heights out
+  of order, off the lap or too steep are refused.
 
 ## Determinism
 

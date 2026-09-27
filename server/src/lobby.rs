@@ -856,18 +856,18 @@ mod tests {
     use crate::content;
     use crate::session::PlayerId;
 
-    fn esplanade() -> (Arc<LoadedTrack>, CarTuning) {
+    fn skyway() -> (Arc<LoadedTrack>, CarTuning) {
         let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("data");
         let tracks = content::load_tracks(&data_dir).unwrap();
         let tuning =
             content::load_car_tuning(&data_dir.join(content::CAR_TUNING_FILE), &tracks).unwrap();
-        (Arc::clone(&tracks["esplanade"]), tuning)
+        (Arc::clone(&tracks["skyway"]), tuning)
     }
 
     fn settings(laps: u8, min_players: u8, max_players: u8) -> LobbySettings {
         LobbySettings {
             name: "Test".into(),
-            track: "esplanade".into(),
+            track: "skyway".into(),
             laps,
             min_players,
             max_players,
@@ -883,7 +883,7 @@ mod tests {
     }
 
     fn new_lobby(settings: LobbySettings, timings: Timings) -> Lobby {
-        let (track, tuning) = esplanade();
+        let (track, tuning) = skyway();
         Lobby::new(LobbyId(0), settings, track, tuning, timings)
     }
 
@@ -1047,7 +1047,7 @@ mod tests {
         };
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].car, car);
-        // A sanity check rather than a benchmark: one lap of the esplanade from the grid is about
+        // A sanity check rather than a benchmark: one lap of the skyway from the grid is about
         // a minute of driving, and what matters here is that the lap was timed at all. What the
         // autopilot is really worth on a circuit is measured in `content::tests`.
         let time_ms = results[0].time_ms.expect("the race was finished");
