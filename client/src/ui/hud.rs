@@ -817,8 +817,8 @@ fn build_model(
         if let Some(snapshot) = view.own_snapshot {
             if snapshot.car.is_drifting() {
                 model.shown.insert(Block::Gauge);
-                model.text(Slot::GaugeLabel, "DRIFT", theme::NEON);
-                model.gauge = (snapshot.drift_gauge, theme::NEON);
+                model.text(Slot::GaugeLabel, "DRIFT", theme::GREEN);
+                model.gauge = (snapshot.drift_gauge, theme::GREEN);
             } else if snapshot.car.boost > 0.0 {
                 model.shown.insert(Block::Gauge);
                 model.text(Slot::GaugeLabel, "BOOST", theme::AMBER);

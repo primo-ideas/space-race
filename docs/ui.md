@@ -34,7 +34,8 @@ despawn when it is left.
   second: three amber that pop as they light, then the start itself, green, blazing larger with a
   ring bursting out of it, each with its own sound, see [Sound](sound.md)), the start grade (S to E) for three seconds
   after it, the lap and race time, the standings or the player list, the speed with the drift or
-  boost gauge over it, the results between races, the other players' names above their cars, a
+  boost gauge over it and the drift charge as an arc of green segments on the road around the back
+  of the car (see [Simulation](simulation.md#drift)), the results between races, the other players' names above their cars, a
   confirmation before leaving, and, on F3, the latency figures (see [Latency](latency.md)).
   Spectators see whom they watch and switch cars with left and right.
 

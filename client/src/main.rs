@@ -2,6 +2,7 @@ mod camera;
 #[cfg(not(target_arch = "wasm32"))]
 mod capture;
 mod controls;
+mod drift_meter;
 mod geometry;
 mod latency;
 mod lobby;
@@ -96,6 +97,7 @@ fn main() {
         lobby::LobbyPlugin,
         track::TrackPlugin,
         race::RacePlugin,
+        drift_meter::DriftMeterPlugin,
         controls::ControlsPlugin,
         latency::LatencyPlugin,
         camera::CameraPlugin,
