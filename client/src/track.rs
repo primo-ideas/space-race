@@ -20,6 +20,9 @@ use crate::world;
 /// stands beyond them.
 pub const WALL_HEIGHT: f32 = 1.0;
 pub const WALL_THICKNESS: f32 = 0.6;
+/// How thick the road is under its surface, in meters: it floats in the dark as a slab, its walls
+/// running down past its edges to the underside, however high the relief carries it.
+const SLAB: f32 = 1.5;
 /// Wall stripes alternate colors every this many meters.
 const WALL_STRIPE: f32 = 4.0;
 const DASH_LENGTH: f32 = 4.0;
@@ -126,6 +129,7 @@ fn track_meshes(track: &Track, props: &[Prop]) -> TrackMeshes {
     let mut lit = Geometry::default();
     let mut neon = Geometry::default();
     road(&mut lit, track);
+    underside(&mut lit, track);
     walls(&mut lit, &mut neon, track);
     center_dashes(&mut neon, track);
     start_line(&mut lit, track);
@@ -155,8 +159,29 @@ fn road(geometry: &mut Geometry, track: &Track) {
     });
 }
 
+/// The underside of the road, [`SLAB`] under its surface and reaching out under the walls: seen
+/// from lower down the relief, the road is a slab rather than a sheet that vanishes from below.
+fn underside(geometry: &mut Geometry, track: &Track) {
+    for_each_segment(track, |a, b, _| {
+        let edge = |point: TrackPoint| point.half_width + WALL_THICKNESS;
+        for index in 0..ROAD_STRIPS {
+            let left = 1.0 - 2.0 * index as f32 / ROAD_STRIPS as f32;
+            let right = left - 2.0 / ROAD_STRIPS as f32;
+            let corners = [
+                on_road(track, a, left * edge(a), -SLAB),
+                on_road(track, a, right * edge(a), -SLAB),
+                on_road(track, b, right * edge(b), -SLAB),
+                on_road(track, b, left * edge(b), -SLAB),
+            ];
+            let above = corners.iter().sum::<Vec3>() / 4.0 + Vec3::Y;
+            geometry.quad_facing_away(corners, above, WALL_DARK);
+        }
+    });
+}
+
 /// Walls striped dark gray and neon blue. They stand on the road edge, and their outer face goes
-/// down to the ground, so the raised edge of a banked turn looks solid from outside.
+/// down past it to the underside of the road, so the raised edge of a banked turn looks solid from
+/// outside.
 fn walls(lit: &mut Geometry, neon: &mut Geometry, track: &Track) {
     for side in [1.0, -1.0] {
         for_each_segment(track, |a, b, distance| {
@@ -196,8 +221,8 @@ fn walls(lit: &mut Geometry, neon: &mut Geometry, track: &Track) {
             );
             geometry.quad(
                 [
-                    at(a, outer(a), 0.0),
-                    at(b, outer(b), 0.0),
+                    at(a, outer(a), base(a) - SLAB),
+                    at(b, outer(b), base(b) - SLAB),
                     at(b, outer(b), top_b),
                     at(a, outer(a), top_a),
                 ],

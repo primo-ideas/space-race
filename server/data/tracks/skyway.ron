@@ -1,0 +1,109 @@
+// The circuit, and the only one: a road up in the dark, 34 m from wall to wall and 1.86 km a lap,
+// that never runs straight or level for long. It turns, climbs, dives and banks all at once, in the
+// spirit of Rocket Racing: the relief rises from 3 m to 47 m and back, every turn is banked, and
+// the only straight on the lap is the run to the line, which the starting grid needs.
+//
+// The lap folds back on itself like a comb, four legs joined by three hairpins, so the road always
+// has another part of itself beside it, above or below: from the ridge of the third leg, the first
+// two lie far below.
+//
+//   the launch      down the start straight and through a gentle slalom, dropping 18 m
+//   the bowl        a banked left hairpin at the bottom of the lap, 3 m up
+//   the switchback  a tight slalom climbing back west, over a crest
+//   the spiral      a banked right hairpin climbing from 22 to 34 m as it turns
+//   the ridge       a slalom climbing east along the top, over a dip, to
+//   the sky bowl    the highest hairpin, banked 34 degrees, 47 m up
+//   the dive        the fourth leg, down 35 m in 235 m, 14 degrees at its steepest
+//   the sink        a banked left at the bottom of the dive
+//   the climb       a slalom back south, over a crest
+//   the last corner a banked left onto the run to the line
+//
+// The turn angles add up to one full turn to the left, and the loop closes on the start line: the
+// radii of two slalom turns were solved for, which is why they carry decimals. The road never comes
+// within 81 m of another part of itself. The format is described in docs/tracks.md.
+(
+    name: "Skyway",
+    width: 34.0,
+    segments: [
+        // Out of the start line, and into the launch: a gentle slalom downhill.
+        Straight(length: 20.0),
+        Turn(angle: -25.0, radius: 70.0, transition: 22.0, banking: 12.0),
+        Turn(angle: 50.0, radius: 70.0, transition: 22.0, banking: 16.0),
+        Turn(angle: -25.0, radius: 70.0, transition: 22.0, banking: 12.0),
+        // The bowl, at the bottom of the lap.
+        Turn(angle: 180.0, radius: 50.0, transition: 24.0, banking: 30.0),
+        // The switchback: the tightest slalom, climbing.
+        Turn(angle: -35.0, radius: 50.0, transition: 20.0, banking: 16.0),
+        Turn(angle: 70.0, radius: 50.0, transition: 20.0, banking: 20.0),
+        Turn(angle: -35.0, radius: 50.0, transition: 20.0, banking: 16.0),
+        // The spiral, climbing as it turns.
+        Turn(angle: -180.0, radius: 48.0, transition: 24.0, banking: 32.0),
+        // The ridge.
+        Turn(angle: 25.0, radius: 75.0, transition: 22.0, banking: 12.0),
+        Turn(angle: -50.0, radius: 75.0, transition: 22.0, banking: 16.0),
+        Turn(angle: 25.0, radius: 75.0, transition: 22.0, banking: 12.0),
+        // The sky bowl, the top of the lap.
+        Turn(angle: 180.0, radius: 52.0, transition: 24.0, banking: 34.0),
+        // The dive, the longest leg.
+        Turn(angle: -30.0, radius: 77.0, transition: 22.0, banking: 14.0),
+        Turn(angle: 60.0, radius: 132.06, transition: 22.0, banking: 18.0),
+        Turn(angle: -30.0, radius: 77.0, transition: 22.0, banking: 14.0),
+        // The sink.
+        Turn(angle: 90.0, radius: 50.0, transition: 24.0, banking: 24.0),
+        // The climb.
+        Turn(angle: -30.0, radius: 57.0, transition: 22.0, banking: 14.0),
+        Turn(angle: 60.0, radius: 60.24, transition: 22.0, banking: 18.0),
+        Turn(angle: -30.0, radius: 57.0, transition: 22.0, banking: 14.0),
+        // The last corner.
+        Turn(angle: 90.0, radius: 50.0, transition: 24.0, banking: 24.0),
+        // The run to the line. The starting grid sits along it.
+        Straight(length: 48.0),
+    ],
+    // Heights of the road along the lap. Between two of them it follows a smooth curve, so a
+    // height above both its neighbors is a crest and one below them a dip.
+    elevation: [
+        // The launch, over a crest halfway down.
+        (at: 0.0, height: 21.0),
+        (at: 55.0, height: 14.0),
+        (at: 100.0, height: 16.0),
+        (at: 150.0, height: 9.0),
+        (at: 208.0, height: 6.0),
+        // The bowl.
+        (at: 298.0, height: 3.0),
+        (at: 389.0, height: 6.0),
+        // The switchback, over a crest.
+        (at: 430.0, height: 12.0),
+        (at: 470.0, height: 18.0),
+        (at: 505.0, height: 16.0),
+        (at: 545.0, height: 20.0),
+        // The spiral.
+        (at: 571.0, height: 22.0),
+        (at: 658.0, height: 28.0),
+        (at: 746.0, height: 34.0),
+        // The ridge, over a dip.
+        (at: 790.0, height: 38.0),
+        (at: 830.0, height: 36.0),
+        (at: 880.0, height: 42.0),
+        (at: 943.0, height: 44.0),
+        // The sky bowl.
+        (at: 1036.0, height: 47.0),
+        (at: 1130.0, height: 44.0),
+        // The dive.
+        (at: 1180.0, height: 43.0),
+        (at: 1240.0, height: 32.0),
+        (at: 1300.0, height: 18.0),
+        (at: 1350.0, height: 10.0),
+        (at: 1415.0, height: 8.0),
+        // The sink.
+        (at: 1466.0, height: 6.0),
+        (at: 1518.0, height: 9.0),
+        // The climb, over a crest.
+        (at: 1570.0, height: 14.0),
+        (at: 1612.0, height: 18.0),
+        (at: 1660.0, height: 16.0),
+        (at: 1707.0, height: 22.0),
+        // The last corner, and down the run to the line.
+        (at: 1758.0, height: 25.0),
+        (at: 1809.0, height: 24.0),
+    ],
+)

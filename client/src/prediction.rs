@@ -454,10 +454,10 @@ mod tests {
     use super::*;
 
     /// The server's own track and tuning: what the prediction really runs with.
-    fn esplanade() -> (Track, CarTuning) {
+    fn skyway() -> (Track, CarTuning) {
         let data = concat!(env!("CARGO_MANIFEST_DIR"), "/../server/data");
         let read = |path: &str| std::fs::read_to_string(format!("{data}/{path}")).unwrap();
-        let description: TrackDescription = ron::from_str(&read("tracks/esplanade.ron")).unwrap();
+        let description: TrackDescription = ron::from_str(&read("tracks/skyway.ron")).unwrap();
         let tuning: CarTuning = ron::from_str(&read("car.ron")).unwrap();
         (Track::build(&description).unwrap(), tuning)
     }
@@ -529,7 +529,7 @@ mod tests {
     /// snapshot arriving `delay` ticks after it was taken, the server applying every input `late`
     /// ticks after the tick it was placed on. Returns the error of every reconciliation.
     fn race_against_the_server(mode: Mode, late: u32, lead: u32, delay: u32) -> Vec<f32> {
-        let (track, tuning) = esplanade();
+        let (track, tuning) = skyway();
         let first = 10;
         let grid = Car::on_grid(&track, 0);
         let mut predictor = Predictor::default();

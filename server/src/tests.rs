@@ -183,7 +183,7 @@ async fn next_players(
 fn settings(name: &str, min_players: u8, max_players: u8) -> LobbySettings {
     LobbySettings {
         name: name.into(),
-        track: "esplanade".into(),
+        track: "skyway".into(),
         laps: 3,
         min_players,
         max_players,
@@ -231,7 +231,7 @@ async fn welcome_lists_the_tracks_then_the_lobbies() {
     let (_socket, tracks, lobbies) = browse(&url).await;
 
     let keys: Vec<_> = tracks.iter().map(|track| track.key.as_str()).collect();
-    assert!(keys.contains(&"esplanade"), "{keys:?}");
+    assert!(keys.contains(&"skyway"), "{keys:?}");
     assert!(lobbies.is_empty(), "{lobbies:?}");
 }
 

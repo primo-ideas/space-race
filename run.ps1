@@ -6,7 +6,7 @@
 #   ./run.ps1 -SkipBuild                                   play what is already built
 #   ./run.ps1 --nickname Primo --lobby Test --min-players 1   straight into a race, alone
 #   ./run.ps1 -Clients 2 --nickname Primo --lobby Test     two players on one machine
-#   ./run.ps1 --autopilot-drift --track esplanade          let it drive the wide circuit
+#   ./run.ps1 --autopilot-drift --track skyway             let it drive the circuit
 #
 # The server log goes to target/server.log, and anything it writes to standard error to
 # target/server.err.log. A server already listening is left alone and reused.

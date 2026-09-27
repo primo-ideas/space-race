@@ -11,22 +11,30 @@ stepper. Clients receive every track when they connect (see [Protocol](protocol.
 shipped track is tested: it must load, and the autopilot must lap it drifting without touching a
 wall, faster than gripping (see [Simulation](simulation.md#autopilot)).
 
-`esplanade.ron` is the one circuit the game ships, and the one the drift is drawn for: 28 m from
-wall to wall, 1.62 km a lap, nineteen turns and hardly a straight. Most of the turns run straight
-into the next one; the rest are joined by twenty or thirty meters of road, and the longest straight
-on the lap is the 72 m run to the line, which is there because the starting grid needs somewhere to
-stand. Six turns are banked, the tightest is the 28 m hairpin two thirds of the way round, and
-three bottlenecks pinch the road to 13, 14 and 15 m (see [Bottlenecks](#bottlenecks)). The drifting
-autopilot laps it in 39.2 s without touching a wall, against 41.5 s gripping.
+`skyway.ron` is the one circuit the game ships: 34 m from wall to wall, 1.86 km a lap, and nothing
+on it is straight or level for long. It is drawn after the circuits of Rocket Racing, whose roads
+turn, climb, dive and bank all at once: the relief runs from 3 m up to 47 m and back (see
+[Relief](#relief)), every one of its twenty turns is banked, the steepest stretch dives at 14
+degrees, and the only straight is the 68 m around the start line, which is there because the
+starting grid needs somewhere to stand. It has no bottleneck and no scenery.
+
+The lap folds back on itself like a comb: four legs, joined by three hairpins and closed by two
+banked corners, so the road always has another part of itself beside it, above or below. Two legs
+come within 81 m of each other, centerline to centerline, 22 m apart in height; nowhere closer. The
+legs are slaloms, three turns swapping sides with no road between them, and the hairpins are
+bowls: one at the bottom of the lap, 3 m up, one that climbs 12 m as it turns, and one at the top,
+banked 34 degrees, 47 m up, from which the fourth leg dives 35 m in 235. That is where the drift
+lives: the drifting autopilot laps it in 46.9 s without touching a wall, against 49.9 s gripping.
 
 Width is the point. A slide worth having carries the car several meters off its line before the
 path comes round (see [Simulation](simulation.md#drift)), and on a 16 m road that is already a
-wall. Three other circuits lived here and are gone: `hippodrome.ron`, a 16 m oval that was the
-first test track, `four-corners.ron`, a 16 m rounded rectangle, and `serpentine.ron`, 18 m wide
-with turns of 18 to 28 m chained without a straight between them. All three were drawn before the
-car could really slide, and none of them left room for it; the last of the three was removed rather
-than widened, and the first two followed when the esplanade was redrawn to be the circuit the game
-is about.
+wall. Four other circuits lived here and are gone: `hippodrome.ron`, a 16 m oval that was the
+first test track, `four-corners.ron`, a 16 m rounded rectangle, `serpentine.ron`, 18 m wide with
+turns of 18 to 28 m chained without a straight between them, and `esplanade.ron`, 28 m wide, flat
+but for six banked turns and pinched by three bottlenecks. The first three were drawn before the
+car could really slide, and none of them left room for it. The esplanade was the circuit the drift
+was drawn for, and it gave way to the skyway when the game asked for wide roads curved in more
+than one direction.
 
 ## Format
 
@@ -42,6 +50,11 @@ is about.
         Straight(length: 100.0),
         Turn(angle: 180.0, radius: 40.0, transition: 20.0, banking: 30.0),
         Straight(length: 50.0),
+    ],
+    // Optional: heights the road passes through, in meters (see Relief).
+    elevation: [
+        (at: 0.0, height: 10.0),
+        (at: 150.0, height: 22.0),
     ],
     // Optional: where the road pinches in (see Bottlenecks).
     narrows: [
@@ -81,9 +94,9 @@ the road reaches at the **outer** edge.
 
 The cross-section is not a flat tilted plane but a curve: a parabola, flat at the inner edge and
 steeper and steeper toward the outer edge. With a half width `w` and a banking angle `β`, the outer
-edge stands `w × tan β` above the inner one, and the centerline a quarter of that. On the
-esplanade's hairpin (28 m wide, 16°), the outer edge rises 4.0 m. A high line is steeper than a low
-one, which gives the driver a real choice of line through the turn.
+edge stands `w × tan β` above the inner one, and the centerline a quarter of that. In the sky bowl,
+the top hairpin of the skyway (34 m wide, 34°), the outer edge rises 11.5 m. A high line is steeper
+than a low one, which gives the driver a real choice of line through the turn.
 
 The banking follows the transitions: it rises from flat to full along the entry transition, stays
 full along the arc, and settles back along the exit one. Within a transition it follows a
@@ -92,15 +105,56 @@ one: the road starts and finishes rising gently, with no crease where the transi
 straight or the arc. That is why a banked turn needs a transition: without one, the road would
 have a step.
 
-The centerline itself stays exactly what the clothoids describe. The banking only adds a height to
-the road on each side of it: the track is a height field over the plane, so the simulation still
-moves cars in two dimensions (see [Simulation](simulation.md#slopes)).
+The centerline itself stays exactly what the clothoids describe, seen from above. The banking only
+adds a height to the road on each side of it, on top of the relief: the lower edge of a banked
+turn lies at the height of the relief, and the rest of the road rises from there (see
+[Relief](#relief)).
+
+## Relief
+
+`elevation` lists heights the road passes through, each placed by its distance along the lap:
+
+```ron
+elevation: [
+    (at: 0.0, height: 21.0),
+    (at: 55.0, height: 14.0),
+    (at: 100.0, height: 16.0),
+],
+```
+
+- `at`: meters along the lap from the start line, like a bottleneck or a prop rather than a
+  segment, so a height keeps its place when the road around it is redrawn. Heights are listed in
+  order along the lap.
+- `height`: meters above the ground, which is height zero.
+
+Between two heights the road follows a cubic whose slope at each height is the slope of the
+parabola through that height and its two neighbors: each side's grade, weighted by the length of
+the other side. The road passes through every height the file gives, its grade never jumps, and
+the curve runs on from the last height round to the first, so the relief of a lap closes on
+itself. A height above both its neighbors is a crest and one below them a dip, give or take the
+little the curve overshoots when the two sides are uneven. A single height lifts the whole road to
+it, and none leaves it on the ground.
+
+The relief and the banking add up, and neither cares about the other: a turn can climb, dive, or
+crest while it banks, which is what makes a hairpin a spiral. A step along the centerline is shorter
+on the inside of a turn than on the outside, by the ratio of the two radii, so the inside of a turn
+that climbs is steeper than its centerline: on the skyway, the dive is 14 degrees at its steepest
+on the centerline and 16 at its inner edge.
+
+The centerline may be no steeper than 25 degrees. Cars move on the plane under the road (see
+[Simulation](simulation.md#slopes)), which only stays honest while the road is not too steep: at
+25 degrees a car covers 10% more road than the plane says it does.
+
+The track stays a height field, one height over each point of the plane: the road can climb over a
+hill but never over itself. A bridge, a loop or a wall ride would need the simulation to move cars
+along the road rather than over the plane under it, which it does not do.
 
 ## Bottlenecks
 
 A `narrows` pinches the road in for a stretch, and is what makes a wide circuit a test of
 precision: the drift needs room to run wide (see [Simulation](simulation.md#drift)), and a
-bottleneck takes that room away exactly where it was being enjoyed.
+bottleneck takes that room away exactly where it was being enjoyed. The skyway has none, its roads
+being wide on purpose; the esplanade before it had three.
 
 ```ron
 narrows: [
@@ -138,14 +192,14 @@ walls that close during a turn's exit meet the car while it is still out there. 
 gate was first drawn at 694 m, its blend starting inside the exit of the esses: the drifting
 autopilot left them 7 m off the centerline, met the walls coming in, and scraped along them for
 nine ticks, losing 12 m/s. Moved to 712 m, narrow over the end of the straight and into the fast
-right after it, the same 13 m leaves the same drift 2.4 m to spare. The width had nothing to do
+right after it, the same 13 m left the same drift 2.4 m to spare. The width had nothing to do
 with it.
 
 `shipped_tracks_are_drivable` is how a placement is judged: the drifting autopilot must get through
-without more than a graze. How close it comes is worth knowing too, and the tightest of the three
-is the funnel, where the drift out of the right-hander before it passes 0.6 m from the wall. At
-14 m it passed 0.1 m from it, which would have made every change to the car's tuning a coin toss in
-CI, so it was opened to 15.
+without more than a graze. How close it comes is worth knowing too: the tightest of the esplanade's
+three was the funnel, where the drift out of the right-hander before it passed 0.6 m from the wall.
+At 14 m it had passed 0.1 m from it, which would have made every change to the car's tuning a coin
+toss in CI, so it was opened to 15.
 
 ## Scenery
 
@@ -196,15 +250,18 @@ prop is only known to stand off the road where it is placed. A circuit doubles b
 though, so a stand or a slab set far out on one turn can land on another part of the lap. The
 shipped tracks are checked against their whole centerline by a test in `server/src/content.rs`.
 
-`esplanade.ron` is dressed all the way round, with 83 props: an arch over the line and one over
+`skyway.ron` has no scenery: the shape of the road comes first, and the props are left aside until
+it is settled. They also stand on the ground at height zero, which a circuit that climbs 47 m
+leaves far below it: before one is dressed, the props will have to stand on the relief.
+
+The esplanade was dressed all the way round, with 83 props: an arch over the line and one over
 each of the three bottlenecks, a marker board into every turn, stands around the turns worth
 watching — the biggest wrapped around the outside of the hairpin — pylons at the apexes and along
 the fast stretches, panels where the eye needs something to measure speed against, and nine slabs
-out in the dark, six outside the circuit and three in the infield.
-
-A bottleneck is signed by its own arch and by four pylons standing hard against the walls, two at
-each end. Because a prop is placed from the wall and the wall moves, those pylons come in with the
-road and draw the gap from far back down the straight.
+out in the dark, six outside the circuit and three in the infield. A bottleneck was signed by its
+own arch and by four pylons standing hard against the walls, two at each end: because a prop is
+placed from the wall and the wall moves, those pylons came in with the road and drew the gap from
+far back down the straight.
 
 ## Validation
 
@@ -221,6 +278,9 @@ road and draw the gap from far back down the straight.
   apart along the loop than `π × width / 2`. The tightest turn allowed has a radius of half the
   width, and half a turn of it is that long and brings the centerline back exactly a width apart,
   so closer points are not a turn but another part of the road;
+- a height of the relief sits off the lap, is not a number, or comes no further along the lap than
+  the one before it. The message names it by its place in the list;
+- the centerline climbs or dives anywhere at more than 25 degrees;
 - a narrows sits off the lap, is not a positive number of meters long, pinches the road below 8 m
   or wider than the track itself, has a negative blend, or is longer than the lap with both its
   blends. The message names it by its place in the list;
@@ -238,11 +298,15 @@ curvature exactly within each piece. The simulation and the renderer both work f
 
 - `project` finds a position's distance along the track and its lateral offset, positive on the
   left. The simulation uses it for walls, and later for lap progress.
-- `point_at` returns the centerline point, direction, banking and half width at any distance;
-  `half_width_at` is that half width alone, which is what the walls are read from.
-- `surface` gives the height and uphill direction of the road under a position, and
-  `height_beside` the height at any lateral offset. The simulation uses the slope, the renderer
-  the heights.
+- `point_at` returns the centerline point, direction, curvature, height of the relief, banking and
+  half width at any distance; `half_width_at` is that half width alone, which is what the walls
+  are read from.
+- `surface` gives the height and uphill direction of the road under a position, the relief and the
+  banking together, and `height_beside` the height at any lateral offset. The simulation uses the
+  slope, the renderer the heights. Across the road the slope is exact. Along it, it is measured
+  half a meter of centerline either side, as far from the centerline as the position, and divided
+  by how much shorter or longer the road is there than on the centerline; that takes in the banking
+  rising along a transition as well as the relief.
 - `grid_slot` places cars on the starting grid behind the start line, alternating sides.
 
 `project` compares against every segment of the centerline. That costs about a thousand distance

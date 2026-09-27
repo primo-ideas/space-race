@@ -211,7 +211,7 @@ fn receive_lobby_events(
     }
 }
 
-const SCRIPT_TRACK: &str = "esplanade";
+const SCRIPT_TRACK: &str = "skyway";
 
 /// Enters the scripted lobby once connected and listed.
 fn follow_script(

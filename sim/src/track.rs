@@ -5,8 +5,9 @@
 //! [`Track`] samples that centerline into evenly spaced points, which is what the physics and the
 //! renderer use.
 //!
-//! Turns can be banked. The road stays a height field over the plane: the simulation still moves
-//! cars in two dimensions, and asks the [`Surface`] for the height and slope under them.
+//! The road climbs and dives through the heights of its [`Elevation`] profile, and turns can be
+//! banked. It stays a height field over the plane: the simulation still moves cars in two
+//! dimensions, and asks the [`Surface`] for the height and slope under them.
 
 use std::error::Error;
 use std::fmt;
@@ -42,6 +43,15 @@ const GRID_LATERAL_SHARE: f32 = 0.45;
 /// reasonably drive.
 const MAX_BANKING: f32 = 60.0;
 
+/// Steepest the centerline may climb or dive, in degrees. Cars move on the plane under the road,
+/// which only stays honest while the road is not too steep: at 25 degrees, a car covers 10% more
+/// road than the plane says it does.
+const MAX_GRADE: f32 = 25.0;
+
+/// How far either side of a point the slope along the road is measured over, in meters: half the
+/// widest spacing of the centerline points, between which heights are interpolated linearly.
+const ALONG_STEP: f32 = 0.5;
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Encode, Decode)]
 #[serde(deny_unknown_fields)]
 pub struct TrackDescription {
@@ -50,6 +60,10 @@ pub struct TrackDescription {
     pub width: f32,
     /// The centerline, from the start line all the way back to it.
     pub segments: Vec<Segment>,
+    /// Heights the centerline passes through, in order along the lap (see [`Elevation`]). Without
+    /// any, the road lies flat at height zero.
+    #[serde(default)]
+    pub elevation: Vec<Elevation>,
     /// Stretches where the road pinches in (see [`Narrows`]).
     #[serde(default)]
     pub narrows: Vec<Narrows>,
@@ -82,6 +96,128 @@ pub enum Segment {
         #[serde(default)]
         banking: f32,
     },
+}
+
+/// One height of the relief: the centerline passes `height` meters above the ground, `at` meters
+/// along the lap.
+///
+/// Like a [`Narrows`], a height is placed by its distance along the lap rather than on a segment,
+/// so it keeps its place when the road around it is redrawn. The road passes through every height
+/// the file gives, and between two of them it follows a cubic whose slope at each height is the
+/// slope of the parabola through that height and its two neighbors: the grade never jumps, and the
+/// road crests near a height above both its neighbors and bottoms out near one below them. The
+/// curve runs on from the last height round to the first, so the relief of a lap closes on itself.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Encode, Decode)]
+#[serde(deny_unknown_fields)]
+pub struct Elevation {
+    /// Meters along the lap from the start line.
+    pub at: f32,
+    /// Height of the centerline there, in meters.
+    pub height: f32,
+}
+
+impl Elevation {
+    /// Checks a height against a lap `length` meters round.
+    fn validate(&self, length: f32) -> Result<(), &'static str> {
+        if !(self.at.is_finite() && (0.0..length).contains(&self.at)) {
+            return Err("the distance along the track must be between zero and its length");
+        }
+        if !self.height.is_finite() {
+            return Err("the height must be a number of meters");
+        }
+        Ok(())
+    }
+}
+
+/// The height of the centerline along the lap: the smooth curve through the heights of an
+/// [`Elevation`] profile.
+struct HeightProfile {
+    /// Every height in order along the lap, with the grade the road has there.
+    keys: Vec<HeightKey>,
+    length: f64,
+}
+
+#[derive(Clone, Copy)]
+struct HeightKey {
+    at: f64,
+    height: f64,
+    /// Meters of height per meter along the lap.
+    slope: f64,
+}
+
+impl HeightProfile {
+    fn new(elevation: &[Elevation], length: f64) -> Result<Self, TrackError> {
+        for (index, key) in elevation.iter().enumerate() {
+            key.validate(length as f32)
+                .map_err(|reason| TrackError::InvalidElevation { index, reason })?;
+            if index > 0 && key.at <= elevation[index - 1].at {
+                return Err(TrackError::InvalidElevation {
+                    index,
+                    reason: "the heights must be in order along the lap, each further along \
+                             than the one before",
+                });
+            }
+        }
+
+        // Distance and height of the key `index` places into the list, which runs on round the lap
+        // past either end: before the first key comes the last one, a lap earlier.
+        let count = elevation.len() as isize;
+        let key = |index: isize| {
+            let laps = index.div_euclid(count) as f64;
+            let Elevation { at, height } = elevation[index.rem_euclid(count) as usize];
+            (f64::from(at) + laps * length, f64::from(height))
+        };
+        let keys = (0..count)
+            .map(|index| {
+                let (before_at, before) = key(index - 1);
+                let (at, height) = key(index);
+                let (after_at, after) = key(index + 1);
+                // The slope of the parabola through the three heights, at the middle one: the
+                // grades on either side, each weighted by the length of the other stretch.
+                let (behind, ahead) = (at - before_at, after_at - at);
+                let slope = (ahead * (height - before) / behind
+                    + behind * (after - height) / ahead)
+                    / (behind + ahead);
+                HeightKey { at, height, slope }
+            })
+            .collect();
+        Ok(Self { keys, length })
+    }
+
+    /// Height of the centerline `distance` meters along the lap, in `[0, length)`.
+    fn height_at(&self, distance: f64) -> f64 {
+        let (Some(first), Some(last)) = (self.keys.first(), self.keys.last()) else {
+            return 0.0;
+        };
+        // The stretch between the last height before `distance` and the next one, which may be
+        // across the start line.
+        let next = self.keys.partition_point(|key| key.at <= distance);
+        let (from, to) = match next {
+            0 => (
+                HeightKey {
+                    at: last.at - self.length,
+                    ..*last
+                },
+                *first,
+            ),
+            next if next == self.keys.len() => (
+                *last,
+                HeightKey {
+                    at: first.at + self.length,
+                    ..*first
+                },
+            ),
+            next => (self.keys[next - 1], self.keys[next]),
+        };
+        let span = to.at - from.at;
+        let t = (distance - from.at) / span;
+        // The cubic Hermite basis.
+        let (t2, t3) = (t * t, t * t * t);
+        from.height * (2.0 * t3 - 3.0 * t2 + 1.0)
+            + from.slope * span * (t3 - 2.0 * t2 + t)
+            + to.height * (3.0 * t2 - 2.0 * t3)
+            + to.slope * span * (t3 - t2)
+    }
 }
 
 /// A stretch where the road pinches in: the bottleneck of a circuit.
@@ -176,6 +312,17 @@ pub enum TrackError {
     NotClosed {
         gap: f32,
     },
+    /// A height of the elevation profile cannot be placed as written.
+    InvalidElevation {
+        index: usize,
+        reason: &'static str,
+    },
+    /// The relief climbs or dives at `grade` degrees `at` meters from the start line, steeper than
+    /// a road may.
+    TooSteep {
+        at: f32,
+        grade: f32,
+    },
     /// A narrows cannot pinch the road as written.
     InvalidNarrows {
         index: usize,
@@ -200,6 +347,12 @@ impl fmt::Display for TrackError {
             Self::InvalidWidth => write!(f, "the width must be a positive number"),
             Self::NoSegments => write!(f, "the track has no segments"),
             Self::InvalidSegment { index, reason } => write!(f, "segment {index}: {reason}"),
+            Self::InvalidElevation { index, reason } => write!(f, "elevation {index}: {reason}"),
+            Self::TooSteep { at, grade } => write!(
+                f,
+                "the road at {at:.0} m from the start line climbs or dives at {grade:.1} degrees, \
+                 steeper than the {MAX_GRADE} a road may"
+            ),
             Self::InvalidNarrows { index, reason } => write!(f, "narrows {index}: {reason}"),
             Self::InvalidProp { index, reason } => write!(f, "prop {index}: {reason}"),
             Self::NotALoop { total_angle } => write!(
@@ -226,6 +379,13 @@ pub struct TrackPoint {
     pub position: Vec2,
     /// Unit tangent, in the driving direction.
     pub direction: Vec2,
+    /// How sharply the centerline turns here, in radians per meter (one over the radius), positive
+    /// to the left.
+    pub curvature: f32,
+    /// Height of the relief here, in meters above the ground (see [`Elevation`]): the height of
+    /// the whole road across where it lies flat, and of its lower edge where it is banked, the
+    /// banking raising the rest of the road from there.
+    pub height: f32,
     /// Slope of the road at its raised edge, as a ratio (`tan` of the banking angle). Positive when
     /// the left edge is the raised one, negative for the right edge, zero on flat road.
     pub bank: f32,
@@ -237,7 +397,7 @@ pub struct TrackPoint {
 /// The road surface under a position.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Surface {
-    /// Height above the flat road, in meters.
+    /// Height above the ground, in meters: the relief and the banking together.
     pub height: f32,
     /// How much the height grows per meter along `x` and along `y`: it points uphill.
     pub gradient: Vec2,
@@ -274,6 +434,7 @@ impl Track {
                 .validate(length as f32, description.width)
                 .map_err(|reason| TrackError::InvalidNarrows { index, reason })?;
         }
+        let heights = HeightProfile::new(&description.elevation, length)?;
         let count = (length / MAX_POINT_SPACING).ceil() as usize;
         let spacing = length / count as f64;
         let step = spacing / SUBSTEPS as f64;
@@ -307,11 +468,17 @@ impl Track {
                 TrackPoint {
                     position: (*position - correction).as_vec2(),
                     direction: Vec2::from_angle(*heading as f32),
+                    curvature: profile.curvature_at(distance) as f32,
+                    height: heights.height_at(distance) as f32,
                     bank: profile.bank_at(distance) as f32,
                     half_width: width_at(description, length as f32, distance as f32) / 2.0,
                 }
             })
             .collect();
+        let (at, grade) = steepest_grade(&points, spacing as f32);
+        if grade > MAX_GRADE {
+            return Err(TrackError::TooSteep { at, grade });
+        }
         let centerline: Vec<Vec2> = points.iter().map(|point| point.position).collect();
         if let Some((at, over)) = find_overlap(&centerline, spacing as f32, description.width) {
             return Err(TrackError::Overlaps { at, over });
@@ -382,6 +549,8 @@ impl Track {
         TrackPoint {
             position: a.position.lerp(b.position, t),
             direction: a.direction.lerp(b.direction, t).normalize_or_zero(),
+            curvature: a.curvature + (b.curvature - a.curvature) * t,
+            height: a.height + (b.height - a.height) * t,
             bank: a.bank + (b.bank - a.bank) * t,
             half_width: a.half_width + (b.half_width - a.half_width) * t,
         }
@@ -389,11 +558,12 @@ impl Track {
 
     /// Height of the road `lateral` meters beside a centerline point, positive on the left.
     ///
-    /// The cross-section is a parabola: flat at the lower edge, and steepest at the raised edge,
-    /// where the slope is `point.bank`. Beyond the edges it continues flat and at the edge height.
+    /// It is the height of the relief, raised by the banking. The cross-section is a parabola: flat
+    /// at the lower edge, and steepest at the raised edge, where the slope is `point.bank`. Beyond
+    /// the edges it continues flat and at the edge height.
     pub fn height_beside(&self, point: &TrackPoint, lateral: f32) -> f32 {
         let (rise, share) = self.cross_section(point, lateral);
-        rise * share * share
+        point.height + rise * share * share
     }
 
     /// The surface under a position: its height and uphill direction.
@@ -403,18 +573,29 @@ impl Track {
 
     /// The surface at an already computed projection, to avoid projecting twice.
     pub fn surface_at(&self, projection: &TrackProjection) -> Surface {
-        let point = self.point_at(projection.distance);
-        let (rise, share) = self.cross_section(&point, projection.lateral);
-        // d(rise × share²) / d(lateral), where share grows by 1 / (2 half widths) per meter toward
-        // the raised edge.
-        let slope = if (0.0..1.0).contains(&share) {
+        let (distance, lateral) = (projection.distance, projection.lateral);
+        let point = self.point_at(distance);
+        let (rise, share) = self.cross_section(&point, lateral);
+        // Across the road: d(rise × share²) / d(lateral), where share grows by 1 / (2 half widths)
+        // per meter toward the raised edge.
+        let across = if (0.0..1.0).contains(&share) {
             rise * share * point.bank.signum() / point.half_width
         } else {
             0.0
         };
+        // Along the road: how much higher the road stands a step ahead than a step behind, as far
+        // from the centerline as the position, which takes in the relief and the banking rising
+        // along the transitions together. A step along the centerline is shorter than that on the
+        // inside of a turn and longer on the outside, by the ratio of the two radii, so the inside
+        // of a turn climbs more steeply. The ratio is kept from reaching zero past the inner edge
+        // of a turn as tight as the road allows.
+        let rise_along = self.height_beside(&self.point_at(distance + ALONG_STEP), lateral)
+            - self.height_beside(&self.point_at(distance - ALONG_STEP), lateral);
+        let stretch = (1.0 - point.curvature * lateral).max(0.1);
+        let along = rise_along / (2.0 * ALONG_STEP * stretch);
         Surface {
-            height: rise * share * share,
-            gradient: point.direction.perp() * slope,
+            height: point.height + rise * share * share,
+            gradient: point.direction * along + point.direction.perp() * across,
         }
     }
 
@@ -486,6 +667,20 @@ fn width_at(description: &TrackDescription, length: f32, distance: f32) -> f32 {
         .fold(description.width, |width, narrows| {
             width.min(narrows.width_at(distance, length, description.width))
         })
+}
+
+/// Where a closed centerline of evenly spaced `points` climbs or dives most steeply: the distance
+/// along the loop where the steepest stretch between two points begins, and its grade in degrees.
+fn steepest_grade(points: &[TrackPoint], spacing: f32) -> (f32, f32) {
+    let rises = points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .map(|(point, next)| (next.height - point.height).abs());
+    let (index, rise) = rises
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .expect("a track always has points");
+    (index as f32 * spacing, (rise / spacing).atan().to_degrees())
 }
 
 /// Where a closed centerline of evenly spaced `positions` brings its road over itself: two points
@@ -676,18 +871,27 @@ impl CurvatureProfile {
         piece.start_curvature + (piece.end_curvature - piece.start_curvature) * t
     }
 
+    /// Curvature at `distance`.
+    fn curvature_at(&self, distance: f64) -> f64 {
+        self.curvature_on(self.piece_at(distance), distance)
+    }
+
     /// Banking at `distance`. Within a piece it follows a smoothstep rather than a straight line,
     /// the cubic a Catmull-Rom or Hermite spline gives between two flat keys: the road starts and
     /// finishes rising gently, with no crease where the transitions meet the straight and the arc.
     fn bank_at(&self, distance: f64) -> f64 {
-        let index = self
-            .starts
-            .partition_point(|start| *start <= distance)
-            .saturating_sub(1);
+        let index = self.piece_at(distance);
         let piece = self.pieces[index];
         let t = self.progress_on(index, distance);
         let smooth = t * t * (3.0 - 2.0 * t);
         piece.start_bank + (piece.end_bank - piece.start_bank) * smooth
+    }
+
+    /// The piece `distance` falls on.
+    fn piece_at(&self, distance: f64) -> usize {
+        self.starts
+            .partition_point(|start| *start <= distance)
+            .saturating_sub(1)
     }
 
     /// How far `distance` is into piece `index`, from 0 to 1.
@@ -782,6 +986,124 @@ mod tests {
         // It starts rising gently: after a tenth of the transition, far less than a tenth.
         assert!(bank(52.0) < 0.05 * full, "{}", bank(52.0));
         assert!((bank(first_arc_middle()) - full).abs() < 1e-4);
+    }
+
+    /// [`banked_oval`] climbing and diving through four heights, the last one before the start line
+    /// so the relief closes across it.
+    fn hilly_oval() -> TrackDescription {
+        let mut description = banked_oval(100.0, 40.0, 20.0, 30.0);
+        description.elevation = [(10.0, 0.0), (120.0, 12.0), (250.0, 3.0), (390.0, 15.0)]
+            .map(|(at, height)| Elevation { at, height })
+            .to_vec();
+        description
+    }
+
+    #[test]
+    fn the_road_passes_through_every_height_and_its_grade_never_jumps() {
+        let description = hilly_oval();
+        let track = Track::build(&description).unwrap();
+        let height = |distance: f32| track.point_at(distance).height;
+        for key in &description.elevation {
+            assert!((height(key.at) - key.height).abs() < 1e-3, "{key:?}");
+            // The grade just before a height is the grade just after it.
+            let before = height(key.at) - height(key.at - 1.0);
+            let after = height(key.at + 1.0) - height(key.at);
+            assert!((before - after).abs() < 0.01, "{key:?}: {before} {after}");
+        }
+        // The relief runs on from the last height round to the first, across the start line.
+        let length = track.length();
+        let across = height(length - 0.5) - height(length - 1.5);
+        let past = height(0.5) - height(-0.5);
+        assert!((across - past).abs() < 0.01, "{across} {past}");
+        // The top of the lap is the highest height, give or take the little a smooth curve through
+        // it overshoots.
+        let highest = (0..length as usize)
+            .map(|distance| height(distance as f32))
+            .fold(f32::MIN, f32::max);
+        assert!((15.0..16.5).contains(&highest), "{highest}");
+    }
+
+    /// The slope along the road is the one a car feels climbing it, as far from the centerline as it
+    /// is: on the inside of a turn the road is shorter, so the same climb is steeper.
+    #[test]
+    fn slope_along_the_road_matches_the_height_change() {
+        let track = Track::build(&hilly_oval()).unwrap();
+        // In the middle of the first turn, a left one, still climbing to the second height; and in
+        // its entry transition, where the banking rises along the road as well.
+        for distance in [first_arc_middle(), 60.0] {
+            let point = track.point_at(distance);
+            for lateral in [-6.0, -2.0, 0.0, 3.0, 7.0] {
+                let position = point.position + point.direction.perp() * lateral;
+                // Over a few meters: a position is projected onto a centerline of one-meter
+                // pieces, and off to the side of a turn that projection moves by small jumps
+                // from one piece to the next, which a shorter step could straddle.
+                let step = 1.5;
+                let numeric = (track.surface(position + point.direction * step).height
+                    - track.surface(position - point.direction * step).height)
+                    / (2.0 * step);
+                let analytic = track.surface(position).gradient.dot(point.direction);
+                assert!(
+                    (numeric - analytic).abs() < 0.005 + 0.05 * analytic.abs(),
+                    "{distance} m, {lateral}: {numeric} {analytic}"
+                );
+            }
+        }
+        // Climbing, the inside of the turn is steeper than the outside.
+        let point = track.point_at(first_arc_middle());
+        let along = |lateral: f32| {
+            let position = point.position + point.direction.perp() * lateral;
+            track.surface(position).gradient.dot(point.direction)
+        };
+        assert!(along(6.0) > along(-6.0), "{} {}", along(6.0), along(-6.0));
+    }
+
+    #[test]
+    fn heights_out_of_order_off_the_lap_or_too_steep_are_refused() {
+        let with = |keys: &[(f32, f32)]| {
+            let mut description = oval(100.0, 40.0, 20.0);
+            description.elevation = keys
+                .iter()
+                .map(|&(at, height)| Elevation { at, height })
+                .collect();
+            Track::build(&description)
+        };
+        assert!(with(&[(0.0, 0.0), (150.0, 20.0)]).is_ok());
+        assert!(matches!(
+            with(&[(150.0, 0.0), (20.0, 5.0)]),
+            Err(TrackError::InvalidElevation { index: 1, .. })
+        ));
+        assert!(matches!(
+            with(&[(0.0, 0.0), (2000.0, 5.0)]),
+            Err(TrackError::InvalidElevation { index: 1, .. })
+        ));
+        assert!(matches!(
+            with(&[(0.0, f32::NAN)]),
+            Err(TrackError::InvalidElevation { index: 0, .. })
+        ));
+        // Thirty meters up over twenty: a wall, not a road.
+        assert!(matches!(
+            with(&[(0.0, 0.0), (20.0, 30.0)]),
+            Err(TrackError::TooSteep { .. })
+        ));
+    }
+
+    #[test]
+    fn a_single_height_lifts_the_whole_road_and_none_leaves_it_on_the_ground() {
+        let mut description = oval(100.0, 40.0, 20.0);
+        let flat = Track::build(&description).unwrap();
+        description.elevation = vec![Elevation {
+            at: 80.0,
+            height: 7.0,
+        }];
+        let lifted = Track::build(&description).unwrap();
+        for distance in [0.0, 70.0, 150.0, 300.0] {
+            assert_eq!(flat.point_at(distance).height, 0.0);
+            assert!((lifted.point_at(distance).height - 7.0).abs() < 1e-4);
+            let point = lifted.point_at(distance);
+            let surface = lifted.surface(point.position + point.direction.perp() * 3.0);
+            assert!((surface.height - 7.0).abs() < 1e-4, "{surface:?}");
+            assert!(surface.gradient.length() < 1e-4, "{surface:?}");
+        }
     }
 
     #[test]
