@@ -5,9 +5,15 @@
 //! The start lights are the first sounds: a short blip as each amber light comes on, and a longer,
 //! fuller note as the green one starts the race. They follow the lights, which follow the race as
 //! displayed, so what the player hears and what they see agree.
+//!
+//! The engine of the car the camera follows runs under them, synthesized in `engine.rs`: its revs
+//! follow the car's speed, and its load the accelerator.
+
+mod engine;
 
 use std::f32::consts::TAU;
 use std::num::NonZero;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bevy::audio::{
@@ -18,9 +24,12 @@ use space_race_protocol::LobbyPhase;
 use space_race_sim::TICK_RATE;
 use space_race_sim::race;
 
+use crate::controls::LastSent;
 use crate::lobby::CurrentLobby;
+use crate::prediction::Prediction;
 use crate::race::{RaceUpdate, RaceView};
 use crate::screen::Screen;
+use engine::{Controls, Engine, Running};
 
 /// Samples a second, the usual rate for sound.
 const SAMPLE_RATE: u32 = 44_100;
@@ -28,6 +37,9 @@ const SAMPLE_RATE: u32 = 44_100;
 const AMPLITUDE: f32 = 0.35;
 /// Seconds a tone takes to fall silent at its end, so it stops without a click.
 const RELEASE: f32 = 0.02;
+/// Revs the engine rises to with the accelerator pressed at a standstill, on the grid or after a
+/// wall: the clutch slipping until the car catches up.
+const LAUNCH_REVS: f32 = 0.45;
 
 pub struct SoundPlugin {
     /// How loud everything is, from 0 to 1.
@@ -38,14 +50,18 @@ impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(GlobalVolume::new(Volume::Linear(self.volume)))
             .add_audio_source::<Tone>()
+            .add_audio_source::<EngineSound>()
             .init_resource::<LitLights>()
-            .add_systems(Startup, add_sounds)
+            .add_systems(Startup, (add_sounds, start_engine))
             .add_systems(OnEnter(Screen::Lobby), forget_lights)
             .add_systems(
                 Update,
-                play_start_lights
-                    .after(RaceUpdate)
-                    .run_if(in_state(Screen::Lobby)),
+                (
+                    play_start_lights.run_if(in_state(Screen::Lobby)),
+                    // On every screen, so the engine falls silent with the race gone.
+                    run_engine,
+                )
+                    .after(RaceUpdate),
             );
     }
 }
@@ -192,6 +208,92 @@ fn play_start_lights(
         debug!(light = lit, start, "start light sound");
     }
     played.0 = lit;
+}
+
+/// The engine: one sound that plays from startup to the end, silent until there is a car to hear,
+/// and that the game makes louder, quieter, faster and slower instead of starting and stopping it,
+/// so it never clicks.
+#[derive(Asset, TypePath)]
+struct EngineSound(Arc<Controls>);
+
+impl Decodable for EngineSound {
+    type Decoder = EngineSamples;
+
+    fn decoder(&self) -> Self::Decoder {
+        EngineSamples(Engine::new(self.0.clone()))
+    }
+}
+
+/// An [`EngineSound`] played out sample by sample, for as long as the game runs.
+struct EngineSamples(Engine);
+
+impl Iterator for EngineSamples {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Sample> {
+        Some(self.0.sample())
+    }
+}
+
+impl Source for EngineSamples {
+    /// The sound never changes rate or channel count.
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> ChannelCount {
+        NonZero::new(1).expect("one channel")
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        NonZero::new(SAMPLE_RATE).expect("a sample rate above zero")
+    }
+
+    /// It never ends.
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+}
+
+/// How the engine should be running, set once a frame and read by the sound at every sample.
+#[derive(Resource)]
+struct EngineControls(Arc<Controls>);
+
+fn start_engine(mut commands: Commands, mut engines: ResMut<Assets<EngineSound>>) {
+    let controls = Arc::new(Controls::default());
+    commands.spawn(AudioPlayer(engines.add(EngineSound(controls.clone()))));
+    commands.insert_resource(EngineControls(controls));
+}
+
+/// Runs the engine of the car the camera follows, and silences it when there is none.
+fn run_engine(
+    engine: Res<EngineControls>,
+    view: Res<RaceView>,
+    current: Res<CurrentLobby>,
+    prediction: Res<Prediction>,
+    last_sent: Res<LastSent>,
+) {
+    let tuning = current
+        .0
+        .as_ref()
+        .and_then(|membership| membership.state.as_ref())
+        .map(|state| &state.tuning);
+    let running = match (view.followed, tuning) {
+        (Some((_, car)), Some(tuning)) => {
+            // The player's own foot while they drive. Anyone else's car, or theirs once it drives
+            // itself past the line, has the accelerator down, as every car does in a game with no
+            // brake.
+            let accelerating = prediction.car().is_none() || last_sent.input.accelerate;
+            let load = if accelerating { 1.0 } else { 0.0 };
+            Running {
+                revs: (car.velocity.length() / tuning.top_speed).max(load * LAUNCH_REVS),
+                load,
+                level: 1.0,
+            }
+        }
+        _ => Running::default(),
+    };
+    engine.0.set(running);
 }
 
 #[cfg(test)]
