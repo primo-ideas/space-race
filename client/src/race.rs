@@ -400,6 +400,8 @@ pub(crate) fn interpolate(from: &Car, to: &Car, t: f32) -> Car {
         heading: from.heading + shortest_angle(from.heading, to.heading) * t,
         slip: lerp(from.slip, to.slip),
         body: lerp(from.body, to.body),
+        body_rate: lerp(from.body_rate, to.body_rate),
+        steering: lerp(from.steering, to.steering),
         yaw_rate: lerp(from.yaw_rate, to.yaw_rate),
         drift_charge: lerp(from.drift_charge, to.drift_charge),
         drift_held: lerp(from.drift_held, to.drift_held),

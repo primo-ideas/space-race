@@ -41,6 +41,13 @@ pub struct Car {
     /// angle. It is what is drawn and what ends a drift, but it moves the car nowhere. It settles
     /// back to nothing once a drift is over.
     pub body: f32,
+    /// How fast the body swings, in radians per second, positive to the left. The swing has a
+    /// speed of its own so that it starts and stops gently instead of all at once.
+    pub body_rate: f32,
+    /// Where the steering stands, from -1 at full lock left to 1 at full lock right. It follows the
+    /// stick at `steering_rate`, so a key pressed or a stick flicked turns the wheel rather than
+    /// jumping it, and the car eases into a turn and out of it.
+    pub steering: f32,
     /// Radians per second, positive to the left.
     pub yaw_rate: f32,
     /// The side the car drifts toward: -1 left, 1 right, 0 when not drifting.
@@ -113,6 +120,10 @@ pub struct CarTuning {
     /// The car steers at least as if it were going this fast, in m/s. Without a brake there is no
     /// reverse, so this is what lets a car stopped against a wall turn away from it.
     pub min_steering_speed: f32,
+    /// How fast the steering follows the stick, in full locks per second: from center to full lock
+    /// takes `1 / steering_rate` seconds. A key or a flick of the stick turns the wheel instead of
+    /// jumping it, which is what makes the car ease into a turn.
+    pub steering_rate: f32,
     /// How quickly the rotation follows the steering, per second. Higher is snappier.
     pub steering_response: f32,
     /// How quickly sliding sideways dies out, per second, when not drifting. Higher feels like
@@ -132,12 +143,14 @@ pub struct CarTuning {
     /// How far back into line the body must come, in degrees, with the stick keeping it there, for
     /// a drift to end. Holding the drift button keeps a drift alive however straight the car runs.
     pub drift_exit_angle: f32,
-    /// How far the body swings off the travel in a drift, in degrees, with the stick fully into the
-    /// drift. Most of it comes with the first touch of the stick: the angle follows the square
-    /// root of how far the stick points into the drift, and there is none with the stick centered
-    /// or against the drift.
+    /// How far the body swings off the travel in a drift, in degrees, with the steering fully into
+    /// the drift. Most of it comes with the first half of the steering's travel, easing in from
+    /// the center: with the steering a share `s` of the way into the drift, the angle is
+    /// `1 - (1 - s)²` of this. There is none with the steering centered or against the drift.
     pub drift_angle: f32,
-    /// How quickly the body swings toward that angle, and back into line, per second.
+    /// How quickly the body swings toward that angle, and back into line, per second: the natural
+    /// frequency of a critically damped swing, which starts and stops gently. At 10, nine tenths of
+    /// a swing take 0.4 s.
     pub drift_angle_response: f32,
     /// Radius of the curve the car travels on while drifting with the stick fully into the drift,
     /// in meters. The stick sets the curve directly: the car does not run wide.
@@ -186,6 +199,7 @@ impl CarTuning {
             ("acceleration", self.acceleration),
             ("turn_radius_slow", self.turn_radius_slow),
             ("turn_radius_fast", self.turn_radius_fast),
+            ("steering_rate", self.steering_rate),
             ("steering_response", self.steering_response),
             ("drift_entry_angle", self.drift_entry_angle),
             ("drift_exit_angle", self.drift_exit_angle),
@@ -307,6 +321,7 @@ impl Car {
     /// Advances the car by one tick.
     pub fn step(&mut self, input: CarInput, tuning: &CarTuning, track: &Track) {
         let dt = TICK_SECONDS;
+        self.steering = move_towards(self.steering, input.steer(), tuning.steering_rate * dt);
         self.update_drift(input, tuning, dt);
         self.steer(input, tuning, dt);
 
@@ -344,8 +359,12 @@ impl Car {
         } else {
             0.0
         };
-        let swing = 1.0 - decay(tuning.drift_angle_response, dt);
-        self.body += (self.body_target(input, tuning) - self.body) * swing;
+        // The body swings like a critically damped spring: its speed builds up and dies down
+        // instead of jumping, whether the drift starts, the steering eases or the drift ends.
+        let frequency = tuning.drift_angle_response;
+        let pull = frequency * frequency * (self.body_target(tuning) - self.body);
+        self.body_rate += (pull - 2.0 * frequency * self.body_rate) * dt;
+        self.body += self.body_rate * dt;
         self.drift_button = input.drift;
     }
 
@@ -362,17 +381,19 @@ impl Car {
 
         let speed = self.velocity.length();
         if self.is_drifting() {
-            if input.drift && self.drift_stick(input) < -DRIFT_SWITCH_STICK {
+            // Decided on the stick itself, which says what the player means before the steering
+            // has followed it.
+            if input.drift && input.steer() * f32::from(self.drift) < -DRIFT_SWITCH_STICK {
                 self.drift = -self.drift;
             }
             let exit = tuning.drift_exit_angle.to_radians();
-            let in_line = self.body.abs() < exit && self.body_target(input, tuning).abs() < exit;
+            let in_line = self.body.abs() < exit && self.body_target(tuning).abs() < exit;
             if speed < tuning.drift_min_speed || (in_line && !input.drift) {
                 self.end_drift(tuning);
             } else {
                 // Tighter drifts build up faster: from half to one and a half times real time.
                 // Steering out of the drift charges at the slow end, never backwards.
-                self.drift_charge += dt * (0.5 + self.drift_stick(input).max(0.0));
+                self.drift_charge += dt * (0.5 + self.drift_stick().max(0.0));
                 self.drift_held = if input.drift {
                     self.drift_held + dt
                 } else {
@@ -417,32 +438,35 @@ impl Car {
         self.drift_held = 0.0;
     }
 
-    /// How far the stick points into the drift, from -1 fully against it to 1 fully into it, and
-    /// 0 centered. The sign matters: centered means straight ahead, and against the drift means
-    /// steering out of it, which is how a slide is caught.
-    fn drift_stick(&self, input: CarInput) -> f32 {
-        input.steer() * f32::from(self.drift)
+    /// How far the steering points into the drift, from -1 fully against it to 1 fully into it,
+    /// and 0 centered. The sign matters: centered means straight ahead, and against the drift
+    /// means steering out of it, which is how a slide is caught.
+    fn drift_stick(&self) -> f32 {
+        self.steering * f32::from(self.drift)
     }
 
-    /// The angle the body swings toward: across the travel, into the drift, as far as the stick
-    /// points into it, most of it with the first touch; back in line otherwise.
-    fn body_target(&self, input: CarInput, tuning: &CarTuning) -> f32 {
+    /// The angle the body swings toward: across the travel, into the drift, as far as the
+    /// steering points into it, most of it with the first half of its travel; back in line
+    /// otherwise.
+    fn body_target(&self, tuning: &CarTuning) -> f32 {
         if !self.is_drifting() {
             return 0.0;
         }
-        let into = self.drift_stick(input).max(0.0);
+        let into = self.drift_stick().clamp(0.0, 1.0);
+        // Eases in from the center, where a square root would swing the body on every twitch.
+        let share = 1.0 - (1.0 - into) * (1.0 - into);
         // A drift to the left, side -1, swings the nose to the left: a positive angle.
-        -f32::from(self.drift) * tuning.drift_angle.to_radians() * into.sqrt()
+        -f32::from(self.drift) * tuning.drift_angle.to_radians() * share
     }
 
     fn steer(&mut self, input: CarInput, tuning: &CarTuning, dt: f32) {
         let steering_speed = self.forward_speed().max(tuning.min_steering_speed);
         // Steering right turns clockwise, a negative yaw rate.
         let target_yaw_rate = if self.is_drifting() {
-            // The stick sets the curve the car travels on, and it is signed: centered runs
+            // The steering sets the curve the car travels on, and it is signed: centered runs
             // straight, fully to one side turns on `drift_radius_tight`, whichever side the drift
             // is on. The body swinging across it changes nothing about where the car goes.
-            let mut curvature = input.steer() / tuning.drift_radius_tight;
+            let mut curvature = self.steering / tuning.drift_radius_tight;
             if input.drift {
                 // Holding the button pulls the drift tighter than the stick alone can.
                 curvature /= tuning.drift_button_tighten;
@@ -452,7 +476,7 @@ impl Car {
             let speed_share = (steering_speed / tuning.top_speed).min(1.0);
             let turn_radius = tuning.turn_radius_slow
                 + (tuning.turn_radius_fast - tuning.turn_radius_slow) * speed_share;
-            -input.steer() * steering_speed / turn_radius
+            -self.steering * steering_speed / turn_radius
         };
         let response = if self.is_drifting() {
             tuning.drift_steering_response
@@ -721,7 +745,8 @@ mod tests {
             steer: 127,
             ..ACCELERATE
         };
-        run(&mut car, right, 3.0, &track);
+        // Three seconds, and the fifth of a second the steering takes to reach full lock.
+        run(&mut car, right, 3.2, &track);
         assert!(car.heading < 1.0, "{}", car.heading);
         assert!(car.forward_speed() > 5.0, "{}", car.forward_speed());
     }
@@ -846,6 +871,43 @@ mod tests {
         );
     }
 
+    /// The steering turns toward the stick rather than jumping to it, and the body swings with a
+    /// speed of its own, so the nose never jerks: into a drift, easing the stick, pushing it back
+    /// and straightening, its rotation changes only a little from one tick to the next.
+    #[test]
+    fn the_nose_turns_without_jerking() {
+        let track = Track::build(&open_track()).unwrap();
+        let mut car = at_top_speed(&track);
+        car.step(drifting(1.0), &tuning(), &track);
+        assert!(car.is_drifting());
+        assert!(car.steering < 0.1, "the wheel jumped to {}", car.steering);
+
+        let mut heading = car.body_heading();
+        let mut rate = 0.0;
+        let mut sharpest: f32 = 0.0;
+        for tick in 0..ticks(2.0) {
+            let steer = match tick {
+                0..=35 => 1.0,
+                36..=59 => 0.5,
+                60..=83 => 1.0,
+                _ => 0.0,
+            };
+            car.step(CarInput::new(true, steer), &tuning(), &track);
+            let turned = Vec2::from_angle(heading).angle_to(Vec2::from_angle(car.body_heading()));
+            heading = car.body_heading();
+            let new_rate = turned * TICK_RATE as f32;
+            sharpest = sharpest.max((new_rate - rate).abs());
+            rate = new_rate;
+        }
+        // In degrees per second, from one tick to the next. A body that followed its target at a
+        // plain rate jumped by some 460 on the tick a drift began; this one stays near 40.
+        println!(
+            "sharpest change of the nose's rotation: {} deg/s",
+            sharpest.to_degrees()
+        );
+        assert!(sharpest.to_degrees() < 80.0, "{}", sharpest.to_degrees());
+    }
+
     /// However far the body swings, the car travels on the curve the stick asks for: a quarter
     /// turn takes it no further ahead than the radius and the time the curve takes to tighten.
     #[test]
@@ -922,8 +984,9 @@ mod tests {
         run(&mut car, CarInput::new(true, 1.0), 1.5, &track);
 
         // The boost is checked on the tick the drift ends, since it runs down from that moment.
+        // The steering unwinds and the body swings back in about half a second.
         let mut released = car;
-        let mut left = ticks(0.5);
+        let mut left = ticks(0.75);
         while released.is_drifting() {
             released.step(ACCELERATE, &tuning(), &track);
             left -= 1;

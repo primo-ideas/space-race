@@ -131,7 +131,7 @@ Client                                        Server
   encoded once for the whole lobby.
 - **A ping is answered at once**, by the connection's own task and not the lobby's, so it times
   the network and nothing of the game. It is the client's to time; the server keeps nothing.
-- **A snapshot holds every car of the lobby**: its id, position, velocity, heading, slip and drift angles, yaw
+- **A snapshot holds every car of the lobby**: its id, position, velocity, heading, steering, slip and drift angles and how fast the body swings, yaw
   rate, drift state (side, charge, how long the button has been held) and boost, race progress (see
   [Lobbies](lobbies.md#progress-laps-and-finishing)), and the drift and boost gauges the server
   works out for the HUD (see [Simulation](simulation.md#drift)), stamped with the tick it was

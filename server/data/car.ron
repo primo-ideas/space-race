@@ -13,7 +13,10 @@
     // The car always steers at least as if it went this fast (m/s), so it can turn away from a wall
     // it is stuck against.
     min_steering_speed: 4.0,
-    // Per second: how quickly the rotation follows the stick, and how quickly sliding dies out.
+    // How fast the steering follows the stick, in full locks per second: 5 takes 0.2 s from center
+    // to full lock. A key or a flick of the stick turns the wheel instead of jumping it.
+    steering_rate: 5.0,
+    // Per second: how quickly the rotation follows the steering, and how quickly sliding dies out.
     steering_response: 12.0,
     grip: 10.0,
     // Pull down the slopes of the road, in m/s² (9.81 is Earth's): it slows a climb, speeds a dive
@@ -34,11 +37,11 @@
     // How far back into line the body must come, with the stick keeping it there, for a drift to
     // end, in degrees. Holding the button keeps the drift alive whatever the body does.
     drift_exit_angle: 8.0,
-    // How far the body swings across the travel with the stick fully into the drift, in degrees,
-    // most of it with the first touch of the stick, and how quickly it swings there and back, per
-    // second.
+    // How far the body swings across the travel with the steering fully into the drift, in
+    // degrees, most of it with the first half of the steering, and how quickly it swings there and
+    // back, per second: a swing that starts and stops gently, nine tenths of it in 0.4 s at 10.
     drift_angle: 55.0,
-    drift_angle_response: 9.0,
+    drift_angle_response: 10.0,
     // Radius of the curve the car drifts on with the stick fully to one side, in meters. The stick
     // is signed: centered runs straight and against the drift turns the other way. The car goes
     // where the stick says; it does not run wide.
