@@ -26,15 +26,19 @@ not a car that behaves like a real one.
 
 The one structural choice is that **velocity and heading are separate**. Every tick:
 
-1. **Steering** first turns the wheel, `Car::steering`, toward the stick at `steering_rate`: from
-   center to full lock in a fifth of a second with the shipped tuning, so a key pressed or a stick
-   flicked turns the wheel instead of jumping it, and the car eases into a turn and out of it. The
-   wheel, not the stick, sets a target yaw rate: `speed / turning radius`, scaled by it. The turning
-   radius grows with speed, from `turn_radius_slow` to `turn_radius_fast`, so full lock stays
-   controllable at speed. The yaw rate then follows that target with an exponential response
-   (`steering_response`), which smooths digital input without adding noticeable delay on an
-   analog stick. The car always steers at least as if it went `min_steering_speed`: there is no
-   reverse, so this is what lets a car stopped against a wall turn away from it.
+1. **Steering** first turns the wheel, `Car::steering`, toward the stick: every tick it closes a
+   share of the gap, `steering_rate` per second. It moves on the very tick the stick does, so
+   there is no delay before the car turns, and it eases in as it gets there: the car turns gently
+   at first and a little harder as the wheel comes round, whether the stick is flicked or a key
+   pressed. The wheel, not the stick, sets a target yaw rate: `speed / turning radius`, scaled by
+   it. The turning radius grows with speed, from `turn_radius_slow` to `turn_radius_fast`, so full
+   lock stays controllable at speed. The yaw rate follows that target at `steering_response`,
+   well above the wheel's rate, so it follows the wheel almost at once and only smooths what the
+   wheel does not: the change of radius when a drift starts or ends. With the shipped tuning, half
+   lock at top speed turns the car at a seventh of its eventual rate on the first tick, two fifths
+   after 50 ms and nearly three quarters after 100 ms. The car always steers at least as if it went
+   `min_steering_speed`: there is no reverse, so this is what lets a car stopped against a wall
+   turn away from it.
 2. **The velocity is split** along the new heading. The part along the heading is driven by
    accelerating or coasting. The sideways part, whatever the rotation left behind, decays at
    the rate set by `grip`.
@@ -70,12 +74,13 @@ corner by as far as its travel lags its nose; this one does not.
   from the center, where a square root, tried first, swung the body on every twitch of the stick.
   The body swings like a critically damped spring of natural frequency `drift_angle_response`: its
   speed builds up and dies down instead of jumping, whether the drift starts, the stick eases or
-  the drift ends. With the shipped 55 degrees and 10 per second, it is 33 degrees across a quarter
-  of a second after the press and 51 after half a second. When a drift starts, the body takes over
+  the drift ends. With the shipped 55 degrees and 10 per second, it is 37 degrees across a quarter
+  of a second after the press and 52 after half a second. When a drift starts, the body takes over
   whatever slide the car had and the heading becomes the travel, so nothing on screen jumps.
 - **Turning.** The stick sets a **signed curvature**: fully to one side turns on
   `drift_radius_tight`, centered runs straight, whichever side the drift is on. The curve follows
-  the stick at `drift_steering_response`, and the travel keeps all of its speed as it turns.
+  the wheel at `drift_steering_response`, almost at once, and the travel keeps all of its speed as
+  it turns.
 - **Speed.** A drift costs nothing: without the button, the car keeps its speed however long it
   drifts, as in the recording.
 - **The button.** Never needed after the press, and holding it does three things. It multiplies
@@ -142,13 +147,21 @@ Four models came before this one, and each taught something.
    like a spring, and the rotation never changes by much more than 40 degrees per second from one
    tick to the next. The price is a slower swing: 45 degrees after about 0.4 s rather than 0.25,
    and a drift that ends half a second after the stick straightens rather than a quarter.
+6. **2026-09-28, later.** There was a small delay before the car turned, the user said, which had
+   to go: it should deviate gently at once, then a little more. The wheel of the step before
+   turned at a fixed rate from where it stood, and the yaw rate followed it through a lag of its
+   own, two delays in a row: half lock turned the car at 3% of its eventual rate on the first
+   tick and 17% after 50 ms. The wheel now closes a share of its gap every tick, so it moves most
+   on the very tick the stick does and eases in as it arrives, and the yaw rate follows it almost
+   at once: 14% on the first tick, 42% after 50 ms and 72% after 100 ms, much as before the wheel
+   existed, but still with no jump from one tick to the next.
 
 Measured at full lock from top speed on an open road, with the shipped tuning:
 
 | | 2026-09-20 | Now | Rocket Racing, recorded |
 | --- | --- | --- | --- |
 | Into a drift | after 0.27 s of full lock | on the press | on the press |
-| Angle | 20 degrees, 26 held, after a second | 33 degrees at 0.25 s, 51 at 0.5 s | 45 to 55, at 0.35 s |
+| Angle | 20 degrees, 26 held, after a second | 37 degrees at 0.25 s, 52 at 0.5 s | 45 to 55, at 0.35 s |
 | Speed after 2 s | 5% lost, 9% held | none, 6% held | none |
 | Back into line | 0.65 s after straightening | 0.5 s | about 0.2 s |
 | Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | 21% over |
@@ -287,7 +300,8 @@ A player would have felt the same delay without being able to name it.
 
 - Geometry: circuits close, have the expected length, turn by their angles to within a millimeter,
   and projections find the right distance and side; a road running over itself is found.
-- Car: acceleration toward top speed, coasting to a stop, steering direction, turning away from a
+- Car: acceleration toward top speed, coasting to a stop, steering direction, turning on the very
+  tick the stick moves, gently, then a little harder every tick after, turning away from a
   wall while stopped against it, walls holding, a banked turn pulling a standing car to its inside,
   a climb slowing the car and a dive speeding it up, input quantization, tuning validation.
 - Drift: a press of the button starts one at once toward the stick, but not with the stick

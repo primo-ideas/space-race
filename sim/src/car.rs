@@ -45,8 +45,8 @@ pub struct Car {
     /// speed of its own so that it starts and stops gently instead of all at once.
     pub body_rate: f32,
     /// Where the steering stands, from -1 at full lock left to 1 at full lock right. It follows the
-    /// stick at `steering_rate`, so a key pressed or a stick flicked turns the wheel rather than
-    /// jumping it, and the car eases into a turn and out of it.
+    /// stick at `steering_rate`: it moves on the very tick the stick does, and eases in as it gets
+    /// there, so a key pressed or a stick flicked turns the car at once but gently.
     pub steering: f32,
     /// Radians per second, positive to the left.
     pub yaw_rate: f32,
@@ -120,11 +120,14 @@ pub struct CarTuning {
     /// The car steers at least as if it were going this fast, in m/s. Without a brake there is no
     /// reverse, so this is what lets a car stopped against a wall turn away from it.
     pub min_steering_speed: f32,
-    /// How fast the steering follows the stick, in full locks per second: from center to full lock
-    /// takes `1 / steering_rate` seconds. A key or a flick of the stick turns the wheel instead of
-    /// jumping it, which is what makes the car ease into a turn.
+    /// How quickly the steering follows the stick, per second. It closes that share of the gap per
+    /// second, most of it at first: it moves on the very tick the stick does, so there is no delay
+    /// before the car turns, and eases in as it gets there, so it turns gently at first and a
+    /// little more as the steering comes round. Most of the way in `2 / steering_rate` seconds.
     pub steering_rate: f32,
-    /// How quickly the rotation follows the steering, per second. Higher is snappier.
+    /// How quickly the rotation follows the steering, per second. Well above `steering_rate`, so
+    /// the rotation follows the steering almost at once, and only smooths what the steering does
+    /// not: the change of radius when a drift starts or ends, or when the drift button tightens it.
     pub steering_response: f32,
     /// How quickly sliding sideways dies out, per second, when not drifting. Higher feels like
     /// rails.
@@ -155,8 +158,9 @@ pub struct CarTuning {
     /// Radius of the curve the car travels on while drifting with the stick fully into the drift,
     /// in meters. The stick sets the curve directly: the car does not run wide.
     pub drift_radius_tight: f32,
-    /// How quickly the curve follows the stick while drifting, per second. Higher than
-    /// `steering_response`, so a drift answers the stick at once.
+    /// How quickly the curve follows the steering while drifting, per second: like
+    /// `steering_response`, well above `steering_rate`, so the curve follows the steering almost
+    /// at once and only the button's tightening is smoothed.
     pub drift_steering_response: f32,
     /// What holding the drift button multiplies the drift radius by, from 0 to 1: the button
     /// tightens the turn beyond what the stick alone gives.
@@ -321,7 +325,8 @@ impl Car {
     /// Advances the car by one tick.
     pub fn step(&mut self, input: CarInput, tuning: &CarTuning, track: &Track) {
         let dt = TICK_SECONDS;
-        self.steering = move_towards(self.steering, input.steer(), tuning.steering_rate * dt);
+        // The steering moves on the very tick the stick does, and eases in as it gets there.
+        self.steering += (input.steer() - self.steering) * (1.0 - decay(tuning.steering_rate, dt));
         self.update_drift(input, tuning, dt);
         self.steer(input, tuning, dt);
 
@@ -871,6 +876,30 @@ mod tests {
         );
     }
 
+    /// No delay before the car turns: it starts to on the very tick the stick moves, gently, and
+    /// turns a little harder on every tick after it as the steering comes round.
+    #[test]
+    fn the_car_turns_at_once_then_a_little_harder() {
+        let track = Track::build(&open_track()).unwrap();
+        let start = at_top_speed(&track);
+        let mut settled = start;
+        run(&mut settled, CarInput::new(true, 0.5), 1.0, &track);
+        assert!(!settled.is_drifting());
+
+        let mut car = start;
+        let mut shares = Vec::new();
+        for _ in 0..ticks(0.1) {
+            car.step(CarInput::new(true, 0.5), &tuning(), &track);
+            shares.push(car.yaw_rate / settled.yaw_rate);
+        }
+        assert!(shares[0] > 0.1 && shares[0] < 0.3, "{shares:?}");
+        assert!(
+            shares.windows(2).all(|pair| pair[1] > pair[0]),
+            "{shares:?}"
+        );
+        assert!(shares[shares.len() - 1] > 0.6, "{shares:?}");
+    }
+
     /// The steering turns toward the stick rather than jumping to it, and the body swings with a
     /// speed of its own, so the nose never jerks: into a drift, easing the stick, pushing it back
     /// and straightening, its rotation changes only a little from one tick to the next.
@@ -878,10 +907,6 @@ mod tests {
     fn the_nose_turns_without_jerking() {
         let track = Track::build(&open_track()).unwrap();
         let mut car = at_top_speed(&track);
-        car.step(drifting(1.0), &tuning(), &track);
-        assert!(car.is_drifting());
-        assert!(car.steering < 0.1, "the wheel jumped to {}", car.steering);
-
         let mut heading = car.body_heading();
         let mut rate = 0.0;
         let mut sharpest: f32 = 0.0;
@@ -892,7 +917,21 @@ mod tests {
                 60..=83 => 1.0,
                 _ => 0.0,
             };
-            car.step(CarInput::new(true, steer), &tuning(), &track);
+            // Tapped into a drift on the first tick, straight from running straight.
+            car.step(
+                CarInput::new(true, steer).with_drift(tick == 0),
+                &tuning(),
+                &track,
+            );
+            if tick == 0 {
+                assert!(car.is_drifting());
+                // The steering moves on the very tick the stick does, but only part of the way.
+                assert!(
+                    car.steering > 0.1 && car.steering < 0.4,
+                    "the wheel went to {}",
+                    car.steering
+                );
+            }
             let turned = Vec2::from_angle(heading).angle_to(Vec2::from_angle(car.body_heading()));
             heading = car.body_heading();
             let new_rate = turned * TICK_RATE as f32;
@@ -900,7 +939,7 @@ mod tests {
             rate = new_rate;
         }
         // In degrees per second, from one tick to the next. A body that followed its target at a
-        // plain rate jumped by some 460 on the tick a drift began; this one stays near 40.
+        // plain rate jumped by some 460 on the tick a drift began; this one stays near 60.
         println!(
             "sharpest change of the nose's rotation: {} deg/s",
             sharpest.to_degrees()
