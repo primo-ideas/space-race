@@ -13,11 +13,14 @@
     // The car always steers at least as if it went this fast (m/s), so it can turn away from a wall
     // it is stuck against.
     min_steering_speed: 4.0,
-    // How fast the steering follows the stick, in full locks per second: 5 takes 0.2 s from center
-    // to full lock. A key or a flick of the stick turns the wheel instead of jumping it.
-    steering_rate: 5.0,
-    // Per second: how quickly the rotation follows the steering, and how quickly sliding dies out.
-    steering_response: 12.0,
+    // Per second: how quickly the steering follows the stick. It moves on the very tick the stick
+    // does and eases in as it gets there, so the car turns at once, gently, then a little harder;
+    // at 14, most of the way in 0.15 s. Lower is softer, higher is sharper.
+    steering_rate: 14.0,
+    // Per second: how quickly the rotation follows the steering, well above steering_rate so it
+    // adds no delay, and only smooths the change of radius when a drift starts or ends.
+    steering_response: 60.0,
+    // Per second: how quickly sliding dies out while gripping.
     grip: 10.0,
     // Pull down the slopes of the road, in m/s² (9.81 is Earth's): it slows a climb, speeds a dive
     // and draws the car to the inside of a banked turn. 0 makes the relief and the banking purely
@@ -46,8 +49,9 @@
     // is signed: centered runs straight and against the drift turns the other way. The car goes
     // where the stick says; it does not run wide.
     drift_radius_tight: 26.0,
-    // Per second: how quickly the curve follows the stick in a drift.
-    drift_steering_response: 10.0,
+    // Per second: how quickly the curve follows the steering in a drift, as fast as the rotation
+    // does while gripping, smoothing only the button's tightening.
+    drift_steering_response: 60.0,
     // Holding the drift button multiplies the drift radius by this: it tightens the turn beyond
     // what the stick alone gives. Held with the stick well against the drift, it carries the drift
     // over to the other side, charge and all, through an S.
