@@ -26,7 +26,10 @@ not a car that behaves like a real one.
 
 The one structural choice is that **velocity and heading are separate**. Every tick:
 
-1. **Steering** sets a target yaw rate: `speed / turning radius`, scaled by the stick. The turning
+1. **Steering** first turns the wheel, `Car::steering`, toward the stick at `steering_rate`: from
+   center to full lock in a fifth of a second with the shipped tuning, so a key pressed or a stick
+   flicked turns the wheel instead of jumping it, and the car eases into a turn and out of it. The
+   wheel, not the stick, sets a target yaw rate: `speed / turning radius`, scaled by it. The turning
    radius grows with speed, from `turn_radius_slow` to `turn_radius_fast`, so full lock stays
    controllable at speed. The yaw rate then follows that target with an exponential response
    (`steering_response`), which smooths digital input without adding noticeable delay on an
@@ -61,12 +64,15 @@ corner by as far as its travel lags its nose; this one does not.
   and its travel, and its reaching `drift_entry_angle` breaks the car away toward the side it came
   round. With the shipped tuning, full lock at speed puts the nose about 7 degrees off the travel
   and the entry sits at 5.
-- **The angle.** The body swings toward `drift_angle` times the square root of how far the stick
-  points into the drift: most of the angle with the first touch of the stick, all of it at full
-  lock, none with the stick centered or against the drift. It follows at `drift_angle_response`:
-  with the shipped 55 degrees and 9 per second, 49 degrees a quarter of a second after the press.
-  When a drift starts, the body takes over whatever slide the car had and the heading becomes the
-  travel, so nothing on screen jumps.
+- **The angle.** The body swings toward `drift_angle` times `1 - (1 - s)²`, where `s` is how far
+  the steering points into the drift: most of the angle with the first half of the steering, all
+  of it at full lock, none with the steering centered or against the drift. The curve eases in
+  from the center, where a square root, tried first, swung the body on every twitch of the stick.
+  The body swings like a critically damped spring of natural frequency `drift_angle_response`: its
+  speed builds up and dies down instead of jumping, whether the drift starts, the stick eases or
+  the drift ends. With the shipped 55 degrees and 10 per second, it is 33 degrees across a quarter
+  of a second after the press and 51 after half a second. When a drift starts, the body takes over
+  whatever slide the car had and the heading becomes the travel, so nothing on screen jumps.
 - **Turning.** The stick sets a **signed curvature**: fully to one side turns on
   `drift_radius_tight`, centered runs straight, whichever side the drift is on. The curve follows
   the stick at `drift_steering_response`, and the travel keeps all of its speed as it turns.
@@ -84,7 +90,8 @@ corner by as far as its travel lags its nose; this one does not.
   drift charges at the slow end, never backwards.
 - **Ending.** The body back within `drift_exit_angle` of the travel, with the stick keeping it
   there, centered or against the drift, ends the drift and pays out, unless the button is held.
-  With the shipped tuning, a drift ends a quarter of a second after the stick straightens. Falling
+  With the shipped tuning, a drift ends half a second after the stick straightens, as the steering
+  unwinds and the body swings back into line. Falling
   below `drift_min_speed` ends it and pays out too.
 - **Boost.** Ending the drift converts the charge beyond `drift_min_charge` into
   `drift_boost_rate` seconds of boost per second, up to `drift_max_boost`: with the shipped tuning,
@@ -127,15 +134,23 @@ Four models came before this one, and each taught something.
    drawing that decides, which keeps the rule of 2026-09-20: off the axis starts a drift, back into
    line ends it, and the button held keeps it. The cost moved from the drift to the button, since
    the recording drifts for seconds at top speed without holding anything.
+5. **2026-09-28.** Much better, the user said, but the steering had to be smoother. It jerked: the
+   stick went straight into the yaw rate and the body followed its target at a plain rate, so the
+   nose's rotation jumped by 479 degrees per second on the tick a drift began, turned back on
+   itself when the stick eased from full lock to half, and jumped by 382 the other way when the
+   stick straightened. The wheel now turns toward the stick at `steering_rate` and the body swings
+   like a spring, and the rotation never changes by much more than 40 degrees per second from one
+   tick to the next. The price is a slower swing: 45 degrees after about 0.4 s rather than 0.25,
+   and a drift that ends half a second after the stick straightens rather than a quarter.
 
 Measured at full lock from top speed on an open road, with the shipped tuning:
 
 | | 2026-09-20 | Now | Rocket Racing, recorded |
 | --- | --- | --- | --- |
 | Into a drift | after 0.27 s of full lock | on the press | on the press |
-| Angle | 20 degrees, 26 held, after a second | 49 degrees at 0.25 s, 55 at 0.5 s | 45 to 55, at 0.35 s |
+| Angle | 20 degrees, 26 held, after a second | 33 degrees at 0.25 s, 51 at 0.5 s | 45 to 55, at 0.35 s |
 | Speed after 2 s | 5% lost, 9% held | none, 6% held | none |
-| Back into line | 0.65 s after straightening | 0.23 s | about 0.2 s |
+| Back into line | 0.65 s after straightening | 0.5 s | about 0.2 s |
 | Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | 21% over |
 
 #### What drifting is worth
@@ -262,7 +277,7 @@ around 18. The esplanade, with its bottlenecks, left late information less room:
 its gripping lap stayed clean (40.8 s), but the drifting one scraped into every bottleneck, 19 ticks
 against the walls in a lap. A drift decided on old information runs wider, and a bottleneck is
 where that shows. The skyway, 34 m wide and never pinched, is clean six ticks late in both styles:
-50.0 s gripping, 46.4 s drifting.
+50.0 s gripping, 46.3 s drifting.
 
 That margin also turned out to be a latency detector. The first drivable client displayed the race
 770 ms late because of a time-origin bug, and the autopilot, fine in every test, crashed on screen.
@@ -278,7 +293,9 @@ A player would have felt the same delay without being able to name it.
 - Drift: a press of the button starts one at once toward the stick, but not with the stick
   centered nor too slow; turning hard starts one without the button and gentle steering does not,
   toward the side the car came round; the body swings most of the way across in a third of a
-  second, further with the stick further into the drift; the car travels the curve the stick asks
+  second, further with the stick further into the drift; the nose turns without jerking, its
+  rotation changing little from one tick to the next into a drift, easing the stick and
+  straightening; the car travels the curve the stick asks
   for without running wide; a drift keeps its speed, and only the button brakes it, harder the
   longer it is held; straightening ends it and pays out, unless the button is held; the button
   held with the stick against the drift carries it over to the other side with its charge; a
