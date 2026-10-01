@@ -12,7 +12,7 @@ cargo install wasm-opt             # shrinks the module for deployment
 ```
 
 Both `wasm-server-runner` and a standalone `wasm-bindgen` CLI must match the `wasm-bindgen`
-version in `Cargo.lock` exactly (0.2.128 today). `wasm-server-runner` 1.0.1 accepts any 0.2
+version in `Cargo.lock` exactly (0.2.129 today). `wasm-server-runner` 1.0.1 accepts any 0.2
 release and `cargo install` takes the newest one, so it matches as long as the lock is up to date
 with crates.io; a mismatch shows up as an error naming both versions.
 
