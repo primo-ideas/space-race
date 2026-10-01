@@ -32,6 +32,12 @@ silently produce two incompatible `Vec2` types. So the version is pinned once, i
 `[workspace.dependencies]`, and every crate that wants `glam` takes it from there rather than
 naming a version of its own.
 
+The pin does not hold everything by itself. `bitcode`, whose `glam` feature encodes those types
+on the wire, asks for any `glam` from 0.21 up, so `cargo update` gives it the newest release
+rather than the pinned one, and its encoders then serve another crate's `Vec2`. After an update,
+`cargo tree -d | grep glam` must show nothing; when it shows a second version, bring `bitcode`
+back onto the pinned one with `cargo update -p glam@<newer> --precise <pinned>`.
+
 ## Why the server has no ECS
 
 The server owns the race state and nothing else. An ECS earns its place when a large, open-ended
