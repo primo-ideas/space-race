@@ -44,10 +44,10 @@ impl Plugin for ControlsPlugin {
     }
 }
 
-/// The input the server knows, and its number in this lobby. The engine's sound reads it too.
+/// The input the server knows, and its number in this lobby.
 #[derive(Resource, Default)]
-pub struct LastSent {
-    pub input: CarInput,
+struct LastSent {
+    input: CarInput,
     /// 0 before the first one, which is 1: snapshots say 0 until the server has one.
     seq: u32,
 }
