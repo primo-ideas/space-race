@@ -16,7 +16,7 @@ use space_race_sim::track::TrackDescription;
 pub mod auth;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 19;
+pub const PROTOCOL_VERSION: u32 = 20;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;

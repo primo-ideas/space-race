@@ -41,13 +41,17 @@
     // end, in degrees. Holding the button keeps the drift alive whatever the body does.
     drift_exit_angle: 8.0,
     // How far the body swings across the travel with the steering fully into the drift, in
-    // degrees, most of it with the first half of the steering, and how quickly it swings there and
-    // back, per second: a swing that starts and stops gently, nine tenths of it in 0.4 s at 10.
+    // degrees, most of it with the first half of the steering.
     drift_angle: 55.0,
-    drift_angle_response: 10.0,
-    // Radius of the curve the car drifts on with the stick fully to one side, in meters. The stick
-    // is signed: centered runs straight and against the drift turns the other way. The car goes
-    // where the stick says; it does not run wide.
+    // How the body swings there and back: it comes off the travel on the very tick the drift
+    // starts, slowly, its swing gathering speed at this many degrees per second per second, up to
+    // the fastest swing, in degrees per second, and slowing the same way to stop on its angle.
+    drift_swing_acceleration: 450.0,
+    drift_swing_rate: 110.0,
+    // Radius of the curve the car drifts on with the stick fully to one side and the body swung
+    // fully out, in meters: the curve tightens from the gripping car's to this one as the body
+    // swings out. The stick is signed: centered runs straight and against the drift turns the
+    // other way. The car goes where the stick says; it does not run wide.
     drift_radius_tight: 26.0,
     // Per second: how quickly the curve follows the steering in a drift, as fast as the rotation
     // does while gripping, smoothing only the button's tightening.
@@ -56,6 +60,9 @@
     // what the stick alone gives. Held with the stick well against the drift, it carries the drift
     // over to the other side, charge and all, through an S.
     drift_button_tighten: 0.7,
+    // Seconds the button must stay held for that tightening to take full effect: it comes in
+    // steadily from the press, so the tap that starts a drift barely tightens it.
+    drift_button_tighten_time: 0.4,
     // What holding the button costs, in m/s² when it is pressed, then that much more per second it
     // stays held: a drift costs nothing, tightening it does, harder and harder.
     drift_button_drag: 1.5,

@@ -72,22 +72,33 @@ corner by as far as its travel lags its nose; this one does not.
   the steering points into the drift: most of the angle with the first half of the steering, all
   of it at full lock, none with the steering centered or against the drift. The curve eases in
   from the center, where a square root, tried first, swung the body on every twitch of the stick.
-  The body swings like a critically damped spring of natural frequency `drift_angle_response`: its
-  speed builds up and dies down instead of jumping, whether the drift starts, the stick eases or
-  the drift ends. With the shipped 55 degrees and 10 per second, it is 37 degrees across a quarter
-  of a second after the press and 52 after half a second. When a drift starts, the body takes over
-  whatever slide the car had and the heading becomes the travel, so nothing on screen jumps.
+  The body **unscrews**: its swing gathers speed at `drift_swing_acceleration` and no faster, up to
+  `drift_swing_rate`, and slows down the same way to stop on its angle, so it comes off the travel
+  on the very tick the drift starts, slowly, then faster and faster, and never lunges, whether the
+  drift starts, the stick eases or the drift ends. It brakes on a curve that allows for the tick,
+  so it lands on its angle instead of hunting around it. With the shipped 55 degrees, 450 degrees
+  per second per second and 110 per second, the body is 1 degree across after 50 ms, 11 after a
+  fifth of a second, 37 after 0.45 s and all 55 after three quarters of a second. When a drift
+  starts, the body takes over whatever slide the car had and the heading becomes the travel, so
+  nothing on screen jumps.
 - **Turning.** The stick sets a **signed curvature**: fully to one side turns on
-  `drift_radius_tight`, centered runs straight, whichever side the drift is on. The curve follows
-  the wheel at `drift_steering_response`, almost at once, and the travel keeps all of its speed as
-  it turns.
+  `drift_radius_tight`, centered runs straight, whichever side the drift is on. That is the curve
+  of a drift under way: from the press, the curve tightens from the gripping car's to it as the
+  body swings out, so a drift turns harder as it gets going rather than all at once, and a car
+  breaking away by turning hard carries on on the curve it was gripping on. The curve follows the
+  wheel at `drift_steering_response`, almost at once, and the travel keeps all of its speed as it
+  turns.
 - **Speed.** A drift costs nothing: without the button, the car keeps its speed however long it
   drifts, as in the recording.
 - **The button.** Never needed after the press, and holding it does three things. It multiplies
-  the drift radius by `drift_button_tighten`, pulling the turn tighter than the stick alone can. It
+  the drift radius by `drift_button_tighten`, pulling the turn tighter than the stick alone can,
+  more and more from the press until it has been held `drift_button_tighten_time`: the tap of a
+  thumb that starts a drift, a tenth of a second or so, barely tightens it, where it used to pull
+  the turn 40% tighter for as long as the tap lasted and let it go again. It
   keeps the drift alive when the body comes back into line, so a drift can be carried down a
   straight; and with the stick more than half way against the drift, it carries the drift over to
-  the other side, charge and all, so an S is one drift. And it costs speed: `drift_button_drag`
+  the other side, charge and all, so an S is one drift, the body swinging twice its angle across
+  in about 1.2 s. And it costs speed: `drift_button_drag`
   from the moment it is pressed, plus `drift_button_drag_ramp` for every second it stays held, so a
   drift tightened for long brakes harder and harder.
 - **Charging.** The drift builds a charge: seconds of drift, counted from half to one and a half
@@ -155,16 +166,33 @@ Four models came before this one, and each taught something.
    on the very tick the stick does and eases in as it arrives, and the yaw rate follows it almost
    at once: 14% on the first tick, 42% after 50 ms and 72% after 100 ms, much as before the wheel
    existed, but still with no jump from one tick to the next.
+7. **2026-10-03.** When steering, the user said, the drift waited a little, then turned too hard:
+   rather than resisting, it should unscrew at once, slowly, then more and more. Traced tick by
+   tick, the spring of the step before pulled hardest at the start, so the body barely moved for
+   a few ticks and then lunged: tapped at full lock with a press of a tenth of a second, the
+   nose's rotation peaked at 288 degrees per second after 0.12 s and fell back under 100, the tap
+   itself pulling the turn 40% tighter while it lasted. Broken into by turning hard, the car
+   gripped for a quarter of a second, then the drift's tighter curve and the spring came in on
+   the same tick, the rotation jumping by 93 degrees per second. The body's swing now gathers
+   speed at a steady rate, up to a fastest swing; the curve tightens from the gripping car's to
+   the drift's as the body swings out; and the button's tightening comes in over 0.4 s of
+   holding. The nose now turns at 53 degrees per second after 50 ms, 150 after 0.18 s and at most
+   192, from a quarter of a second to half a second, changing by no more than about 18 degrees per
+   second from one tick to the next, whether the drift is tapped into or broken into. The price is
+   a swing of three quarters of a second rather than 0.4, and an S carried through on the button
+   in 1.2 s rather than half a second.
 
-Measured at full lock from top speed on an open road, with the shipped tuning:
+Measured at full lock from top speed on an open road, with the shipped tuning, tapping the button
+for a tenth of a second:
 
-| | 2026-09-20 | Now | Rocket Racing, recorded |
-| --- | --- | --- | --- |
-| Into a drift | after 0.27 s of full lock | on the press | on the press |
-| Angle | 20 degrees, 26 held, after a second | 37 degrees at 0.25 s, 52 at 0.5 s | 45 to 55, at 0.35 s |
-| Speed after 2 s | 5% lost, 9% held | none, 6% held | none |
-| Back into line | 0.65 s after straightening | 0.5 s | about 0.2 s |
-| Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | 21% over |
+| | 2026-09-20 | 2026-09-28 | Now | Rocket Racing, recorded |
+| --- | --- | --- | --- | --- |
+| Into a drift | after 0.27 s of full lock | on the press | on the press | on the press |
+| Angle | 20 degrees, 26 held, after a second | 37 degrees at 0.25 s, 52 at 0.5 s | 1 degree at 50 ms, 15 at 0.25 s, 44 at 0.5 s, 55 at 0.75 s | 45 to 55, at 0.35 s |
+| The nose's fastest turn | | 288 degrees per second, at 0.12 s | 192, from 0.25 s to 0.5 s | |
+| Speed after 2 s | 5% lost, 9% held | none, 6% held | none, 6% held | none |
+| Back into line | 0.65 s after straightening | 0.5 s | 0.55 s | about 0.2 s |
+| Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | to 48 m/s, 20% over | 21% over |
 
 #### What drifting is worth
 
@@ -174,7 +202,7 @@ models of their time.
 
 | Track | Without the button | With it |
 | --- | --- | --- |
-| **skyway** (34 m, relief from 3 to 47 m) | 49.9 s | **46.0 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 49.9 s | **45.9 s** |
 | skyway, with the drift of 2026-09-20 | 49.9 s | 46.9 s |
 | esplanade (28 m, bottlenecks of 13 to 15 m), no longer shipped | 41.5 s | 39.2 s |
 | esplanade, as it was before v0.1.16 | 48.4 s | 46.6 s |
@@ -183,7 +211,7 @@ models of their time.
 
 The hippodrome was the thin margin, and it should have been: its turns were 38 m sweepers taken
 nearly flat, where tightening the line buys little and the drag costs real speed. The skyway is the
-opposite, slaloms and bowls with hardly a straight, and drifting is worth 3.8 s a lap on it, 8%,
+opposite, slaloms and bowls with hardly a straight, and drifting is worth 3.9 s a lap on it, 8%,
 the most of any circuit so far: ten drifts, 24 s of the 46 spent sliding, and a boost out of every
 one. Without the button, the autopilot never turns hard enough on it to break away.
 
