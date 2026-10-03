@@ -15,6 +15,7 @@ mod race;
 mod scenery;
 mod screen;
 mod settings;
+mod sky;
 mod sound;
 mod track;
 mod ui;
@@ -102,6 +103,7 @@ fn main() {
         controls::ControlsPlugin,
         latency::LatencyPlugin,
         camera::CameraPlugin,
+        sky::SkyPlugin,
         ui::UiPlugin,
         sound::SoundPlugin {
             volume: settings.volume,

@@ -50,7 +50,8 @@ Falcon", "Drifting Hexagon"); a test checks every combination is a valid nicknam
 Dark translucent panels over the dark scene, with one neon blue accent shared with the track.
 Status colors always mean the same thing: amber for a start to come, magenta for a race on, green for
 results and finishes, orange for the player themselves (their car's color). Behind the menus, a
-neon grid rushes toward the camera and fades into fog (`backdrop.rs`).
+neon grid rushes toward the camera and fades into fog (`backdrop.rs`), under the starry sky the
+races have too, which the fog leaves alone (see [Sky](sky.md)).
 
 The font is **Saira** (SIL Open Font License, `client/assets/fonts/OFL.txt`), a variable font with
 weight and width axes: titles and big numbers use its heavy condensed italic, which gives the
