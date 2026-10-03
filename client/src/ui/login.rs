@@ -220,6 +220,21 @@ fn spawn_login(
         })
         .add_child(card)
         .with_children(|root| {
+            // A page cannot close the tab it is in, so only the native game has a way out here.
+            if cfg!(not(target_arch = "wasm32")) {
+                root.spawn(button(&fonts, ButtonKind::Secondary, "QUIT"))
+                    .insert(Node {
+                        width: px(160),
+                        margin: UiRect::top(px(pick(18.0, 10.0))),
+                        padding: UiRect::axes(px(20), px(9)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: px(1.5).all(),
+                        border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
+                        ..default()
+                    })
+                    .observe(quit);
+            }
             root.spawn((
                 Node {
                     position_type: PositionType::Absolute,
@@ -344,6 +359,11 @@ fn play(
     let theirs = offered.0.as_deref() != Some(nickname.as_str());
     preferences.update(|preferences| preferences.nickname = theirs.then(|| nickname.clone()));
     network.connect(nickname, &mut connection);
+}
+
+/// Closes the game. The window's own close button does the same, but a gamepad cannot reach it.
+fn quit(_: On<Activate>, mut exit: MessageWriter<AppExit>) {
+    exit.write(AppExit::Success);
 }
 
 fn update_login(
