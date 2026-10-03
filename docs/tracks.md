@@ -25,7 +25,7 @@ come within 81 m of each other, centerline to centerline, 22 m apart in height; 
 legs are slaloms, three turns swapping sides with no road between them, and the hairpins are
 bowls: one at the bottom of the lap, 3 m up, one that climbs 12 m as it turns, and one at the top,
 banked 34 degrees, 47 m up, from which the fourth leg dives 35 m in 235. That is where the drift
-lives: the drifting autopilot laps it in 46.0 s without touching a wall, against 49.9 s gripping.
+lives: the drifting autopilot laps it in 45.9 s without touching a wall, against 49.9 s gripping.
 
 Width is the point. It was first a matter of room: while the drift's slide was real, from
 2026-09-20 to 2026-09-27, it carried the car several meters off its line before the path came
