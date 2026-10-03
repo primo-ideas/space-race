@@ -18,7 +18,10 @@ despawn when it is left.
 - **Login** (`login.rs`): the title, and a nickname field already filled in, with the nickname last
   played under or a generated one. Playing is one press away, even with a gamepad, which cannot
   type. The dice button rolls another nickname. The last nickname is saved next to the identity key
-  when the player connects.
+  when the player connects. Under the card, QUIT closes the game: the window's close button does
+  the same, but a gamepad cannot reach it. It has no shortcut, Escape and B being "back" on every
+  other screen, where pressing them once too often must not close the game; and the web has no
+  such button, since a page cannot close the tab it is in.
 - **Lobbies** (`lobbies.rs`): every lobby, live, with its track, players and a status badge; the
   focused lobby's details beside the list (track thumbnail, what joining means right now, who is
   in). A header shows the player's nickname and the button to create a lobby. Under the list,
