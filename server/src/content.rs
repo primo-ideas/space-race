@@ -248,15 +248,20 @@ mod tests {
             };
 
             for (index, prop) in loaded.description.scenery.iter().enumerate() {
-                // A gantry spans the road on purpose; every other prop stands beside it.
+                // A gantry or a tunnel spans the road on purpose; every other prop stands beside
+                // it. A district needs no checking here: it lays its towers out clear of every part
+                // of the road itself.
                 let Some(side) = prop.side() else {
                     continue;
                 };
-                let (length, depth) = footprint(prop);
+                if matches!(prop, Prop::Skyline { .. }) {
+                    continue;
+                }
+                let (from, to, depth) = footprint(prop);
                 let offset = prop.offset().unwrap_or_default();
                 let mut closest = f32::INFINITY;
                 for step in 0..=4 {
-                    let at = prop.at() + length * step as f32 / 4.0;
+                    let at = prop.at() + from + (to - from) * step as f32 / 4.0;
                     let point = track.point_at(at);
                     for out in [0.0, depth / 2.0, depth] {
                         let lateral = side.sign() * (point.half_width + offset + out);
@@ -275,13 +280,16 @@ mod tests {
         }
     }
 
-    /// Roughly how far a prop runs along the road and how far it reaches away from it, in meters.
-    fn footprint(prop: &Prop) -> (f32, f32) {
+    /// Roughly where a prop runs along the road, from and to, in meters from where the file places
+    /// it, and how far it reaches away from the road.
+    fn footprint(prop: &Prop) -> (f32, f32, f32) {
         match *prop {
-            Prop::Grandstand { length, rows, .. } => (length, rows as f32 * 2.0),
-            Prop::Billboard { width, .. } => (width, 1.0),
-            Prop::Monolith { width, .. } => (width, width * 0.5),
-            _ => (0.0, 3.0),
+            Prop::Grandstand { length, rows, .. } => (0.0, length, rows as f32 * 2.0),
+            Prop::Facade { length, depth, .. } => (0.0, length, depth),
+            Prop::Billboard { width, .. } => (-width / 2.0, width / 2.0, 1.0),
+            Prop::Monolith { width, .. } => (-width / 2.0, width / 2.0, width * 0.5),
+            Prop::Tower { width, depth, .. } => (-width / 2.0, width / 2.0, depth),
+            _ => (0.0, 0.0, 3.0),
         }
     }
 

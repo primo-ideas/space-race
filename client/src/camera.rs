@@ -19,7 +19,7 @@ use space_race_sim::track::Track;
 use crate::lobby::CurrentLobby;
 use crate::race::{RaceUpdate, RaceView, shortest_angle};
 use crate::screen::Screen;
-use crate::track::CurrentTrack;
+use crate::track::{CurrentTrack, Roofs, WALL_THICKNESS};
 use crate::world;
 
 /// Distance behind the car and height, in meters.
@@ -41,6 +41,9 @@ const MIN_TRAVEL_SPEED: f32 = 5.0;
 /// No camera goes lower than this over the road beneath it, in meters: a shot worked out from the
 /// car alone would otherwise end up under a road that climbs toward it, or rises into a bank.
 const ROAD_CLEARANCE: f32 = 0.8;
+/// Nor does any go higher than this under the roof of a tunnel, in meters, or a shot from high up
+/// would show the roof rather than the car under it.
+const ROOF_CLEARANCE: f32 = 1.5;
 
 /// How long one shot of the finish lasts, in seconds. Short enough that no shot outstays its
 /// welcome, long enough to read what the car is doing.
@@ -64,8 +67,9 @@ const FOV_WIDE: f32 = 55.0 * PI / 180.0;
 const BESIDE_OUT: f32 = 6.0;
 const BESIDE_HEIGHT: f32 = 2.8;
 const BESIDE_EDGE: f32 = 1.5;
-/// The camera on a post stands this far down the road, this far outside the wall, and this high:
-/// high enough to look over the wall, even the raised outer wall of a banked turn.
+/// The camera on a post stands this far down the road, on top of the wall, and this high over the
+/// road's edge. On the wall rather than beyond it, where the buildings of a circuit stand. Without a
+/// track, it stands `TRACK_SIDE_OUT` meters out to the side of the car's way instead.
 const TRACK_SIDE_AHEAD: f32 = 45.0;
 const TRACK_SIDE_OUT: f32 = 6.0;
 const TRACK_SIDE_HEIGHT: f32 = 9.0;
@@ -160,6 +164,7 @@ fn follow_car(
     view: Res<RaceView>,
     current: Res<CurrentLobby>,
     track: Option<Res<CurrentTrack>>,
+    roofs: Option<Res<Roofs>>,
     time: Res<Time>,
     mut cameras: Query<(&mut Transform, &mut Projection, &mut ChaseCamera)>,
 ) {
@@ -174,13 +179,17 @@ fn follow_car(
     });
 
     let track = track.map(|track| Arc::clone(&track.0));
+    let ground = Ground {
+        track: track.as_deref(),
+        roofs: roofs.as_deref(),
+    };
     let car_position = world::position(car.position, view.followed_height);
     let slope = view.followed_gradient;
     let fov = if finished {
         show_finish(
             &mut transform,
             &mut chase,
-            track.as_deref(),
+            ground,
             &car,
             car_position,
             slope,
@@ -195,7 +204,7 @@ fn follow_car(
         chase_car(
             &mut transform,
             &mut chase,
-            track.as_deref(),
+            ground,
             &car,
             car_position,
             slope,
@@ -217,7 +226,7 @@ fn follow_car(
 fn chase_car(
     transform: &mut Transform,
     chase: &mut ChaseCamera,
-    track: Option<&Track>,
+    ground: Ground,
     car: &Car,
     car_position: Vec3,
     slope: Vec2,
@@ -239,7 +248,7 @@ fn chase_car(
 
     let forward = along_the_road(heading, grade);
     transform.translation =
-        above_the_road(track, car_position - forward * DISTANCE + Vec3::Y * HEIGHT);
+        ground.frame(car_position - forward * DISTANCE + Vec3::Y * HEIGHT);
     transform.look_at(
         car_position + forward * LOOK_AHEAD + Vec3::Y * LOOK_HEIGHT,
         Vec3::Y,
@@ -254,7 +263,7 @@ fn chase_car(
 fn show_finish(
     transform: &mut Transform,
     chase: &mut ChaseCamera,
-    track: Option<&Track>,
+    ground: Ground,
     car: &Car,
     car_position: Vec3,
     slope: Vec2,
@@ -284,7 +293,7 @@ fn show_finish(
     // Without a track — which should not happen in a lobby — every shot falls back to the car.
     let from_car = |elapsed| shot.eye(car_position, forward, left_of_car, elapsed);
 
-    let eye = match (shot, track) {
+    let eye = match (shot, ground.track) {
         // A shot that stands still is worked out once, when it starts.
         (Shot::TrackSide { left }, Some(track)) => *chase
             .stand
@@ -293,7 +302,7 @@ fn show_finish(
         (Shot::Beside { left }, Some(track)) => beside_over_the_road(track, car, left, elapsed),
         _ => from_car(elapsed),
     };
-    transform.translation = above_the_road(track, eye);
+    transform.translation = ground.frame(eye);
     transform.look_at(car_position + Vec3::Y * LOOK_HEIGHT, Vec3::Y);
     shot.fov(car)
 }
@@ -304,24 +313,45 @@ fn along_the_road(heading: f32, grade: f32) -> Vec3 {
     (world::direction(Vec2::from_angle(heading)) + Vec3::Y * grade).normalize()
 }
 
-/// `eye`, lifted if need be to stand at least [`ROAD_CLEARANCE`] over the road beneath it. Beside
-/// the road, that is the height of its nearest edge.
-fn above_the_road(track: Option<&Track>, eye: Vec3) -> Vec3 {
-    let Some(track) = track else {
-        return eye;
-    };
-    let road = track.surface(Vec2::new(eye.x, -eye.z)).height;
-    Vec3::new(eye.x, eye.y.max(road + ROAD_CLEARANCE), eye.z)
+/// What a camera must keep clear of: the road, and the roofs over it.
+#[derive(Clone, Copy)]
+struct Ground<'a> {
+    track: Option<&'a Track>,
+    roofs: Option<&'a Roofs>,
 }
 
-/// A camera on a post beside the road ahead, high enough to see over the walls: the car comes to
-/// it, goes by and away. Read from the track rather than from the car, or a turn would put the post
-/// behind a wall, or on the road itself.
+impl Ground<'_> {
+    /// `eye`, lifted if need be to stand at least [`ROAD_CLEARANCE`] over the road beneath it, and
+    /// lowered to stand [`ROOF_CLEARANCE`] under the roof of a tunnel over it. Beside the road, the
+    /// road is the height of its nearest edge, and the roof reaches as far as the walls.
+    fn frame(self, eye: Vec3) -> Vec3 {
+        let Some(track) = self.track else {
+            return eye;
+        };
+        let projection = track.project(Vec2::new(eye.x, -eye.z));
+        let road = track.surface_at(&projection).height;
+        let mut height = eye.y.max(road + ROAD_CLEARANCE);
+        let covered = projection.lateral.abs()
+            <= track.half_width_at(projection.distance) + WALL_THICKNESS;
+        if covered
+            && let Some(clearance) = self
+                .roofs
+                .and_then(|roofs| roofs.clearance_at(projection.distance, track.length()))
+        {
+            height = height.min(road + clearance - ROOF_CLEARANCE);
+        }
+        Vec3::new(eye.x, height, eye.z)
+    }
+}
+
+/// A camera on a post planted on the wall ahead, high over the road: the car comes to it, goes by
+/// and away. Read from the track rather than from the car, or a turn would put the post behind a
+/// wall, or on the road itself.
 fn track_side(track: &Track, car: &Car, left: bool) -> Vec3 {
     let here = track.project(car.position);
     let ahead = track.point_at(here.distance + TRACK_SIDE_AHEAD);
     let side = if left { 1.0 } else { -1.0 };
-    let lateral = side * (ahead.half_width + TRACK_SIDE_OUT);
+    let lateral = side * (ahead.half_width + WALL_THICKNESS / 2.0);
     world::position(
         ahead.position + ahead.direction.perp() * lateral,
         track.height_beside(&ahead, lateral) + TRACK_SIDE_HEIGHT,
@@ -399,6 +429,8 @@ fn travel_heading(car: &Car) -> f32 {
 #[cfg(test)]
 mod tests {
     use space_race_sim::track::{Elevation, Segment, TrackDescription};
+
+    use crate::track::Roof;
 
     use super::*;
 
@@ -505,14 +537,50 @@ mod tests {
         let road = track.height_beside(&point, 0.0);
         assert!(road > 5.0, "{road} m up");
 
+        let ground = Ground {
+            track: Some(&track),
+            roofs: None,
+        };
         let under = world::position(point.position, road - 2.0);
-        let lifted = above_the_road(Some(&track), under);
+        let lifted = ground.frame(under);
         assert!(
             (lifted.y - (road + ROAD_CLEARANCE)).abs() < 0.05,
             "{lifted}"
         );
         let over = world::position(point.position, road + 4.0);
-        assert_eq!(above_the_road(Some(&track), over), over);
+        assert_eq!(ground.frame(over), over);
+    }
+
+    /// Under a tunnel, a shot from high up is brought down under the roof, and only there: past the
+    /// mouth, or out beside the walls, it stays where it is.
+    #[test]
+    fn no_shot_goes_through_a_tunnel_roof() {
+        let track = oval();
+        let roofs = Roofs(vec![Roof {
+            at: 20.0,
+            length: 40.0,
+            clearance: 9.0,
+        }]);
+        let ground = Ground {
+            track: Some(&track),
+            roofs: Some(&roofs),
+        };
+        let high = |at: f32, lateral: f32| {
+            let point = track.point_at(at);
+            world::position(
+                point.position + point.direction.perp() * lateral,
+                track.height_beside(&point, lateral) + 12.0,
+            )
+        };
+        let inside = ground.frame(high(40.0, 0.0));
+        let road = track.height_beside(&track.point_at(40.0), 0.0);
+        assert!(
+            (inside.y - (road + 9.0 - ROOF_CLEARANCE)).abs() < 0.05,
+            "{inside}"
+        );
+        for outside in [high(80.0, 0.0), high(40.0, track.half_width() + 5.0)] {
+            assert_eq!(ground.frame(outside), outside);
+        }
     }
 
     /// A car `lateral` meters from the centerline, `at` meters along the lap.
@@ -532,14 +600,16 @@ mod tests {
     }
 
     #[test]
-    fn the_camera_on_a_post_stands_outside_the_wall_and_down_the_road() {
+    fn the_camera_on_a_post_stands_on_the_wall_and_down_the_road() {
         let track = oval();
         // In a turn, where dead reckoning would put the post through the outer wall.
         let car = car_on_track(&track, 45.0, 0.0);
         for left in [true, false] {
             let stand = track_side(&track, &car, left);
             let lateral = lateral_of(&track, stand);
-            assert!(lateral.abs() > track.half_width(), "{lateral} m");
+            // On the wall, short of where the buildings of a circuit stand.
+            let wall = lateral.abs() - track.half_width();
+            assert!((0.0..=WALL_THICKNESS).contains(&wall), "{wall} m out");
             assert_eq!(lateral.signum(), if left { 1.0 } else { -1.0 });
             // High enough to look over a wall, and far enough down the road to be driven past.
             assert!(stand.y > 5.0, "{} m up", stand.y);

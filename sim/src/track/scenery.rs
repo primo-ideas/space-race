@@ -8,7 +8,8 @@
 //! A prop is placed the way a marshal would describe a spot on a circuit: how far along the lap it
 //! is, which side of the road it stands on, and how far back from the wall. Nothing is written in
 //! world coordinates, so a prop keeps its place when the road around it is redrawn, and the editor
-//! to come can move one by dragging it along the road.
+//! to come can move one by dragging it along the road. Heights are measured from the road too: a
+//! prop stands at the level of the road beside it, however high the relief carries the road there.
 
 use bitcode::{Decode, Encode};
 use serde::Deserialize;
@@ -23,6 +24,9 @@ const MAX_ROWS: u8 = 24;
 const MAX_CHEVRONS: u8 = 8;
 /// A gantry beam must clear the walls by at least this much, in meters.
 const MIN_CLEARANCE: f32 = 4.0;
+/// A tunnel roof must stand at least this high over the road, in meters: the chase camera hangs
+/// 3.2 m over the road behind the car, and climbs a little higher where the road dives.
+const MIN_TUNNEL_CLEARANCE: f32 = 7.0;
 
 /// Which side of the road a prop stands on, looking along the driving direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Encode, Decode)]
@@ -124,6 +128,64 @@ pub enum Prop {
         #[serde(default = "monolith_width")]
         width: f32,
     },
+    /// A tower of the city the road runs through, rising out of the dark below to `height` meters
+    /// over the road, lit by bands of neon. Big enough to hide the road behind it: set on the
+    /// inside of a turn, it keeps what comes after the turn out of sight until the car is in it.
+    Tower {
+        at: f32,
+        side: Side,
+        #[serde(default = "tower_offset")]
+        offset: f32,
+        #[serde(default = "tower_height")]
+        height: f32,
+        /// Along the road, in meters.
+        #[serde(default = "tower_width")]
+        width: f32,
+        /// Away from the road, in meters.
+        #[serde(default = "tower_depth")]
+        depth: f32,
+    },
+    /// A district of towers filling the ground beside the road, `length` meters along it and
+    /// `depth` meters out, the tallest `height` meters over the road. The renderer lays the towers
+    /// out itself, and leaves out any that would stand on or against another part of the road, so
+    /// a district can be given the whole space between two legs of a circuit and fill what is
+    /// free of it.
+    Skyline {
+        at: f32,
+        side: Side,
+        #[serde(default = "skyline_offset")]
+        offset: f32,
+        #[serde(default = "skyline_length")]
+        length: f32,
+        #[serde(default = "skyline_depth")]
+        depth: f32,
+        #[serde(default = "skyline_height")]
+        height: f32,
+    },
+    /// A long building following the road, its face lined with floors of neon. Where towers would
+    /// leave gaps, around a turn, it draws an unbroken wall.
+    Facade {
+        at: f32,
+        side: Side,
+        #[serde(default = "facade_offset")]
+        offset: f32,
+        #[serde(default = "facade_length")]
+        length: f32,
+        #[serde(default = "facade_height")]
+        height: f32,
+        #[serde(default = "facade_depth")]
+        depth: f32,
+    },
+    /// A roof over the road for `length` meters, its walls just outside the road's, ringed inside
+    /// with neon. It hides everything around it, and the rings flashing by show the speed. The roof
+    /// follows the road across, `clearance` meters over it, so it banks with a banked turn.
+    Tunnel {
+        at: f32,
+        #[serde(default = "tunnel_length")]
+        length: f32,
+        #[serde(default = "tunnel_clearance")]
+        clearance: f32,
+    },
 }
 
 const fn gantry_clearance() -> f32 {
@@ -186,6 +248,62 @@ const fn monolith_width() -> f32 {
     12.0
 }
 
+const fn tower_offset() -> f32 {
+    8.0
+}
+
+const fn tower_height() -> f32 {
+    40.0
+}
+
+const fn tower_width() -> f32 {
+    18.0
+}
+
+const fn tower_depth() -> f32 {
+    18.0
+}
+
+const fn skyline_offset() -> f32 {
+    6.0
+}
+
+const fn skyline_length() -> f32 {
+    120.0
+}
+
+const fn skyline_depth() -> f32 {
+    60.0
+}
+
+const fn skyline_height() -> f32 {
+    40.0
+}
+
+const fn facade_offset() -> f32 {
+    4.0
+}
+
+const fn facade_length() -> f32 {
+    60.0
+}
+
+const fn facade_height() -> f32 {
+    18.0
+}
+
+const fn facade_depth() -> f32 {
+    14.0
+}
+
+const fn tunnel_length() -> f32 {
+    80.0
+}
+
+const fn tunnel_clearance() -> f32 {
+    9.0
+}
+
 impl Prop {
     /// Distance along the lap where the prop stands, in meters from the start line.
     pub fn at(&self) -> f32 {
@@ -195,19 +313,26 @@ impl Prop {
             | Self::Grandstand { at, .. }
             | Self::Billboard { at, .. }
             | Self::Chevrons { at, .. }
-            | Self::Monolith { at, .. } => at,
+            | Self::Monolith { at, .. }
+            | Self::Tower { at, .. }
+            | Self::Skyline { at, .. }
+            | Self::Facade { at, .. }
+            | Self::Tunnel { at, .. } => at,
         }
     }
 
     /// The side of the road the prop stands on, or `None` for a prop that spans it.
     pub fn side(&self) -> Option<Side> {
         match *self {
-            Self::Gantry { .. } => None,
+            Self::Gantry { .. } | Self::Tunnel { .. } => None,
             Self::Pylon { side, .. }
             | Self::Grandstand { side, .. }
             | Self::Billboard { side, .. }
             | Self::Chevrons { side, .. }
-            | Self::Monolith { side, .. } => Some(side),
+            | Self::Monolith { side, .. }
+            | Self::Tower { side, .. }
+            | Self::Skyline { side, .. }
+            | Self::Facade { side, .. } => Some(side),
         }
     }
 
@@ -215,12 +340,15 @@ impl Prop {
     /// road.
     pub fn offset(&self) -> Option<f32> {
         match *self {
-            Self::Gantry { .. } => None,
+            Self::Gantry { .. } | Self::Tunnel { .. } => None,
             Self::Pylon { offset, .. }
             | Self::Grandstand { offset, .. }
             | Self::Billboard { offset, .. }
             | Self::Chevrons { offset, .. }
-            | Self::Monolith { offset, .. } => Some(offset),
+            | Self::Monolith { offset, .. }
+            | Self::Tower { offset, .. }
+            | Self::Skyline { offset, .. }
+            | Self::Facade { offset, .. } => Some(offset),
         }
     }
 
@@ -259,6 +387,43 @@ impl Prop {
             Self::Monolith { height, width, .. } => {
                 size(height)?;
                 size(width)?;
+            }
+            Self::Tower {
+                height,
+                width,
+                depth,
+                ..
+            } => {
+                size(height)?;
+                size(width)?;
+                size(depth)?;
+            }
+            Self::Skyline {
+                length: along,
+                depth,
+                height,
+                ..
+            }
+            | Self::Facade {
+                length: along,
+                depth,
+                height,
+                ..
+            } => {
+                size(along)?;
+                size(depth)?;
+                size(height)?;
+            }
+            Self::Tunnel {
+                length: along,
+                clearance,
+                ..
+            } => {
+                size(along)?;
+                if !(clearance.is_finite() && (MIN_TUNNEL_CLEARANCE..=MAX_SIZE).contains(&clearance))
+                {
+                    return Err("a tunnel roof must stand at least 7 meters over the road");
+                }
             }
         }
         Ok(())
@@ -345,6 +510,37 @@ mod tests {
         };
         assert!(gantry(MIN_CLEARANCE).validate(500.0).is_ok());
         assert!(gantry(1.0).validate(500.0).is_err());
+    }
+
+    #[test]
+    fn a_tunnel_leaves_the_camera_room_under_its_roof() {
+        let tunnel = |clearance| Prop::Tunnel {
+            at: 10.0,
+            length: 60.0,
+            clearance,
+        };
+        assert!(tunnel(MIN_TUNNEL_CLEARANCE).validate(500.0).is_ok());
+        assert!(tunnel(4.0).validate(500.0).is_err());
+        // Like a gantry, it spans the road rather than standing beside it.
+        assert_eq!(tunnel(9.0).side(), None);
+        assert_eq!(tunnel(9.0).offset(), None);
+    }
+
+    #[test]
+    fn a_district_writes_only_what_it_wants_different() {
+        let prop: Prop = ron::from_str("Skyline(at: 100.0, side: Right, depth: 80.0)").unwrap();
+        assert_eq!(
+            prop,
+            Prop::Skyline {
+                at: 100.0,
+                side: Side::Right,
+                offset: skyline_offset(),
+                length: skyline_length(),
+                depth: 80.0,
+                height: skyline_height(),
+            }
+        );
+        assert!(prop.validate(500.0).is_ok());
     }
 
     #[test]

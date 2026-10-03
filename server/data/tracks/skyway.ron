@@ -106,4 +106,71 @@
         (at: 1758.0, height: 25.0),
         (at: 1809.0, height: 24.0),
     ],
+    scenery: [
+        // The line, under its arch, between two stands, the city behind them.
+        Gantry(at: 0.0),
+        Grandstand(at: 1790.0, side: Right, offset: 4.0, length: 64.0, rows: 8),
+        Grandstand(at: 1795.0, side: Left, offset: 4.0, length: 54.0, rows: 6),
+        Skyline(at: 1790.0, side: Left, offset: 6.0, length: 85.0, depth: 80.0, height: 45.0),
+        Skyline(at: 1785.0, side: Right, offset: 8.0, length: 80.0, depth: 60.0, height: 35.0),
+        // The launch: the district between the first two legs on the left, the city on the right,
+        // and a long building hugging the inside of the bend that hides the bowl.
+        Facade(at: 85.0, side: Left, offset: 2.0, length: 50.0, height: 14.0, depth: 10.0),
+        Skyline(at: 25.0, side: Left, offset: 6.0, length: 175.0, depth: 80.0, height: 42.0),
+        Billboard(at: 60.0, side: Right, offset: 3.0),
+        Billboard(at: 165.0, side: Right, offset: 3.0),
+        Skyline(at: 20.0, side: Right, offset: 8.0, length: 230.0, depth: 60.0, height: 35.0),
+        // The bowl, around a tower, a stand along its outside.
+        Chevrons(at: 232.0, side: Right),
+        Tower(at: 300.0, side: Left, offset: 19.0, height: 45.0, width: 26.0, depth: 26.0),
+        Grandstand(at: 270.0, side: Right, offset: 4.0, length: 80.0, rows: 8),
+        Pylon(at: 260.0, side: Left, offset: 1.0, height: 18.0),
+        Pylon(at: 345.0, side: Left, offset: 1.0, height: 18.0),
+        Skyline(at: 245.0, side: Right, offset: 8.0, length: 150.0, depth: 60.0, height: 40.0),
+        Gantry(at: 385.0),
+        // The switchback, through a tunnel over its crest, the district between the second and the
+        // third legs on its right.
+        Billboard(at: 425.0, side: Left, offset: 3.0),
+        Tunnel(at: 455.0, length: 70.0),
+        Skyline(at: 395.0, side: Right, offset: 6.0, length: 175.0, depth: 80.0, height: 50.0),
+        // The spiral, climbing around the spire.
+        Chevrons(at: 565.0, side: Left),
+        Tower(at: 650.0, side: Right, offset: 16.0, height: 60.0, width: 28.0, depth: 28.0),
+        Pylon(at: 610.0, side: Left, offset: 3.0, height: 20.0),
+        Pylon(at: 660.0, side: Left, offset: 3.0, height: 20.0),
+        Pylon(at: 710.0, side: Left, offset: 3.0, height: 20.0),
+        // The ridge, the district between the third and the fourth legs on its left, and a long
+        // building on the inside of its bend, over the drop to the second leg.
+        Skyline(at: 755.0, side: Left, offset: 6.0, length: 175.0, depth: 80.0, height: 35.0),
+        Facade(at: 812.0, side: Right, offset: 2.0, length: 55.0, height: 12.0, depth: 10.0),
+        Billboard(at: 880.0, side: Right, offset: 3.0),
+        Tower(at: 940.0, side: Right, offset: 8.0, height: 35.0, width: 24.0, depth: 24.0),
+        // The sky bowl, around a tower of its own, a stand along its outside.
+        Chevrons(at: 945.0, side: Right),
+        Tower(at: 975.0, side: Right, offset: 10.0, height: 30.0, width: 22.0, depth: 22.0),
+        Tower(at: 1040.0, side: Left, offset: 20.0, height: 40.0, width: 28.0, depth: 28.0),
+        Grandstand(at: 995.0, side: Right, offset: 4.0, length: 90.0, rows: 10),
+        Skyline(at: 955.0, side: Right, offset: 8.0, length: 170.0, depth: 60.0, height: 30.0),
+        // The dive, out of a tunnel, the city falling away on its right, a long building on the
+        // inside of its long bend.
+        Tunnel(at: 1150.0, length: 80.0),
+        Skyline(at: 1135.0, side: Right, offset: 8.0, length: 145.0, depth: 60.0, height: 40.0),
+        Facade(at: 1240.0, side: Left, offset: 2.0, length: 70.0, height: 12.0, depth: 10.0),
+        Billboard(at: 1265.0, side: Right, offset: 3.0),
+        Skyline(at: 1280.0, side: Right, offset: 8.0, length: 140.0, depth: 60.0, height: 40.0),
+        Skyline(at: 1290.0, side: Left, offset: 6.0, length: 130.0, depth: 60.0, height: 40.0),
+        // The sink.
+        Chevrons(at: 1418.0, side: Right),
+        Pylon(at: 1465.0, side: Left, offset: 1.0, height: 16.0),
+        Skyline(at: 1420.0, side: Right, offset: 8.0, length: 110.0, depth: 50.0, height: 35.0),
+        // The climb, through a tunnel over its crest, the district around the spiral on its left.
+        Billboard(at: 1565.0, side: Right, offset: 3.0),
+        Tunnel(at: 1595.0, length: 70.0),
+        Skyline(at: 1520.0, side: Left, offset: 6.0, length: 195.0, depth: 80.0, height: 45.0),
+        Skyline(at: 1520.0, side: Right, offset: 8.0, length: 200.0, depth: 60.0, height: 40.0),
+        // The last corner.
+        Chevrons(at: 1716.0, side: Right),
+        Pylon(at: 1760.0, side: Left, offset: 1.0, height: 16.0),
+        Skyline(at: 1715.0, side: Right, offset: 8.0, length: 75.0, depth: 50.0, height: 35.0),
+    ],
 )

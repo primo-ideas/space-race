@@ -39,6 +39,12 @@ impl Frame {
         self.point(Vec3::new(0.0, profile.y, profile.x))
     }
 
+    /// How high the frame stands in the world: a height `world` meters above the ground is
+    /// `world - frame.height()` in the frame.
+    pub fn height(&self) -> f32 {
+        self.origin.y
+    }
+
     /// A world position written back in this frame, the other way round from [`Frame::point`].
     #[cfg(test)]
     pub fn local(&self, world: Vec3) -> Vec3 {
@@ -60,12 +66,17 @@ impl Geometry {
     /// A quad from four corners in order around it, facing `normal`. The winding is derived from
     /// the normal, so callers cannot get it wrong.
     pub fn quad(&mut self, corners: [Vec3; 4], normal: Vec3, color: Color) {
+        self.quad_shaded(corners, normal, [color; 4]);
+    }
+
+    /// A quad whose color runs from one corner to the next: the color of each corner, given in the
+    /// same order, blended across the quad.
+    pub fn quad_shaded(&mut self, corners: [Vec3; 4], normal: Vec3, colors: [Color; 4]) {
         let base = self.positions.len() as u32;
-        let color = color.to_linear().to_f32_array();
-        for corner in corners {
+        for (corner, color) in corners.into_iter().zip(colors) {
             self.positions.push(corner.to_array());
             self.normals.push(normal.to_array());
-            self.colors.push(color);
+            self.colors.push(color.to_linear().to_f32_array());
         }
         let winding = (corners[1] - corners[0]).cross(corners[2] - corners[0]);
         let order = if winding.dot(normal) >= 0.0 {
@@ -87,6 +98,11 @@ impl Geometry {
     /// A quad facing away from `inside`, a point on its hidden side: the way every face of a solid
     /// is turned, whatever order its corners come in.
     pub fn quad_facing_away(&mut self, corners: [Vec3; 4], inside: Vec3, color: Color) {
+        self.quad_facing_away_shaded(corners, inside, [color; 4]);
+    }
+
+    /// [`Geometry::quad_facing_away`], its color running from one corner to the next.
+    pub fn quad_facing_away_shaded(&mut self, corners: [Vec3; 4], inside: Vec3, colors: [Color; 4]) {
         let across = (corners[2] - corners[0]).cross(corners[3] - corners[1]);
         let outward = corners[0] - inside;
         let normal = if across.dot(outward) < 0.0 {
@@ -94,7 +110,7 @@ impl Geometry {
         } else {
             across
         };
-        self.quad(corners, normal.normalize_or(Vec3::Y), color);
+        self.quad_shaded(corners, normal.normalize_or(Vec3::Y), colors);
     }
 
     /// A box between two opposite corners written in `frame`.
@@ -124,7 +140,18 @@ impl Geometry {
             })
         };
         let (low, high) = (from.y.min(to.y), from.y.max(to.y));
-        self.solid(ring(1.0, low), ring(top_scale, high), color);
+        self.solid(ring(1.0, low), ring(top_scale, high), color, color);
+    }
+
+    /// A box between two opposite corners written in `frame`, `bottom` colored at its bottom and
+    /// `top` at its top, blended up its sides: a footing fading into the dark it stands in.
+    pub fn shaded_block(&mut self, frame: &Frame, from: Vec3, to: Vec3, bottom: Color, top: Color) {
+        let (min, max) = (from.min(to), from.max(to));
+        let ring = |y: f32| {
+            [[min.x, min.z], [max.x, min.z], [max.x, max.z], [min.x, max.z]]
+                .map(|[x, z]| frame.point(Vec3::new(x, y, z)))
+        };
+        self.solid(ring(min.y), ring(max.y), bottom, top);
     }
 
     /// A square bar of `thickness` between two points of `frame`, running any which way: the
@@ -142,7 +169,7 @@ impl Geometry {
             [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
                 .map(|[s, u]| frame.point(end + side * (s * half) + up * (u * half)))
         };
-        self.solid(ring(from), ring(to), color);
+        self.solid(ring(from), ring(to), color, color);
     }
 
     /// Sweeps a `profile`, written in the `(z, y)` cross-section of each frame, along a run of
@@ -170,19 +197,25 @@ impl Geometry {
     }
 
     /// The six faces of a box, from its bottom and top rings of corners, each given in the same
-    /// order around the box.
-    fn solid(&mut self, bottom: [Vec3; 4], top: [Vec3; 4], color: Color) {
+    /// order around the box, and the colors of the two rings, blended up its sides.
+    fn solid(&mut self, bottom: [Vec3; 4], top: [Vec3; 4], low: Color, high: Color) {
         let middle = (bottom.iter().chain(&top).copied().sum::<Vec3>()) / 8.0;
-        self.quad_facing_away(bottom, middle, color);
-        self.quad_facing_away(top, middle, color);
+        self.quad_facing_away(bottom, middle, low);
+        self.quad_facing_away(top, middle, high);
         for corner in 0..4 {
             let next = (corner + 1) % 4;
-            self.quad_facing_away(
+            self.quad_facing_away_shaded(
                 [bottom[corner], bottom[next], top[next], top[corner]],
                 middle,
-                color,
+                [low, low, high, high],
             );
         }
+    }
+
+    /// Every vertex color built so far, in linear space, for tests that check how a shape is lit.
+    #[cfg(test)]
+    pub fn colors(&self) -> impl Iterator<Item = [f32; 4]> {
+        self.colors.iter().copied()
     }
 
     /// How many triangles have been built so far.

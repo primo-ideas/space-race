@@ -130,10 +130,12 @@ the end of the race, drive freely through the results as before.
 
 The client stops chasing it at the same moment. Instead it cuts between shots every 3.6 s, the way
 a race is shown on television: low behind the car, alongside it, ahead of it looking back, high
-above the line it takes, and one camera planted beside the road that the car drives past and away
-from. Most shots are worked out from the car alone, along the slope it is on; the two that would
-otherwise end up inside a wall, the one keeping pace beside it and the one on a post, read the road
-instead, and none is ever let below the road under it. A cut is a cut,
+above the line it takes, and one camera planted on the wall ahead that the car drives past and
+away from. Most shots are worked out from the car alone, along the slope it is on; the two that
+would otherwise end up inside a wall, the one keeping pace beside it and the one on a post, read the
+road instead. The post stands on the wall itself rather than beyond it, where the buildings of a
+circuit stand. No shot is ever let below the road under it, nor through the roof of a tunnel over
+it: under one, a shot from high up is held 1.5 m under the roof. A cut is a cut,
 never a sweep. The player still sees their place and their time in the HUD, whose hints fall back
 to the one key that still does anything, the one that leaves, and the race ends for everyone as
 usual.
