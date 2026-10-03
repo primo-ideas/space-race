@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use space_race_sim::track::scenery::Prop;
 use space_race_sim::track::{Track, TrackPoint};
@@ -22,7 +23,7 @@ pub const WALL_HEIGHT: f32 = 1.0;
 pub const WALL_THICKNESS: f32 = 0.6;
 /// How thick the road is under its surface, in meters: it floats in the dark as a slab, its walls
 /// running down past its edges to the underside, however high the relief carries it.
-const SLAB: f32 = 1.5;
+pub const SLAB: f32 = 1.5;
 /// Wall stripes alternate colors every this many meters.
 const WALL_STRIPE: f32 = 4.0;
 const DASH_LENGTH: f32 = 4.0;
@@ -57,6 +58,49 @@ impl Plugin for TrackPlugin {
 #[derive(Resource)]
 pub struct CurrentTrack(pub Arc<Track>);
 
+/// The roofs over the circuit: its tunnels, which no camera may rise through.
+#[derive(Resource, Default)]
+pub struct Roofs(pub Vec<Roof>);
+
+/// A tunnel's roof: from `at` for `length` meters along the lap, `clearance` meters over the road.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Roof {
+    pub at: f32,
+    pub length: f32,
+    pub clearance: f32,
+}
+
+impl Roofs {
+    fn of(props: &[Prop]) -> Self {
+        Self(
+            props
+                .iter()
+                .filter_map(|prop| match *prop {
+                    Prop::Tunnel {
+                        at,
+                        length,
+                        clearance,
+                    } => Some(Roof {
+                        at,
+                        length,
+                        clearance,
+                    }),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    /// How high the roof stands over the road `distance` meters along a lap `lap` meters round, if
+    /// a tunnel covers the road there.
+    pub fn clearance_at(&self, distance: f32, lap: f32) -> Option<f32> {
+        self.0
+            .iter()
+            .find(|roof| (distance - roof.at).rem_euclid(lap) <= roof.length)
+            .map(|roof| roof.clearance)
+    }
+}
+
 #[derive(Component)]
 struct TrackScene;
 
@@ -79,6 +123,7 @@ fn spawn_track(
     // Colors come from the vertices; the materials only set how the surfaces take light.
     let TrackMeshes {
         lit,
+        scenery,
         neon,
         triangles,
     } = track_meshes(&track, &entry.description.scenery);
@@ -95,6 +140,21 @@ fn spawn_track(
         Mesh3d(meshes.add(lit)),
         MeshMaterial3d(lit_material),
     ));
+    // The scenery casts no shadow: under a tunnel the road stays as readable as anywhere else, and
+    // the city is not drawn again into the shadow maps every frame. Nor does it shine: seen along
+    // its faces, as the road shows them, a building would catch the light whatever its color, and
+    // the city has to stay dark behind its neon.
+    let scenery_material = materials.add(StandardMaterial {
+        perceptual_roughness: 1.0,
+        reflectance: 0.0,
+        ..default()
+    });
+    commands.spawn((
+        TrackScene,
+        Mesh3d(meshes.add(scenery)),
+        MeshMaterial3d(scenery_material),
+        NotShadowCaster,
+    ));
     commands.spawn((
         TrackScene,
         Mesh3d(meshes.add(neon)),
@@ -108,6 +168,7 @@ fn spawn_track(
         "track built"
     );
     commands.insert_resource(CurrentTrack(track));
+    commands.insert_resource(Roofs::of(&entry.description.scenery));
 }
 
 fn remove_track(mut commands: Commands, scenes: Query<Entity, With<TrackScene>>) {
@@ -115,12 +176,15 @@ fn remove_track(mut commands: Commands, scenes: Query<Entity, With<TrackScene>>)
         commands.entity(scene).despawn();
     }
     commands.remove_resource::<CurrentTrack>();
+    commands.remove_resource::<Roofs>();
 }
 
 /// The track split by material: surfaces that take light, and neon that glows on its own. The
-/// scenery goes into the same two meshes, so a decorated circuit costs no more draw calls.
+/// scenery's neon goes into the same mesh as the track's, and its surfaces into one of their own,
+/// which casts no shadow, so a decorated circuit costs three draw calls.
 struct TrackMeshes {
     lit: Mesh,
+    scenery: Mesh,
     neon: Mesh,
     triangles: usize,
 }
@@ -133,10 +197,12 @@ fn track_meshes(track: &Track, props: &[Prop]) -> TrackMeshes {
     walls(&mut lit, &mut neon, track);
     center_dashes(&mut neon, track);
     start_line(&mut lit, track);
-    scenery::build(&mut lit, &mut neon, track, props);
+    let mut scenery = Geometry::default();
+    scenery::build(&mut scenery, &mut neon, track, props);
     TrackMeshes {
-        triangles: lit.triangles() + neon.triangles(),
+        triangles: lit.triangles() + scenery.triangles() + neon.triangles(),
         lit: lit.into_mesh(),
+        scenery: scenery.into_mesh(),
         neon: neon.into_mesh(),
     }
 }

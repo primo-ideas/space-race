@@ -2,6 +2,7 @@ mod camera;
 #[cfg(not(target_arch = "wasm32"))]
 mod capture;
 mod controls;
+mod dice;
 mod drift_meter;
 mod geometry;
 mod latency;

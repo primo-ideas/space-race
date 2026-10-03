@@ -16,7 +16,8 @@ on it is straight or level for long. It is drawn after the circuits of Rocket Ra
 turn, climb, dive and bank all at once: the relief runs from 3 m up to 47 m and back (see
 [Relief](#relief)), every one of its twenty turns is banked, the steepest stretch dives at 14
 degrees, and the only straight is the 68 m around the start line, which is there because the
-starting grid needs somewhere to stand. It has no bottleneck and no scenery.
+starting grid needs somewhere to stand. It has no bottleneck, and runs through a city at night (see
+[The skyway's city](#the-skyways-city)).
 
 The lap folds back on itself like a comb: four legs, joined by three hairpins and closed by two
 banked corners, so the road always has another part of itself beside it, above or below. Two legs
@@ -210,15 +211,16 @@ Props stand beside the road: a `scenery` list in the same file, next to the segm
 They are decoration and nothing else. The simulation never sees them — they stand outside the
 walls, where no car can reach — so adding one cannot change how a circuit drives. The format is
 `Prop` in `sim/src/track/scenery.rs`; props travel to clients with the rest of the
-description, and the client builds them into the same two meshes as the track itself, so a
-decorated circuit still costs two draw calls.
+description, and the client builds them (`client/src/scenery.rs`).
 
 ```ron
 scenery: [
     Gantry(at: 0.0),
     Chevrons(at: 46.0, side: Right, offset: 1.0),
     Grandstand(at: 196.0, side: Right, offset: 7.0, length: 64.0, rows: 8),
-    Monolith(at: 120.0, side: Right, offset: 95.0, height: 44.0, width: 14.0),
+    Tower(at: 650.0, side: Right, offset: 16.0, height: 60.0, width: 28.0, depth: 28.0),
+    Skyline(at: 395.0, side: Right, length: 175.0, depth: 80.0, height: 50.0),
+    Tunnel(at: 455.0, length: 70.0),
 ],
 ```
 
@@ -228,6 +230,14 @@ A prop is placed the way a marshal would describe a spot on a circuit, never in 
 - `side`: `Left` or `Right`, looking along the driving direction.
 - `offset`: meters from the outer face of the wall to the face of the prop that looks at the road.
   Zero leaves it leaning against the wall, and no prop ever overhangs the road.
+
+**Heights are measured from the road too.** A prop stands at the level of the road's edge on its
+side, however high the relief carries the road there, and on the raised edge of a banked turn when
+that is its side: a pylon 16 m tall beside the sky bowl rises 16 m over a road 47 m up. Whatever
+stands beside the road also reaches down from there into the dark, on a footing that fades to
+black on its way to 40 m below the ground, the ground nobody sees: the props seem to rise out of
+nothing, the way the road floats over it. A tunnel hangs from the road instead, down to the
+underside of its slab.
 
 A prop therefore keeps its place when the road around it is redrawn, and the editor to come can move
 one by dragging it along the road. Every size has a default, so a file writes only what it wants
@@ -241,30 +251,75 @@ different.
 | `Billboard` | A panel on two posts, its neon frame and stripes facing the road. | `offset` 4 m, `width` 10 m, `height` 5 m |
 | `Chevrons` | A marker board of stacked arrows, facing back down the road at the cars coming. | `offset` 1.5 m, `count` 3 |
 | `Monolith` | A tall slab far out in the dark, seamed with neon. | `offset` 70 m, `height` 32 m, `width` 12 m |
+| `Tower` | A tower of the city, banded with lit floors: a plain block, a block with a narrower one set back on top, or a block crowned with a spire and a mast. Its `at` is the middle of its face. | `offset` 8 m, `height` 40 m, `width` 18 m along the road, `depth` 18 m |
+| `Skyline` | A district: towers filling the ground beside the road, `length` along it and `depth` out, none taller than `height`. | `offset` 6 m, `length` 120 m, `depth` 60 m, `height` 40 m |
+| `Facade` | A long building following the road, floors of light across its face, its roof edges lit. | `offset` 4 m, `length` 60 m, `height` 18 m, `depth` 14 m |
+| `Tunnel` | A roof over the road on walls just outside the road's own, ringed inside with neon every 12 m. It spans the road, so it takes no `side` and no `offset`. | `length` 80 m, `clearance` 9 m |
 
-Two props read the road rather than the file. A gantry measures its clearance from the higher of the
-two walls, so an arch over a banked turn rises with the road instead of cutting into it. A marker
-board reads the bend from the centerline a dozen meters either side of it and turns its arrows into
-the turn, whichever side of the road it stands on; where the road runs straight the arrows point away
-from it, which is the sign of a board in the wrong place.
+Some props read the road rather than the file. A gantry measures its clearance from the higher of
+the two walls, so an arch over a banked turn rises with the road instead of cutting into it. A
+marker board reads the bend from the centerline a dozen meters either side of it and turns its
+arrows into the turn, whichever side of the road it stands on; where the road runs straight the
+arrows point away from it, which is the sign of a board in the wrong place. A tunnel's roof stands
+`clearance` over the road everywhere across it, so it banks with a banked turn. No tunnel may be
+lower than 7 m, the chase camera hanging 3.2 m over the road and climbing a little higher where the
+road dives, and no shot of the finish camera ever rises through a roof: under a tunnel, it is held
+1.5 m under it.
 
-Nothing checks a prop against the rest of the circuit: a track is built from its own file, and a
-prop is only known to stand off the road where it is placed. A circuit doubles back on itself,
-though, so a stand or a slab set far out on one turn can land on another part of the lap. The
-shipped tracks are checked against their whole centerline by a test in `server/src/content.rs`.
+**A district lays itself out.** Its towers stand in rows along the road, the nearest row the
+lowest, their sizes and shapes rolled from the district's own numbers, so the same file always
+builds the same city on every client. A tower is kept only if it stands at least 5 m outside the
+walls of every part of the road, its own and any other (less, if the file places the district
+closer to its own road than that), and clear of every building already standing: the towers, slabs,
+facades and grandstands the file places, and the districts before it in the file. So a district
+can be given more ground than there is — the whole space between two legs of a circuit and more —
+and fills what is free: round the inside of a turn its rows close up and the towers that no longer
+fit are left out, across a gap between two legs its far rows stop short of the other leg. The
+clearance is checked at the corners, the middles of the sides and the middle of each tower, so a
+turn can come a little closer between them.
 
-`skyway.ron` has no scenery: the shape of the road comes first, and the props are left aside until
-it is settled. They also stand on the ground at height zero, which a circuit that climbs 47 m
-leaves far below it: before one is dressed, the props will have to stand on the relief.
+Nothing else checks a prop against the rest of the circuit: a track is built from its own file, and
+a prop is only known to stand off the road where it is placed. A circuit doubles back on itself,
+though, so a stand or a tower set far out on one turn can land on another part of the lap. The
+shipped tracks are checked against their whole centerline by a test in `server/src/content.rs`;
+districts, which keep clear of the road themselves, are checked by the client's tests instead.
 
-The esplanade was dressed all the way round, with 83 props: an arch over the line and one over
-each of the three bottlenecks, a marker board into every turn, stands around the turns worth
-watching — the biggest wrapped around the outside of the hairpin — pylons at the apexes and along
-the fast stretches, panels where the eye needs something to measure speed against, and nine slabs
-out in the dark, six outside the circuit and three in the infield. A bottleneck was signed by its
-own arch and by four pylons standing hard against the walls, two at each end: because a prop is
-placed from the wall and the wall moves, those pylons came in with the road and drew the gap from
-far back down the straight.
+**How it is drawn.** The scenery's neon goes into the same mesh as the track's, and its surfaces
+into one of their own, so a dressed circuit costs three draw calls whatever it holds: the skyway
+and its city come to 131,400 triangles, built in about a tenth of a second. That mesh casts no
+shadow, for two reasons: under a tunnel roof the road was in the dark, the car and the road lost
+but for their neon, and the city would be drawn into the shadow maps again every frame. Nor does it
+shine: a building seen along its face, as the road shows them, catches the light whatever its
+color, and a city of pale gray walls read as concrete by day. Matte, and darker than the props along
+the road, the city recedes into the night behind its lights, and the road stays the brightest
+surface in sight.
+
+### The skyway's city
+
+The skyway runs through a city at night, at the user's request "Remplis skyway de décors, ajoute
+des types de décors, que ce soit bien chargé, qu'on voit pas trop loin la suite du circuit". The
+point is the last part: the lap folds back on itself like a comb, and bare, the road showed the
+driver most of the lap at once, across the gaps between its legs and down from its high parts. Now
+the gaps are districts, their towers rising 35 to 50 m over the road beside them; the hairpins wrap
+around a tower each, the spire in the middle of the spiral the tallest thing in the city, 88 m up;
+and three tunnels cover the crest of the switchback, the top of the dive and the crest of the climb.
+Facades hug the inside of three bends, so the road beyond them comes into sight late, and the
+props of a circuit line the road: chevrons into every hairpin and corner, pylons at their apexes,
+stands along the line and around the two bowls, billboards along the legs, and arches over the line
+and the bowl's exit. 50 props in all, among them 15 districts of about 300 towers.
+
+How much of the rest of the lap the driver sees was measured with a scratch tool outside the
+repository, which lays the city out as the client does and casts lines of sight from the chase
+camera, every 25 m round the lap, to the road more than 150 m ahead, past every tower, facade and
+tunnel. Summed over the lap, the stretches of road seen fell from 6,270 to 786, and what is left is
+almost all the road ahead along the same leg, never more than about 250 m of it: from the start, the
+launch down to the bowl; from the top of the dive, the dive. The other legs are out of sight but for
+a few glimpses between towers.
+
+The esplanade, gone since the skyway, was dressed with the first six kinds, 83 of them: an arch
+over the line and one over each of its three bottlenecks, a marker board into every turn, stands
+around the turns worth watching, pylons at the apexes, panels along the fast stretches, and nine
+slabs out in the dark.
 
 ## Validation
 
@@ -287,8 +342,9 @@ far back down the straight.
 - a narrows sits off the lap, is not a positive number of meters long, pinches the road below 8 m
   or wider than the track itself, has a negative blend, or is longer than the lap with both its
   blends. The message names it by its place in the list;
-- a prop of the scenery stands off the lap, over the road (a negative `offset`), or has a size that
-  is not a positive number of meters. The message names the prop by its place in the list.
+- a prop of the scenery stands off the lap, over the road (a negative `offset`), has a size that
+  is not a positive number of meters, or is a tunnel with its roof less than 7 m over the road. The
+  message names the prop by its place in the list.
 
 Smaller gaps than that are integration or rounding error, and are spread evenly along the loop so
 the road closes exactly. Comparing every pair of points costs about half a million distances on a

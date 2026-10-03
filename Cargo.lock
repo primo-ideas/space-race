@@ -5346,7 +5346,7 @@ dependencies = [
 
 [[package]]
 name = "space-race-client"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "bevy",
@@ -5366,14 +5366,14 @@ dependencies = [
 
 [[package]]
 name = "space-race-logger"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "space-race-protocol"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bitcode",
  "ed25519-dalek",
@@ -5385,7 +5385,7 @@ dependencies = [
 
 [[package]]
 name = "space-race-server"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "axum",
@@ -5403,7 +5403,7 @@ dependencies = [
 
 [[package]]
 name = "space-race-sim"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "bitcode",
  "glam",
