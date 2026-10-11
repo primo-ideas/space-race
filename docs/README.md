@@ -11,6 +11,7 @@ the current status; these pages explain *why* the code looks the way it does.
 - [Interface](ui.md) — screens, look, widgets, keyboard and gamepad navigation.
 - [Sound](sound.md) — sounds synthesized in code, and when they play.
 - [Sky](sky.md) — the starry night over the circuits, at infinity and made of triangles.
+- [Night](night.md) — the glow, the haze, the light on the road, the piers, and the city that moves.
 - [Latency](latency.md) — where the time between a press and the car's answer goes, and how it is measured.
 - [Web build](web.md) — building and serving the browser client, what differs from native.
 - [Deployment](deploy.md) — setting the machine up once, and the two ways a build goes online.

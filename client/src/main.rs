@@ -1,6 +1,7 @@
 mod camera;
 #[cfg(not(target_arch = "wasm32"))]
 mod capture;
+mod city;
 mod controls;
 mod dice;
 mod drift_meter;
@@ -98,6 +99,7 @@ fn main() {
         screen::ScreenPlugin,
         lobby::LobbyPlugin,
         track::TrackPlugin,
+        city::CityPlugin,
         race::RacePlugin,
         drift_meter::DriftMeterPlugin,
         controls::ControlsPlugin,

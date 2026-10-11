@@ -1,8 +1,13 @@
 //! The circuit of the lobby, as the server described it: its geometry, and the mesh drawn from it.
 //!
-//! Deliberately plain, but built to read speed and position: the road alone in the dark, walls
-//! striped every few meters so movement shows at the edge of the screen, a dashed centerline, and
-//! a checkered start line. Neon parts are unlit, so they stay bright whatever the light.
+//! Deliberately plain, but built to read speed and position: the road in the dark, walls striped
+//! every few meters so movement shows at the edge of the screen, a dashed centerline, a checkered
+//! start line, kerbs through the turns and the light of the walls on the road (see [`markings`]),
+//! and piers carrying it all down into the dark (see [`piers`]). Neon parts are unlit, so they stay
+//! bright whatever the light.
+
+mod markings;
+mod piers;
 
 use std::sync::Arc;
 
@@ -11,6 +16,7 @@ use bevy::prelude::*;
 use space_race_sim::track::scenery::Prop;
 use space_race_sim::track::{Track, TrackPoint};
 
+use crate::city::{self, Landmarks};
 use crate::geometry::Geometry;
 use crate::lobby::{CurrentLobby, Tracks};
 use crate::scenery;
@@ -101,7 +107,8 @@ impl Roofs {
     }
 }
 
-#[derive(Component)]
+/// Everything built for the lobby's circuit, the city around it included, which goes with it.
+#[derive(Component, Clone)]
 struct TrackScene;
 
 fn spawn_track(
@@ -125,7 +132,9 @@ fn spawn_track(
         lit,
         scenery,
         neon,
+        glow,
         triangles,
+        landmarks,
     } = track_meshes(&track, &entry.description.scenery);
     let lit_material = materials.add(StandardMaterial {
         perceptual_roughness: 0.9,
@@ -160,11 +169,33 @@ fn spawn_track(
         Mesh3d(meshes.add(neon)),
         MeshMaterial3d(neon_material),
     ));
+    // The light the walls throw on the road, added to whatever it falls on.
+    commands.spawn((
+        TrackScene,
+        Mesh3d(meshes.add(glow)),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            ..default()
+        })),
+        NotShadowCaster,
+    ));
+    city::spawn(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &track,
+        &landmarks,
+        TrackScene,
+    );
     info!(
         name = track.name(),
         length = %format_args!("{:.1} m", track.length()),
         props = entry.description.scenery.len(),
         triangles,
+        towers = landmarks.towers.len(),
+        beacons = landmarks.beacons.len(),
+        searchlights = landmarks.searchlights.len(),
         "track built"
     );
     commands.insert_resource(CurrentTrack(track));
@@ -179,31 +210,44 @@ fn remove_track(mut commands: Commands, scenes: Query<Entity, With<TrackScene>>)
     commands.remove_resource::<Roofs>();
 }
 
-/// The track split by material: surfaces that take light, and neon that glows on its own. The
-/// scenery's neon goes into the same mesh as the track's, and its surfaces into one of their own,
-/// which casts no shadow, so a decorated circuit costs three draw calls.
+/// The track split by material: surfaces that take light, neon that glows on its own, and the
+/// light the walls throw on the road, added to whatever it falls on. The scenery's neon goes into
+/// the same mesh as the track's, and its surfaces, with the piers', into one of their own, which
+/// casts no shadow, so a decorated circuit costs four draw calls. And where the scenery left room
+/// for the city to light.
 struct TrackMeshes {
     lit: Mesh,
     scenery: Mesh,
     neon: Mesh,
+    glow: Mesh,
     triangles: usize,
+    landmarks: Landmarks,
 }
 
 fn track_meshes(track: &Track, props: &[Prop]) -> TrackMeshes {
     let mut lit = Geometry::default();
     let mut neon = Geometry::default();
+    let mut glow = Geometry::default();
     road(&mut lit, track);
     underside(&mut lit, track);
     walls(&mut lit, &mut neon, track);
     center_dashes(&mut neon, track);
     start_line(&mut lit, track);
+    markings::kerbs(&mut lit, track);
+    markings::edge_lines(&mut lit, track);
+    markings::grid_boxes(&mut lit, track);
+    markings::wall_light(&mut glow, track);
     let mut scenery = Geometry::default();
-    scenery::build(&mut scenery, &mut neon, track, props);
+    piers::piers(&mut scenery, &mut neon, track);
+    piers::keel_lines(&mut neon, track);
+    let landmarks = scenery::build(&mut scenery, &mut neon, track, props);
     TrackMeshes {
-        triangles: lit.triangles() + scenery.triangles() + neon.triangles(),
+        triangles: lit.triangles() + scenery.triangles() + neon.triangles() + glow.triangles(),
         lit: lit.into_mesh(),
         scenery: scenery.into_mesh(),
         neon: neon.into_mesh(),
+        glow: glow.into_mesh(),
+        landmarks,
     }
 }
 
@@ -349,8 +393,26 @@ fn start_line(geometry: &mut Geometry, track: &Track) {
 fn on_road(track: &Track, point: TrackPoint, lateral: f32, above: f32) -> Vec3 {
     world::position(
         beside(point, lateral),
-        track.height_beside(&point, lateral) + above,
+        built_height(track, &point, lateral) + above,
     )
+}
+
+/// The height of the road as it is built, `lateral` meters beside a centerline point: straight
+/// across each of its strips, from the curved cross-section's height at one edge of the strip to
+/// its height at the other. A banked road is curved, its strips are flat, and in between the strips
+/// stand above the curve, by 4.5 cm in the most steeply banked turn of the skyway: a line painted
+/// on the curve itself sank under the road there, and showed as dashes. Off the road, it is the
+/// curve's height, which carries on flat beyond the edges.
+fn built_height(track: &Track, point: &TrackPoint, lateral: f32) -> f32 {
+    let strip = 2.0 * point.half_width / ROAD_STRIPS as f32;
+    let from_right = (lateral + point.half_width) / strip;
+    if !(0.0..=ROAD_STRIPS as f32).contains(&from_right) {
+        return track.height_beside(point, lateral);
+    }
+    let edge = from_right.floor().min(ROAD_STRIPS as f32 - 1.0);
+    let across = |edge: f32| track.height_beside(point, edge * strip - point.half_width);
+    let (near, far) = (across(edge), across(edge + 1.0));
+    near + (far - near) * (from_right - edge)
 }
 
 /// Calls `f` with each pair of consecutive centerline points, closing the loop, and the distance

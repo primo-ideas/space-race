@@ -5,12 +5,17 @@
 //! included, their car drives itself (see `docs/lobbies.md`) and the camera cuts between fixed
 //! shots instead, the way a race is shown on television: there is nothing left to steer, so the
 //! camera stops serving the driving and starts showing it.
+//!
+//! The camera sees the night through a bloom that makes the neon glow, and, in a race, through a
+//! haze that gives the city its depth; the light is the moon's (see `docs/night.md`).
 
 use std::f32::consts::PI;
 use std::sync::Arc;
 
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::light::CascadeShadowConfigBuilder;
+use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight};
+use bevy::pbr::{DistanceFog, FogFalloff};
+use bevy::post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter};
 use bevy::prelude::*;
 use space_race_protocol::PlayerStatus;
 use space_race_sim::car::Car;
@@ -74,16 +79,44 @@ const TRACK_SIDE_AHEAD: f32 = 45.0;
 const TRACK_SIDE_OUT: f32 = 6.0;
 const TRACK_SIDE_HEIGHT: f32 = 9.0;
 
+/// The glow around what is brightest. Only what stands above the threshold glows, and the glow is
+/// added on top of the image rather than taken from what glows, so the dark road, the buildings and
+/// the cars stay as crisp as they were, and the neon, drawn at full brightness, wears a halo.
+const BLOOM: Bloom = Bloom {
+    intensity: 0.2,
+    low_frequency_boost: 0.55,
+    low_frequency_boost_curvature: 0.9,
+    high_pass_frequency: 0.85,
+    prefilter: BloomPrefilter {
+        threshold: 0.55,
+        threshold_softness: 0.35,
+    },
+    composite_mode: BloomCompositeMode::Additive,
+    ..Bloom::NATURAL
+};
+/// The haze of a race: deep indigo, thickening as the square of the distance, so the road ahead
+/// stays sharp and the city across the gaps fades into the night.
+const HAZE: Color = Color::srgb(0.05, 0.05, 0.11);
+const HAZE_DENSITY: f32 = 0.0016;
+/// Moonlight, a cool white, and the deep blue the surfaces it does not reach are left in.
+const MOONLIGHT: Color = Color::srgb(0.78, 0.85, 1.0);
+const NIGHT_AMBIENT: Color = Color::srgb(0.5, 0.58, 1.0);
+
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera_and_light)
-            .add_systems(OnEnter(Screen::Lobby), reset_chase)
-            .add_systems(
-                Update,
-                follow_car.after(RaceUpdate).run_if(in_state(Screen::Lobby)),
-            );
+        app.insert_resource(GlobalAmbientLight {
+            color: NIGHT_AMBIENT,
+            ..default()
+        })
+        .add_systems(Startup, spawn_camera_and_light)
+        .add_systems(OnEnter(Screen::Lobby), (reset_chase, haze_in))
+        .add_systems(OnExit(Screen::Lobby), haze_out)
+        .add_systems(
+            Update,
+            follow_car.after(RaceUpdate).run_if(in_state(Screen::Lobby)),
+        );
     }
 }
 
@@ -125,8 +158,10 @@ fn spawn_camera_and_light(mut commands: Commands) {
     commands.spawn((
         MainCamera,
         Camera3d::default(),
-        // Without tone mapping, neon colors stay as saturated as they are written.
+        // Without tone mapping, neon colors stay as saturated as they are written. The bloom
+        // renders in high dynamic range, and adds light without anything to compress.
         Tonemapping::None,
+        BLOOM,
         Projection::Perspective(PerspectiveProjection {
             fov: FOV_SLOW,
             ..default()
@@ -137,6 +172,7 @@ fn spawn_camera_and_light(mut commands: Commands) {
 
     commands.spawn((
         DirectionalLight {
+            color: MOONLIGHT,
             shadow_maps_enabled: true,
             ..default()
         },
@@ -157,6 +193,27 @@ fn spawn_camera_and_light(mut commands: Commands) {
 fn reset_chase(mut cameras: Query<&mut ChaseCamera>) {
     for mut chase in &mut cameras {
         *chase = ChaseCamera::default();
+    }
+}
+
+/// The race's haze, in place of the menus' fog while the player is in a lobby. The sky ignores
+/// both.
+fn haze_in(mut commands: Commands, cameras: Query<Entity, With<MainCamera>>) {
+    for camera in &cameras {
+        commands.entity(camera).insert(DistanceFog {
+            color: HAZE,
+            falloff: FogFalloff::ExponentialSquared {
+                density: HAZE_DENSITY,
+            },
+            ..default()
+        });
+    }
+}
+
+/// Out of the lobby, the haze goes, and the menus bring their own fog back.
+fn haze_out(mut commands: Commands, cameras: Query<Entity, With<MainCamera>>) {
+    for camera in &cameras {
+        commands.entity(camera).remove::<DistanceFog>();
     }
 }
 

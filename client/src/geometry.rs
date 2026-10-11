@@ -1,9 +1,9 @@
 //! Flat-shaded, vertex-colored triangles, and the frames things are built in.
 //!
-//! The track and its scenery are each drawn as a single mesh, one for the surfaces that take light
-//! and one for the neon that glows on its own, so a whole circuit costs two draw calls. This module
-//! holds the buffers they are built into, and the few shapes everything is made of: quads, boxes,
-//! bars running any which way, and profiles swept along the road.
+//! A whole circuit is drawn in a handful of meshes, one for each way a surface takes light: lit,
+//! glowing on its own, or added to what is behind it. This module holds the buffers they are built
+//! into, and the few shapes everything is made of: quads, boxes, bars running any which way, and
+//! profiles swept along the road.
 //!
 //! A [`Frame`] is a local set of coordinates on the ground: `x` runs along the road in the driving
 //! direction, `y` up, and `z` away from the road. Every prop is written in its own frame, so the
@@ -197,8 +197,9 @@ impl Geometry {
     }
 
     /// The six faces of a box, from its bottom and top rings of corners, each given in the same
-    /// order around the box, and the colors of the two rings, blended up its sides.
-    fn solid(&mut self, bottom: [Vec3; 4], top: [Vec3; 4], low: Color, high: Color) {
+    /// order around the box, and the colors of the two rings, blended up its sides. The rings need
+    /// not be level, nor the same size: a pier's head meets a road that banks and climbs.
+    pub fn solid(&mut self, bottom: [Vec3; 4], top: [Vec3; 4], low: Color, high: Color) {
         let middle = (bottom.iter().chain(&top).copied().sum::<Vec3>()) / 8.0;
         self.quad_facing_away(bottom, middle, low);
         self.quad_facing_away(top, middle, high);

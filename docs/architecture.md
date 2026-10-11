@@ -162,8 +162,10 @@ now go through a single conversion, `seconds_since_startup`.
 
 **The track** floats alone on a black background: a dark road, walls striped dark gray and neon
 blue every 4 m, a neon blue dashed centerline and a checkered start line. The stripes and dashes
-matter more than they look: on a plain road, speed is nearly invisible. It is two vertex-colored
-meshes, one per material: lit surfaces, and unlit neon that stays bright whatever the lighting.
+matter more than they look: on a plain road, speed is nearly invisible. Kerbs line its turns, the
+neon of the walls throws pools of light across it, and piers carry it down into the dark (see
+[Night](night.md)). It is vertex-colored meshes, one per material: lit surfaces, unlit neon that
+stays bright whatever the lighting, and the pools of light added to what they fall on.
 The road is cut into strips across its width so it follows the curve of banked turns, and it
 climbs and dives with the relief. It is a slab 1.5 m thick with an underside, floating wherever the
 relief carries it, and the walls stand on its edges with their outer face running down to that
@@ -185,7 +187,9 @@ car, climbing and diving with the slope under it, lagging the same way the headi
 would sink into the road behind a car going down a hill and stare into the road ahead of one going
 up. No camera, the finish shots included, is ever let below the road under it. The field of view
 widens with speed. Tone mapping is off:
-Bevy's default one desaturates bright colors, which turned the neon blue into a dull sky blue.
+Bevy's default one desaturates bright colors, which turned the neon blue into a dull sky blue. The
+camera renders in high dynamic range all the same, for the bloom that makes the neon glow, and sees
+through a haze in races (see [Night](night.md)).
 
 ## Build profiles
 

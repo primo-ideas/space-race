@@ -61,7 +61,9 @@ fn show(
 }
 
 /// Places the camera over the grid, with fog to fade it into the dark. Every frame rather than on
-/// entering a screen, since the first screen is entered before the camera exists.
+/// entering a screen, since the first screen is entered before the camera exists. A lobby puts its
+/// own haze in the fog's place, and takes it away on leaving (see `camera.rs`), so the fog is back
+/// the first frame after.
 fn frame_camera(
     mut commands: Commands,
     mut cameras: Query<
@@ -90,16 +92,10 @@ fn frame_camera(
     }
 }
 
-fn hide(
-    mut commands: Commands,
-    backdrops: Query<Entity, With<Backdrop>>,
-    cameras: Query<Entity, With<MainCamera>>,
-) {
+/// The grid goes when a lobby is entered. The fog stays for the lobby to replace with its haze.
+fn hide(mut commands: Commands, backdrops: Query<Entity, With<Backdrop>>) {
     for backdrop in &backdrops {
         commands.entity(backdrop).despawn();
-    }
-    for camera in &cameras {
-        commands.entity(camera).remove::<DistanceFog>();
     }
 }
 
