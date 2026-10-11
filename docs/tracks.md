@@ -285,8 +285,10 @@ shipped tracks are checked against their whole centerline by a test in `server/s
 districts, which keep clear of the road themselves, are checked by the client's tests instead.
 
 **How it is drawn.** The scenery's neon goes into the same mesh as the track's, and its surfaces
-into one of their own, so a dressed circuit costs three draw calls whatever it holds: the skyway
-and its city come to 131,400 triangles, built in about a tenth of a second. That mesh casts no
+into one of their own, so the scenery adds no draw call whatever it holds: the track and its city
+are four meshes, the fourth being the light the walls throw on the road (see [Night](night.md)).
+The skyway and its city came to 131,400 triangles before the city had windows, piers and kerbs,
+and come to 155,100 with them, built in 0.14 s on entering a lobby. The scenery's mesh casts no
 shadow, for two reasons: under a tunnel roof the road was in the dark, the car and the road lost
 but for their neon, and the city would be drawn into the shadow maps again every frame. Nor does it
 shine: a building seen along its face, as the road shows them, catches the light whatever its

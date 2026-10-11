@@ -1,10 +1,15 @@
 //! The scenery of a circuit: the props the track file stands beside the road.
 //!
-//! They are built into the same two meshes as the track itself, so a decorated circuit still costs
-//! two draw calls, and they follow the same language: dark geometric bodies that take the light,
-//! lined with neon that does not. Nothing here touches the simulation, and every prop is placed
-//! from the road rather than in world coordinates (see
+//! Their neon goes into the track's own neon mesh and their bodies into a mesh of their own, so a
+//! dressed circuit costs no more draw calls than a bare one, and they follow the same language:
+//! dark geometric bodies that take the light, lined with neon that does not. Nothing here touches
+//! the simulation, and every prop is placed from the road rather than in world coordinates (see
 //! [`scenery`](space_race_sim::track::scenery)).
+//!
+//! The city's towers are lit as well as built here: bands of light or windows, a crown of neon,
+//! and a warning light on the tallest roofs. What moves around them is the city's own (see
+//! [`crate::city`]), told where the towers and the grandstands stand through the [`Landmarks`] the
+//! scenery fills in as it builds.
 //!
 //! Each prop is built in a [`Frame`] of its own, standing at the foot of the wall at the level of
 //! the road: `x` runs along the road, `y` up, and `z` away from the road, so the face at `z = 0` is
@@ -17,6 +22,7 @@ use bevy::prelude::*;
 use space_race_sim::track::scenery::{Prop, Side};
 use space_race_sim::track::{Track, TrackPoint};
 
+use crate::city::Landmarks;
 use crate::dice::{Dice, seed};
 use crate::geometry::{Frame, Geometry};
 use crate::track::{NEON_BLUE, SLAB, WALL_HEIGHT, WALL_THICKNESS};
@@ -39,11 +45,50 @@ const TOWER_SHADES: [Color; 4] = [
 /// neon stays the brightest thing in sight.
 const NEON_FAINT: Color = Color::srgb(0.02, 0.24, 0.44);
 /// What a footing fades to at the bottom: the black the whole circuit floats in.
-const DARK: Color = Color::BLACK;
+pub(crate) const DARK: Color = Color::BLACK;
 
 /// How far down everything standing off the road reaches, in meters above the ground. Footings fade
 /// to black on the way down to it, well below the lowest road.
-const ABYSS: f32 = -40.0;
+pub(crate) const ABYSS: f32 = -40.0;
+
+/// What a tower's lights are rolled from, apart from the dice its shape comes from: every tower
+/// keeps the shape it had before it had windows, whatever its lights do.
+const LIGHTS_SEED: u64 = 0x11_6475;
+/// The share of towers with windows lit here and there, rather than a band of light round every
+/// floor.
+const WINDOWED: f32 = 0.55;
+/// How far apart the windows of a face are across it, in meters, and how much of that a window
+/// takes; how much of a floor's height a window takes.
+const WINDOW_PITCH: f32 = 2.6;
+const WINDOW_WIDTH: f32 = 0.42;
+const WINDOW_HEIGHT: f32 = 0.34;
+/// How many of a windowed tower's windows are lit, at least and at most.
+const WINDOWS_LIT: (f32, f32) = (0.2, 0.5);
+/// The light in the windows: the warm light of homes, the cool light of offices, and now and then
+/// a colored one. Saturated, or a lit window reads as a gray tile; dimmer than the road's neon, so
+/// the city stays behind the road and only the brightest windows bloom a little.
+const WINDOW_LIGHTS: [Color; 4] = [
+    Color::linear_rgb(0.66, 0.3, 0.06),
+    Color::linear_rgb(0.24, 0.4, 0.7),
+    Color::linear_rgb(0.03, 0.45, 0.62),
+    Color::linear_rgb(0.6, 0.04, 0.34),
+];
+/// A windowed tower's windows are mostly in its own tone, one of the first two lights, and this
+/// share of them in any of the four.
+const WINDOWS_ODD: f32 = 0.15;
+/// The neon round the top of a tower: the road's blue on most of them, and on a few the magenta or
+/// the teal of the neon shapes in the sky, by weight.
+const CROWNS: [(Color, u32); 3] = [
+    (NEON_BLUE, 10),
+    (Color::srgb(1.0, 0.25, 0.65), 2),
+    (Color::srgb(0.15, 0.95, 0.8), 2),
+];
+/// Most towers at least this tall over the road's level carry a warning light on their roof.
+const BEACON_TALL: f32 = 30.0;
+const BEACON_SHARE: f32 = 0.75;
+
+/// A searchlight stands at each end of a grandstand's top row, this share of the way along it.
+const SEARCHLIGHTS: [f32; 2] = [0.12, 0.88];
 
 /// Where the neon rings sit up a pylon, as a share of its height, and how much of its base width is
 /// left at the top.
@@ -102,8 +147,10 @@ const TUNNEL_STRIPS: usize = 8;
 /// draw over each other.
 const TUNNEL_GAP: f32 = 0.03;
 
-/// Builds every prop of a track into the meshes the track itself is built into.
-pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[Prop]) {
+/// Builds every prop of a track into the meshes the track itself is built into, and says where the
+/// city stands for what moves around it.
+pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[Prop]) -> Landmarks {
+    let mut landmarks = Landmarks::default();
     // The ground the buildings the file places stand on, so the districts fill the rest of it: each
     // district avoids them, and those before it.
     let mut standing: Vec<[Vec2; 4]> = scenery
@@ -116,20 +163,31 @@ pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[
                 at,
                 clearance,
                 depth,
-            } => gantry(lit, neon, track, at, clearance, depth),
+            } => gantry(lit, neon, track, at, clearance, depth, &mut landmarks),
             Prop::Pylon {
                 at,
                 side,
                 offset,
                 height,
-            } => pylon(lit, neon, &beside_road(track, at, side, offset), height),
+            } => {
+                let frame = beside_road(track, at, side, offset);
+                pylon(lit, neon, &frame, height);
+                landmarks.rise_to(frame.height() + height + 0.5);
+            }
             Prop::Grandstand {
                 at,
                 side,
                 offset,
                 length,
                 rows,
-            } => grandstand(lit, neon, track, at, side, offset, length, rows),
+            } => grandstand(
+                lit,
+                neon,
+                track,
+                (at, side, offset),
+                (length, rows),
+                &mut landmarks,
+            ),
             Prop::Billboard {
                 at,
                 side,
@@ -155,13 +213,11 @@ pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[
                 offset,
                 height,
                 width,
-            } => monolith(
-                lit,
-                neon,
-                &beside_road(track, at, side, offset),
-                height,
-                width,
-            ),
+            } => {
+                let frame = beside_road(track, at, side, offset);
+                monolith(lit, neon, &frame, height, width);
+                landmarks.rise_to(frame.height() + height + 0.6);
+            }
             Prop::Tower {
                 at,
                 side,
@@ -175,6 +231,7 @@ pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[
                 &beside_road(track, at, side, offset),
                 Vec3::new(width, height, depth),
                 seed(&[at, offset, height, width, depth]),
+                &mut landmarks,
             ),
             Prop::Skyline {
                 at,
@@ -190,6 +247,7 @@ pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[
                 (at, side, offset),
                 Vec3::new(length, height, depth),
                 &mut standing,
+                &mut landmarks,
             ),
             Prop::Facade {
                 at,
@@ -202,10 +260,9 @@ pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[
                 lit,
                 neon,
                 track,
-                at,
-                side,
-                offset,
+                (at, side, offset),
                 Vec3::new(length, height, depth),
+                &mut landmarks,
             ),
             Prop::Tunnel {
                 at,
@@ -214,6 +271,7 @@ pub fn build(lit: &mut Geometry, neon: &mut Geometry, track: &Track, scenery: &[
             } => tunnel(lit, neon, track, at, length, clearance),
         }
     }
+    landmarks
 }
 
 /// The ground a building placed by the file stands on, on the simulation plane: a tower's, a
@@ -347,6 +405,7 @@ fn gantry(
     at: f32,
     clearance: f32,
     depth: f32,
+    landmarks: &mut Landmarks,
 ) {
     let point = track.point_at(at);
     let frame = Frame::new(
@@ -365,6 +424,7 @@ fn gantry(
         track.height_beside(&point, -half_width),
     ) + WALL_HEIGHT;
     let beam = walls + clearance;
+    landmarks.rise_to(beam + GANTRY_BEAM);
 
     for side in [1.0_f32, -1.0] {
         let (near, far) = (side * edge, side * span);
@@ -464,16 +524,15 @@ fn swept_frames(track: &Track, at: f32, side: Side, offset: f32, length: f32) ->
         .collect()
 }
 
-/// A stepped tribune, swept along the road so it curves with it, a neon line along every row.
+/// A stepped tribune, swept along the road so it curves with it, a neon line along every row, and
+/// a searchlight at each end of its top row.
 fn grandstand(
     lit: &mut Geometry,
     neon: &mut Geometry,
     track: &Track,
-    at: f32,
-    side: Side,
-    offset: f32,
-    length: f32,
-    rows: u8,
+    (at, side, offset): (f32, Side, f32),
+    (length, rows): (f32, u8),
+    landmarks: &mut Landmarks,
 ) {
     let frames = swept_frames(track, at, side, offset, length);
 
@@ -530,6 +589,29 @@ fn grandstand(
             ));
             lit.quad_facing_away(corners, inside, STRUCTURE);
         }
+    }
+
+    // The searchlights, each in a housing on the top row, ringed with light; their beams are the
+    // city's to turn.
+    let middle = back - ROW_DEPTH / 2.0;
+    for share in SEARCHLIGHTS {
+        let frame = &frames[((frames.len() - 1) as f32 * share).round() as usize];
+        lit.block(
+            frame,
+            Vec3::new(-0.7, top, middle - 0.7),
+            Vec3::new(0.7, top + 0.8, middle + 0.7),
+            STRUCTURE,
+        );
+        neon.block(
+            frame,
+            Vec3::new(-0.78, top + 0.8, middle - 0.78),
+            Vec3::new(0.78, top + 1.0, middle + 0.78),
+            NEON_BLUE,
+        );
+        landmarks
+            .searchlights
+            .push(frame.point(Vec3::new(0.0, top + 1.0, middle)));
+        landmarks.rise_to(frame.height() + top + 1.0);
     }
 }
 
@@ -700,24 +782,56 @@ fn monolith(lit: &mut Geometry, neon: &mut Geometry, frame: &Frame, height: f32,
 /// builds the same tower. Its frame stands at the middle of the face that looks at the road.
 ///
 /// It comes in three shapes: a plain block banded with lit floors, a block with a narrower one set
-/// back on top of it, and a block crowned by a tapering spire and a mast with a light.
-fn tower(lit: &mut Geometry, neon: &mut Geometry, frame: &Frame, size: Vec3, seed: u64) {
+/// back on top of it, and a block crowned by a tapering spire and a mast with a light. It is lit
+/// with bands of light round its floors or with windows lit here and there, crowned with neon, and,
+/// if it is tall, carries a warning light on its roof or its mast.
+fn tower(
+    lit: &mut Geometry,
+    neon: &mut Geometry,
+    frame: &Frame,
+    size: Vec3,
+    seed: u64,
+    landmarks: &mut Landmarks,
+) {
     let mut dice = Dice::new(seed);
+    let mut lights = Lighting::roll(seed);
     let (half, height, depth) = (size.x / 2.0, size.y, size.z);
     let color = TOWER_SHADES[dice.below(TOWER_SHADES.len())];
     let spacing = dice.range(FLOOR_SPACING.0, FLOOR_SPACING.1);
     let (low, high) = (Vec2::new(-half, 0.0), Vec2::new(half, depth));
+    let middle = (low + high) / 2.0;
     footing(lit, frame, low, high, color);
+    let ground = frame.point(Vec3::new(middle.x, 0.0, middle.y));
+    landmarks.towers.push(Vec2::new(ground.x, -ground.z));
+    // Where a warning light would stand, over the ground.
+    let mut summit = height;
 
     match dice.below(3) {
         0 => {
-            storey(lit, neon, frame, (low, high), (0.0, height), spacing, color);
+            storey(
+                lit,
+                neon,
+                frame,
+                (low, high),
+                (0.0, height),
+                spacing,
+                color,
+                &mut lights,
+            );
         }
         1 => {
             // The setback: a narrower block centered on the first.
             let shoulder = height * dice.range(0.5, 0.7);
-            storey(lit, neon, frame, (low, high), (0.0, shoulder), spacing, color);
-            let middle = (low + high) / 2.0;
+            storey(
+                lit,
+                neon,
+                frame,
+                (low, high),
+                (0.0, shoulder),
+                spacing,
+                color,
+                &mut lights,
+            );
             let inset = (high - low) * dice.range(0.15, 0.25);
             let (upper_low, upper_high) = (low + inset, high - inset);
             storey(
@@ -728,8 +842,9 @@ fn tower(lit: &mut Geometry, neon: &mut Geometry, frame: &Frame, size: Vec3, see
                 (shoulder, height),
                 spacing,
                 color,
+                &mut lights,
             );
-            band(neon, frame, (low, high), shoulder - 0.4, 0.4, NEON_BLUE);
+            band(neon, frame, (low, high), shoulder - 0.4, 0.4, lights.crown);
             // Lit corners up the upper block, seen from far off.
             for corner in [
                 Vec2::new(upper_low.x, upper_low.y),
@@ -749,7 +864,16 @@ fn tower(lit: &mut Geometry, neon: &mut Geometry, frame: &Frame, size: Vec3, see
         }
         _ => {
             let crown = height * dice.range(0.75, 0.88);
-            storey(lit, neon, frame, (low, high), (0.0, crown), spacing, color);
+            storey(
+                lit,
+                neon,
+                frame,
+                (low, high),
+                (0.0, crown),
+                spacing,
+                color,
+                &mut lights,
+            );
             lit.tapered_block(
                 frame,
                 Vec3::new(low.x, crown, low.y),
@@ -758,7 +882,6 @@ fn tower(lit: &mut Geometry, neon: &mut Geometry, frame: &Frame, size: Vec3, see
                 color,
             );
             // A mast on the spire, and its light.
-            let middle = (low + high) / 2.0;
             let mast = (height * 0.15).clamp(3.0, 12.0);
             lit.block(
                 frame,
@@ -770,14 +893,60 @@ fn tower(lit: &mut Geometry, neon: &mut Geometry, frame: &Frame, size: Vec3, see
                 frame,
                 Vec3::new(middle.x - 0.5, height + mast, middle.y - 0.5),
                 Vec3::new(middle.x + 0.5, height + mast + 1.0, middle.y + 0.5),
-                NEON_BLUE,
+                lights.crown,
             );
+            summit = height + mast + 1.0;
+        }
+    }
+
+    if height >= BEACON_TALL && lights.dice.range(0.0, 1.0) < BEACON_SHARE {
+        landmarks
+            .beacons
+            .push(frame.point(Vec3::new(middle.x, summit, middle.y)));
+        summit += 1.5;
+    }
+    landmarks.rise_to(frame.height() + summit);
+}
+
+/// How a tower is lit, apart from its shape: windows or bands of light round its floors, and the
+/// color of the neon round its top. Rolled from dice of its own, which then go on rolling which
+/// windows are lit.
+struct Lighting {
+    /// The tone most of its windows are lit in, if it has windows rather than bands, and the share
+    /// of them that are lit.
+    windows: Option<(Color, f32)>,
+    crown: Color,
+    dice: Dice,
+}
+
+impl Lighting {
+    fn roll(seed: u64) -> Self {
+        let mut dice = Dice::new(seed ^ LIGHTS_SEED);
+        let windows = (dice.range(0.0, 1.0) < WINDOWED).then(|| {
+            let tone = WINDOW_LIGHTS[dice.below(2)];
+            (tone, dice.range(WINDOWS_LIT.0, WINDOWS_LIT.1))
+        });
+        let total: u32 = CROWNS.iter().map(|(_, weight)| weight).sum();
+        let mut roll = dice.below(total as usize) as u32;
+        let crown = CROWNS
+            .iter()
+            .find(|(_, weight)| {
+                let found = roll < *weight;
+                roll = roll.saturating_sub(*weight);
+                found
+            })
+            .map_or(NEON_BLUE, |(color, _)| *color);
+        Self {
+            windows,
+            crown,
+            dice,
         }
     }
 }
 
 /// One block of a tower, from `low` to `high` across and from `heights.0` to `heights.1` up, banded
-/// with lit floors every `spacing` meters and outlined in light along its top.
+/// with lit floors every `spacing` meters or windowed, and outlined in light along its top.
+#[allow(clippy::too_many_arguments)]
 fn storey(
     lit: &mut Geometry,
     neon: &mut Geometry,
@@ -786,6 +955,7 @@ fn storey(
     (bottom, top): (f32, f32),
     spacing: f32,
     color: Color,
+    lights: &mut Lighting,
 ) {
     lit.block(
         frame,
@@ -793,12 +963,93 @@ fn storey(
         Vec3::new(high.x, top, high.y),
         color,
     );
-    let mut floor = bottom + spacing;
-    while floor < top - spacing * 0.5 {
-        band(neon, frame, (low, high), floor, FLOOR_BAND, NEON_FAINT);
-        floor += spacing;
+    match lights.windows {
+        Some((tone, share)) => windows(
+            neon,
+            frame,
+            (low, high),
+            (bottom, top),
+            spacing,
+            (tone, share),
+            &mut lights.dice,
+        ),
+        None => {
+            let mut floor = bottom + spacing;
+            while floor < top - spacing * 0.5 {
+                band(neon, frame, (low, high), floor, FLOOR_BAND, NEON_FAINT);
+                floor += spacing;
+            }
+        }
     }
-    band(neon, frame, (low, high), top - 0.35, 0.35, NEON_BLUE);
+    band(neon, frame, (low, high), top - 0.35, 0.35, lights.crown);
+}
+
+/// Windows on the four faces of the block from `low` to `high`, one row a floor, `share` of them
+/// lit, most of them in `tone`: a quad of light each, standing a little proud of the face.
+fn windows(
+    neon: &mut Geometry,
+    frame: &Frame,
+    (low, high): (Vec2, Vec2),
+    (bottom, top): (f32, f32),
+    spacing: f32,
+    (tone, share): (Color, f32),
+    dice: &mut Dice,
+) {
+    let middle = (low + high) / 2.0;
+    // Each face from one corner to the next across the frame's ground, `x` along the road and `y`
+    // away from it, and the way it looks.
+    let faces = [
+        (Vec2::new(low.x, low.y), Vec2::new(high.x, low.y), Vec2::NEG_Y),
+        (Vec2::new(high.x, low.y), Vec2::new(high.x, high.y), Vec2::X),
+        (Vec2::new(high.x, high.y), Vec2::new(low.x, high.y), Vec2::Y),
+        (Vec2::new(low.x, high.y), Vec2::new(low.x, low.y), Vec2::NEG_X),
+    ];
+    let floors = ((top - bottom) / spacing).floor() as usize;
+    for (from, to, out) in faces {
+        let width = from.distance(to);
+        let columns = (width / WINDOW_PITCH).floor() as usize;
+        if columns == 0 {
+            continue;
+        }
+        let across = (to - from) / width;
+        let margin = (width - columns as f32 * WINDOW_PITCH) / 2.0;
+        let proud = out * PROUD;
+        let corner = |at: Vec2, height: f32| {
+            frame.point(Vec3::new(at.x + proud.x, height, at.y + proud.y))
+        };
+        for floor in 0..floors {
+            let sill = bottom + (floor as f32 + (1.0 - WINDOW_HEIGHT) / 2.0) * spacing;
+            let lintel = sill + WINDOW_HEIGHT * spacing;
+            for column in 0..columns {
+                if dice.range(0.0, 1.0) >= share {
+                    continue;
+                }
+                let start = from
+                    + across * (margin + (column as f32 + (1.0 - WINDOW_WIDTH) / 2.0) * WINDOW_PITCH);
+                let end = start + across * WINDOW_WIDTH * WINDOW_PITCH;
+                let light = if dice.range(0.0, 1.0) < WINDOWS_ODD {
+                    WINDOW_LIGHTS[dice.below(WINDOW_LIGHTS.len())]
+                } else {
+                    tone
+                };
+                let (light, dimmed) = (light.to_linear(), dice.range(0.55, 1.0));
+                neon.quad_facing_away(
+                    [
+                        corner(start, sill),
+                        corner(end, sill),
+                        corner(end, lintel),
+                        corner(start, lintel),
+                    ],
+                    frame.point(Vec3::new(middle.x, sill, middle.y)),
+                    Color::linear_rgb(
+                        light.red * dimmed,
+                        light.green * dimmed,
+                        light.blue * dimmed,
+                    ),
+                );
+            }
+        }
+    }
 }
 
 /// A band of light `thickness` meters tall around the block from `low` to `high`, standing a little
@@ -834,6 +1085,7 @@ fn skyline(
     (at, side, offset): (f32, Side, f32),
     size: Vec3,
     standing: &mut Vec<[Vec2; 4]>,
+    landmarks: &mut Landmarks,
 ) {
     let (length, tallest, depth) = (size.x, size.y, size.z);
     let mut dice = Dice::new(seed(&[at, side.sign(), offset, length, depth, tallest]));
@@ -866,7 +1118,7 @@ fn skyline(
                     .iter()
                     .all(|other| apart(&footprint, other, DISTRICT_GAP.0))
             {
-                tower(lit, neon, &frame, size, tower_seed);
+                tower(lit, neon, &frame, size, tower_seed, landmarks);
                 standing.push(footprint);
             }
             along += width + dice.range(DISTRICT_GAP.0, DISTRICT_GAP.1);
@@ -928,13 +1180,15 @@ fn facade(
     lit: &mut Geometry,
     neon: &mut Geometry,
     track: &Track,
-    at: f32,
-    side: Side,
-    offset: f32,
+    (at, side, offset): (f32, Side, f32),
     size: Vec3,
+    landmarks: &mut Landmarks,
 ) {
     let (length, height, depth) = (size.x, size.y, size.z);
     let frames = swept_frames(track, at, side, offset, length);
+    for frame in &frames {
+        landmarks.rise_to(frame.height() + height);
+    }
     lit.sweep(
         &frames,
         &[
@@ -1476,6 +1730,89 @@ mod tests {
             }
         }
         assert!(roof > 0);
+    }
+
+    /// A tall tower carries its warning light on top of everything it is built of, and says where it
+    /// stands; whatever its lights, a tower's body is the same.
+    #[test]
+    fn a_tall_tower_carries_a_warning_light_on_top() {
+        let track = oval();
+        let mut lit_towers = 0;
+        for at in [100.0, 120.0, 140.0, 230.0, 260.0, 290.0] {
+            let tower = Prop::Tower {
+                at,
+                side: Side::Right,
+                offset: 8.0,
+                height: 45.0,
+                width: 18.0,
+                depth: 18.0,
+            };
+            let (mut lit, mut neon) = (Geometry::default(), Geometry::default());
+            let landmarks = build(&mut lit, &mut neon, &track, &[tower]);
+            assert_eq!(landmarks.towers.len(), 1);
+            let top = lit
+                .positions()
+                .chain(neon.positions())
+                .map(|position| position.y)
+                .fold(f32::NEG_INFINITY, f32::max);
+            for beacon in &landmarks.beacons {
+                assert!((beacon.y - top).abs() < 0.01, "{} against {top}", beacon.y);
+                lit_towers += 1;
+            }
+            assert!(landmarks.highest >= top);
+        }
+        assert!(lit_towers > 0, "no tower had a warning light");
+    }
+
+    /// The windows of a tower lie on its faces, a little proud of them, never inside it nor out over
+    /// the road.
+    #[test]
+    fn windows_lie_on_the_faces_of_their_tower() {
+        let track = oval();
+        let frame = beside_road(&track, 120.0, Side::Right, 8.0);
+        let (low, high) = (Vec2::new(-9.0, 0.0), Vec2::new(9.0, 18.0));
+        let mut neon = Geometry::default();
+        windows(
+            &mut neon,
+            &frame,
+            (low, high),
+            (0.0, 40.0),
+            4.0,
+            (WINDOW_LIGHTS[0], 1.0),
+            &mut Dice::new(1),
+        );
+        assert!(neon.triangles() > 50);
+        for position in neon.positions() {
+            let local = frame.local(position);
+            let outside_x = (local.x - low.x).abs().min((local.x - high.x).abs());
+            let outside_z = (local.z - low.y).abs().min((local.z - high.y).abs());
+            assert!(
+                (outside_x - PROUD).abs() < 1e-3 || (outside_z - PROUD).abs() < 1e-3,
+                "{local}"
+            );
+            assert!((0.0..40.0).contains(&local.y), "{local}");
+        }
+    }
+
+    /// A grandstand has a searchlight at each end of its top row, out beyond the wall.
+    #[test]
+    fn a_grandstand_has_a_searchlight_at_each_end() {
+        let track = oval();
+        let stand = Prop::Grandstand {
+            at: 60.0,
+            side: Side::Right,
+            offset: 5.0,
+            length: 40.0,
+            rows: 6,
+        };
+        let (mut lit, mut neon) = (Geometry::default(), Geometry::default());
+        let landmarks = build(&mut lit, &mut neon, &track, &[stand]);
+        assert_eq!(landmarks.searchlights.len(), 2);
+        for light in &landmarks.searchlights {
+            let here = track.project(Vec2::new(light.x, -light.z));
+            assert!(here.lateral < -track.half_width() - 5.0, "{here:?}");
+            assert!(light.y > 6.0 * ROW_RISE, "{light}");
+        }
     }
 
     #[test]
