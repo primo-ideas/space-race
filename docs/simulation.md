@@ -53,7 +53,8 @@ and loses some speed doing so. **Drift** builds on that slide.
 The car is heavy since v0.1.14, at the user's request ("ajoute de la lourdeur dans le gameplay"),
 in all four of the ways they were offered: momentum, weight in the turns, a heavier wheel, and
 weight that shows. The first three are the simulation's, and every one of them is a number in
-`car.ron`.
+`car.ron`; the last is the client's, the body on springs and the camera that feels them (see
+[Architecture](architecture.md#displaying-the-race)).
 
 - **A heavier wheel.** `yaw_acceleration`, 250 degrees per second per second, caps how quickly the
   rotation changes. It still starts on the very tick the stick moves, which is what the user asked

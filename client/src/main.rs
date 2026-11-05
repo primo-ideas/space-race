@@ -20,6 +20,7 @@ mod sky;
 mod sound;
 mod track;
 mod ui;
+mod weight;
 mod world;
 
 use bevy::prelude::*;
@@ -101,6 +102,7 @@ fn main() {
         track::TrackPlugin,
         city::CityPlugin,
         race::RacePlugin,
+        weight::WeightPlugin,
         drift_meter::DriftMeterPlugin,
         controls::ControlsPlugin,
         latency::LatencyPlugin,

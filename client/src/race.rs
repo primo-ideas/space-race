@@ -20,6 +20,7 @@ use crate::net::NetEvent;
 use crate::prediction::{Prediction, predict};
 use crate::screen::Screen;
 use crate::track::CurrentTrack;
+use crate::weight::{CarBody, Sway};
 use crate::world;
 
 /// How far in the past the race is displayed, in seconds: three ticks.
@@ -82,8 +83,10 @@ pub struct RaceView {
 #[derive(Resource, Default)]
 pub struct Spectated(pub Option<CarId>);
 
+/// A car as drawn: placed on the road here, its body riding on springs over that place (see
+/// weight.rs).
 #[derive(Component)]
-struct CarVisual(CarId);
+pub struct CarVisual(pub CarId);
 
 #[derive(Resource)]
 struct CarAssets {
@@ -262,25 +265,31 @@ fn display_cars(
         };
         commands.spawn((
             CarVisual(*id),
+            Sway::default(),
             car_transform(car, surface(car)),
             Visibility::default(),
-            children![
-                (
-                    Mesh3d(assets.body.clone()),
-                    MeshMaterial3d(body_color),
-                    Transform::from_xyz(0.0, 0.45, 0.0),
-                ),
-                (
-                    Mesh3d(assets.cabin.clone()),
-                    MeshMaterial3d(assets.cabin_color.clone()),
-                    Transform::from_xyz(-0.4, 0.92, 0.0),
-                ),
-                (
-                    Mesh3d(assets.nose.clone()),
-                    MeshMaterial3d(assets.nose_color.clone()),
-                    Transform::from_xyz(1.7, 0.76, 0.0),
-                ),
-            ],
+            children![(
+                CarBody,
+                Transform::default(),
+                Visibility::default(),
+                children![
+                    (
+                        Mesh3d(assets.body.clone()),
+                        MeshMaterial3d(body_color),
+                        Transform::from_xyz(0.0, 0.45, 0.0),
+                    ),
+                    (
+                        Mesh3d(assets.cabin.clone()),
+                        MeshMaterial3d(assets.cabin_color.clone()),
+                        Transform::from_xyz(-0.4, 0.92, 0.0),
+                    ),
+                    (
+                        Mesh3d(assets.nose.clone()),
+                        MeshMaterial3d(assets.nose_color.clone()),
+                        Transform::from_xyz(1.7, 0.76, 0.0),
+                    ),
+                ],
+            )],
         ));
     }
     view.cars = cars;

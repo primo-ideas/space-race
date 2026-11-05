@@ -133,6 +133,7 @@ The client module layout follows the path of the data:
 | `lobby` | The server's tracks, the lobby list and the lobby the player is in. |
 | `track` | Builds the lobby's track with the shared code, and its meshes. |
 | `race` | Snapshot buffer, interpolation, car entities, `RaceView` (the cars and the followed one). |
+| `weight` | The cars' bodies on their springs, and how the followed car is pushed, for the camera. |
 | `drift_meter` | The drift charge drawn on the road around the back of the player's car, as Rocket Racing draws it. |
 | `controls` | Gamepad, keyboard, touch or autopilot input (accelerate, drift, steer), sent on change and numbered. |
 | `latency` | Times the ping and every input to the server and to the screen (see [Latency](latency.md)). |
@@ -177,6 +178,27 @@ by mistake.
 **Cars** are drawn with their body turned into a drift (`Car::body_heading`), an angle the
 simulation does not drive along (see [Simulation](simulation.md#drift)).
 
+**Weight.** The car drives heavy (see [Simulation](simulation.md#weight)), and since v0.1.15 it
+looks it. A car entity is placed on the road, and its body, a child of it, rides on springs over
+that place (`client/src/weight.rs`): it pitches nose up as the car gathers speed and down as it
+loses it, rolls to the outside of a turn, sinks when the road presses into it and lifts when it
+falls away, then settles slowly, overshooting a little. Nothing is scripted. What pushes the
+springs is the acceleration the car really has, taken from how its displayed velocity changes
+between frames, with gravity added, and turned into the car's own frame: a car standing on a bank
+leans down it, a car taking a bank at speed leans less, and a wall jolts the body because it
+changes the velocity in one tick. The velocity is used rather than the displayed position because
+a prediction's correction glides the position and never the velocity, so a correction moves
+nothing on the springs; a car whose position or speed jumps further than any driving takes it
+was put somewhere else, a new grid, and starts at rest. The springs are stepped at 120 Hz at
+least and eased into their limits, so they behave the same at any frame rate.
+
+The numbers come from a lap of the skyway logged frame by frame. Pitch runs from -1 to 4 degrees,
+the start boost and the drifts lifting the nose; roll reaches 4 degrees either way. The road
+itself heaves the car hardest: crossing a banking transition off the centerline lifts it at four
+or five times gravity (at 47 m/s, 1.7 m in half a second), so the body's heave is the stiffest of
+its springs and held to 8 cm, where the first, softer one bobbed through every transition at its
+15 cm limit.
+
 **The camera** follows behind the player's car, or the watched one when spectating, at a heading
 that lags slightly behind it, so a turn reads as the car rotating rather than the whole world
 spinning around a fixed car. It follows the **direction of travel**, not the heading: in a drift
@@ -190,6 +212,15 @@ widens with speed. Tone mapping is off:
 Bevy's default one desaturates bright colors, which turned the neon blue into a dull sky blue. The
 camera renders in high dynamic range all the same, for the bloom that makes the neon glow, and sees
 through a haze in races (see [Night](night.md)).
+
+Chasing the car, the camera feels its weight too, the push the car's springs feel, on a mount of
+its own: it hangs back as the car pulls away and closes in as it slows (a boost takes it about a
+meter further back, a wall throws it toward the car), trails the car's rises and falls (by 0.3 m
+at most: that is the gain of a mount following on a spring, and the banking transitions would
+make anything stronger seasick), and shakes when the car hits something, by how much speed the
+hit took. A hit is a change of velocity faster than any driving makes, 150 m/s², where a boost
+pushes at 35 and the tightest drift turns the car at about 90. The finish shots, which no longer
+ride with the car, feel none of it.
 
 ## Build profiles
 
@@ -266,7 +297,10 @@ included. On a slow machine, always build the same way, with `--workspace`.
   `--autopilot-drift` uses the drifting style, so the capture catches a slide and the DRIFT gauge.
 - `--identity <dir>` points a client at its own key, to run several players on one machine.
 - Client unit tests cover the snapshot interpolation and clock estimate, the world mapping, quad
-  winding, generated nicknames and HUD formatting.
+  winding, generated nicknames and HUD formatting, and the cars' springs: a body pitching up as
+  the car gathers speed and settling where it should, rolling out of a turn, sinking when pressed
+  into the road, staying within its limits at 15 and at 300 frames per second, a hit told apart
+  from the tightest drift, and a car put on a new grid not thrown about.
 
 Diagnostics for what tests cannot judge:
 

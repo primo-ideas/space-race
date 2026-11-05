@@ -1,10 +1,11 @@
 //! The camera chasing the player's car, and the light.
 //!
-//! One camera, two ways of holding it. While the player drives, it hangs behind the car and lags a
-//! little through a turn. From the moment they cross the finish line to the next grid, results
-//! included, their car drives itself (see `docs/lobbies.md`) and the camera cuts between fixed
-//! shots instead, the way a race is shown on television: there is nothing left to steer, so the
-//! camera stops serving the driving and starts showing it.
+//! One camera, two ways of holding it. While the player drives, it hangs behind the car, lags a
+//! little through a turn and feels the car's weight (see `weight.rs`). From the moment they cross
+//! the finish line to the next grid, results included, their car drives itself (see
+//! `docs/lobbies.md`) and the camera cuts between fixed shots instead, the way a race is shown on
+//! television: there is nothing left to steer, so the camera stops serving the driving and starts
+//! showing it.
 //!
 //! The camera sees the night through a bloom that makes the neon glow, and, in a race, through a
 //! haze that gives the city its depth; the light is the moon's (see `docs/night.md`).
@@ -25,6 +26,7 @@ use crate::lobby::CurrentLobby;
 use crate::race::{RaceUpdate, RaceView, shortest_angle};
 use crate::screen::Screen;
 use crate::track::{CurrentTrack, Roofs, WALL_THICKNESS};
+use crate::weight::{FollowedPush, Oscillator, Push, Spring, sway};
 use crate::world;
 
 /// Distance behind the car and height, in meters.
@@ -43,6 +45,30 @@ const FOV_FULL_SPEED: f32 = 40.0;
 /// Below this forward speed, in m/s, the camera follows the heading rather than the direction of
 /// travel.
 const MIN_TRAVEL_SPEED: f32 = 5.0;
+/// The car's weight, felt from behind it (see weight.rs). The camera hangs back as the car pulls
+/// away and closes in as it slows, in meters along the road: a boost takes it about a meter
+/// further back, a wall throws it toward the car.
+const LAG: Spring = Spring {
+    frequency: 1.0,
+    damping: 0.7,
+    gain: 0.035,
+    limit: 2.0,
+};
+/// It trails the car's rises and falls as a mount on a spring would, in meters: it dips as the
+/// road sags under the car and rises over a crest. The gain is the one such a mount has, one over
+/// its frequency squared; the road heaves the car through banking transitions hard enough that any
+/// more would make the camera seasick.
+const DIP: Spring = Spring {
+    frequency: 1.4,
+    damping: 0.7,
+    gain: 0.013,
+    limit: 0.3,
+};
+/// It shakes when the car hits something: this far, in meters, for every m/s the hit took, up to
+/// `SHAKE_MOST`, dying away in about `SHAKE_FADE` seconds.
+const SHAKE_PER_IMPACT: f32 = 0.025;
+const SHAKE_MOST: f32 = 0.3;
+const SHAKE_FADE: f32 = 0.25;
 /// No camera goes lower than this over the road beneath it, in meters: a shot worked out from the
 /// car alone would otherwise end up under a road that climbs toward it, or rises into a bank.
 const ROAD_CLEARANCE: f32 = 0.8;
@@ -115,7 +141,10 @@ impl Plugin for CameraPlugin {
         .add_systems(OnExit(Screen::Lobby), haze_out)
         .add_systems(
             Update,
-            follow_car.after(RaceUpdate).run_if(in_state(Screen::Lobby)),
+            follow_car
+                .after(RaceUpdate)
+                .after(sway)
+                .run_if(in_state(Screen::Lobby)),
         );
     }
 }
@@ -131,6 +160,10 @@ struct ChaseCamera {
     /// How steeply the road climbs along that heading, lagging the same way: the camera climbs
     /// and dives with the road rather than staying level behind the car.
     grade: Option<f32>,
+    /// How far the car's weight has thrown the camera back and down, and how hard it shakes.
+    lag: Oscillator,
+    dip: Oscillator,
+    shake: f32,
     /// The shot playing since the player finished: its place in [`SHOTS`], and when it started.
     shot: Option<(usize, f64)>,
     /// Where a shot that stands still was put when it started.
@@ -222,6 +255,7 @@ fn follow_car(
     current: Res<CurrentLobby>,
     track: Option<Res<CurrentTrack>>,
     roofs: Option<Res<Roofs>>,
+    push: Res<FollowedPush>,
     time: Res<Time>,
     mut cameras: Query<(&mut Transform, &mut Projection, &mut ChaseCamera)>,
 ) {
@@ -265,6 +299,7 @@ fn follow_car(
             &car,
             car_position,
             slope,
+            push.0,
             &time,
         )
     };
@@ -279,7 +314,9 @@ fn follow_car(
 ///
 /// It hangs behind along the road rather than level with the car, so it climbs a hill behind the
 /// car and dives with it: level, it would sink into a climb behind a car going downhill, and look
-/// into the road ahead of one going up.
+/// into the road ahead of one going up. It feels the car's weight as it is pushed (`push`), on a
+/// mount of its own.
+#[allow(clippy::too_many_arguments)]
 fn chase_car(
     transform: &mut Transform,
     chase: &mut ChaseCamera,
@@ -287,6 +324,7 @@ fn chase_car(
     car: &Car,
     car_position: Vec3,
     slope: Vec2,
+    push: Option<Push>,
     time: &Time,
 ) -> f32 {
     let follow = 1.0 - (-HEADING_FOLLOW * time.delta_secs()).exp();
@@ -304,15 +342,39 @@ fn chase_car(
     chase.grade = Some(grade);
 
     let forward = along_the_road(heading, grade);
+    // The car's weight: the camera hangs back as the car pulls away and closes in as it slows,
+    // dips as the road sags under it, and shakes when it hits something.
+    let seconds = time.delta_secs();
+    let (acceleration, impact) =
+        push.map_or((Vec3::ZERO, 0.0), |push| (push.acceleration, push.impact));
+    chase.lag.step(&LAG, acceleration.dot(forward), seconds);
+    chase.dip.step(&DIP, acceleration.y, seconds);
+    chase.shake =
+        (chase.shake * (-seconds / SHAKE_FADE).exp() + impact * SHAKE_PER_IMPACT).min(SHAKE_MOST);
+    let shake = shaking(chase.shake, time.elapsed_secs());
+    let distance = DISTANCE + chase.lag.shown(&LAG);
+    let height = HEIGHT - chase.dip.shown(&DIP);
+
     transform.translation =
-        ground.frame(car_position - forward * DISTANCE + Vec3::Y * HEIGHT);
+        ground.frame(car_position - forward * distance + Vec3::Y * height + shake);
     transform.look_at(
-        car_position + forward * LOOK_AHEAD + Vec3::Y * LOOK_HEIGHT,
+        car_position + forward * LOOK_AHEAD + Vec3::Y * LOOK_HEIGHT + shake * 0.5,
         Vec3::Y,
     );
 
     let speed_share = (car.velocity.length() / FOV_FULL_SPEED).min(1.0);
     FOV_SLOW + (FOV_FAST - FOV_SLOW) * speed_share
+}
+
+/// Where a camera shaking `amplitude` meters stands `seconds` into the game, from where it should:
+/// three quick frequencies that never line up, so the shake never settles into a pattern.
+fn shaking(amplitude: f32, seconds: f32) -> Vec3 {
+    amplitude
+        * Vec3::new(
+            (seconds * 71.0).sin(),
+            (seconds * 89.0).sin(),
+            (seconds * 113.0).sin(),
+        )
 }
 
 /// The camera once the player has finished: a shot that holds for [`SHOT_SECONDS`], then a cut to
