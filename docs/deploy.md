@@ -104,6 +104,36 @@ The port is 8081 and not the default 8080, which belongs to the other game on th
 Nothing there writes to `/var/www/html` itself: the document root and whatever landing page sits
 in it belong to the site.
 
+### The machine as it is since November 2026
+
+The machine was reinstalled on 2026-11-05 (Ubuntu 26.04, one core, under a gigabyte of memory),
+with Apache, a certbot certificate and another site, and nothing of the game. The setup script was
+not at hand, so the game was set up on it by hand on 2026-11-06, with the same user, home, web
+directory and unit as the script's, but wired into Apache the way the other site on the machine
+is, which leaves the virtual host certbot wrote untouched:
+
+```text
+/etc/apache2/conf-available/space-race.conf   enabled with a2enconf, so every virtual host has it
+```
+
+```apache
+<Location "/space-race/ws">
+	ProxyPass "http://127.0.0.1:8081/ws" upgrade=websocket
+</Location>
+<Directory "/var/www/html/space-race">
+	Options -Indexes
+	AllowOverride None
+	Require all granted
+	AddType application/wasm .wasm
+</Directory>
+```
+
+`upgrade=websocket` lets `mod_proxy_http` carry the WebSocket by itself (Apache 2.4.47 and
+later), so no other module is needed. Ubuntu's own configuration already compresses
+`application/wasm`: the 52 MB module goes over the wire as 14.5 MB. Checked through Apache both
+ways, the browser over `wss://` and the native client over plain `ws://` through an SSH tunnel to
+the machine's port 80.
+
 ## Why nothing is built on the machine
 
 Until September 2026 the machine had one core, a gigabyte of memory and no Rust toolchain; the

@@ -133,6 +133,13 @@ Software rendering ran at 2 to 3 frames per second, too slow for the autopilot t
 works from a view that far behind the car and zigzags (see
 [Simulation](simulation.md#autopilot)). That says nothing about a real GPU.
 
+On the deployed site (2026-11-06), in headless Edge on the GTX 1050 Ti through ANGLE and
+Direct3D 11, driven over the DevTools protocol: a first visit, with an empty profile, opens the
+socket 4.9 s in and then holds the page's thread until 34 s compiling shaders, which is what
+lengthened the server's handshake deadline to 2 minutes (see [Protocol](protocol.md#handshake));
+a second visit connects in 50 ms, enters the lobby and builds the track at 5 s, then freezes 10 s
+compiling the race's shaders before the race runs.
+
 ## A console with nothing in it
 
 The game says nothing while it runs well. `LogPlugin` is set to `warn`, so a browser console
@@ -155,7 +162,7 @@ and driving a lap shows three console lines, all three the audio notice below.
   `opt-level = "z"` or `"s"`, stripped symbols.
 - `wasm-opt` 0.116 bundles Binaryen 116. It reads the modules Rust 1.98 produces today; a newer
   Rust enabling newer WebAssembly features by default could need a newer Binaryen.
-- Not yet tried in a browser with a GPU, with a gamepad, or on a phone. The touch interface has
+- Tried with a GPU only in a headless browser, and not yet with a gamepad or on a phone. The touch interface has
   been looked at in a phone-shaped window on a desktop (`--touch --window-size 844x390`) and its
   gestures are covered by tests, but no finger has ever been put on it.
 - In one of the first three headless runs the connection dropped after about 40 seconds (the server
