@@ -58,11 +58,13 @@ pub fn tuning() -> CarTuning {
         top_speed: 35.0,
         acceleration: 20.0,
         coasting: 4.0,
+        overspeed_drag: 0.5,
         turn_radius_slow: 6.0,
         turn_radius_fast: 30.0,
         min_steering_speed: 4.0,
         steering_rate: 14.0,
         steering_response: 60.0,
+        yaw_acceleration: 300.0,
         grip: 12.0,
         gravity: 9.81,
         drift_min_speed: 12.0,
@@ -85,6 +87,7 @@ pub fn tuning() -> CarTuning {
         start_boost: 1.5,
         collision_radius: 1.2,
         wall_bounce: 0.2,
+        wall_impact_friction: 0.5,
         wall_friction: 1.5,
     }
 }
