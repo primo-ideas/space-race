@@ -20,8 +20,10 @@ use crate::lobby::Membership;
 /// Time given to the client to complete the handshake. Generous, because a web client answers
 /// from the page's main thread, which its first frames can hold for seconds at a time while the
 /// browser compiles shaders: 5 seconds was not enough for a page opened with `?nickname=` to
-/// connect on its first load, even on a desktop GPU.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
+/// connect on its first load, even on a desktop GPU, and neither were 20 against the deployed
+/// site, where a first visit held the thread for 29 seconds. A connection that never answers only
+/// costs a task until then.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Persistent player identity: their public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

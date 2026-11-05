@@ -22,11 +22,16 @@ of just failing.
 
 ## Handshake
 
-The server allows 20 seconds (`HANDSHAKE_TIMEOUT`) for the whole exchange. That is far more than
+The server allows 2 minutes (`HANDSHAKE_TIMEOUT`) for the whole exchange. That is far more than
 the exchange takes, on purpose: a web client runs its session on the page's main thread, between
 frames, and the first frames of a page can hold that thread for several seconds each while the
 browser compiles shaders. With 5 seconds, a page opened with `?nickname=`, which connects at once,
-timed out on its first load even on a desktop GPU; a phone is slower.
+timed out on its first load even on a desktop GPU. 20 seconds was not enough either against the
+deployed site: a first visit with empty caches (Edge, ANGLE on Direct3D 11, a GTX 1050 Ti) opened
+the socket 5 seconds in and then held the thread until 34 seconds, so the client only saw the
+server's answer once the server had given up, and the page said it could not reach the server. A
+second visit, with the shaders cached, connected in 50 ms. A phone is slower still, and a
+connection that never answers only costs the server a task until the deadline.
 
 ```
 Client                                        Server

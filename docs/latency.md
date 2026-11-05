@@ -116,8 +116,14 @@ earned and its boost, with not a centimeter corrected. With a second car in the 
 snapshots, and both clients sharing the machine at 30 frames per second, input to screen was
 44 ms: at that frame rate the frame is what limits it.
 
-Nothing has been measured against the deployed server yet: the native client cannot reach
-`wss://`, so that measurement is the web client's, in a browser, with `?latency`.
+Against the deployed server (2026-11-06), from the same Windows machine on a home connection: the
+native client cannot reach `wss://`, so it went through an SSH tunnel to the server's loopback
+port, which adds the tunnel to the ping. A drifting lap of the skyway: **ping 22 to 28 ms**,
+**input to screen 25 to 28 ms**, worst 37, **0.0 cm corrected**, a lead of 57 ms. Input to
+screen did not grow with the ping, which is what prediction is for. The input → server column was
+empty all race long: an input leaves the queue once it is on screen, which with prediction is
+before the snapshot including it arrives, so it is only ever timed when that snapshot happens to
+come first, and then it is a slow one. A fault of the measurement, not of the game.
 
 ## What could come next
 
