@@ -34,18 +34,46 @@ The one structural choice is that **velocity and heading are separate**. Every t
    it. The turning radius grows with speed, from `turn_radius_slow` to `turn_radius_fast`, so full
    lock stays controllable at speed. The yaw rate follows that target at `steering_response`,
    well above the wheel's rate, so it follows the wheel almost at once and only smooths what the
-   wheel does not: the change of radius when a drift starts or ends. With the shipped tuning, half
-   lock at top speed turns the car at a seventh of its eventual rate on the first tick, two fifths
-   after 50 ms and nearly three quarters after 100 ms. The car always steers at least as if it went
-   `min_steering_speed`: there is no reverse, so this is what lets a car stopped against a wall
-   turn away from it.
-2. **The velocity is split** along the new heading. The part along the heading is driven by
+   wheel does not: the change of radius when a drift starts or ends. The car always steers at
+   least as if it went `min_steering_speed`: there is no reverse, so this is what lets a car stopped
+   against a wall turn away from it.
+2. **The car's weight** then holds the rotation back: it changes by no more than
+   `yaw_acceleration` per second, gathering steadily and dying away the same way when the stick
+   lets go (see [Weight](#weight)).
+3. **The velocity is split** along the new heading. The part along the heading is driven by
    accelerating or coasting. The sideways part, whatever the rotation left behind, decays at
    the rate set by `grip`.
-3. **Walls** push the car back and absorb the speed going into them.
+4. **Walls** push the car back and absorb the speed going into them.
 
 Because the sideways part decays instead of vanishing, the car already slides a little in turns
 and loses some speed doing so. **Drift** builds on that slide.
+
+### Weight
+
+The car is heavy since v0.1.14, at the user's request ("ajoute de la lourdeur dans le gameplay"),
+in all four of the ways they were offered: momentum, weight in the turns, a heavier wheel, and
+weight that shows. The first three are the simulation's, and every one of them is a number in
+`car.ron`.
+
+- **A heavier wheel.** `yaw_acceleration`, 250 degrees per second per second, caps how quickly the
+  rotation changes. It still starts on the very tick the stick moves, which is what the user asked
+  for on 2026-09-28, but it gathers steadily rather than at once, and dies away steadily once the
+  stick lets go, so the car carries on round a little. Small corrections never meet it: half lock
+  at top speed turns the car at 12 degrees per second after 50 ms and 25 after 100 ms, against 15
+  and 26 before. Full lock does, 12 and 25 against 30 and 51, and a slalom does, the rotation
+  taking about 0.6 s to swing from one side to the other. `steering_rate`, the wheel itself, stays
+  at the 14 the user had settled on: lowered to 10 or 8 as well, it made the car one the autopilot
+  could no longer drift cleanly from information six ticks old.
+- **Weight in the turns.** `grip` is down from 10 to 6, so the travel trails the nose by a sixth
+  of a second rather than a tenth: the car is carried further to the outside before it follows its
+  nose, half lock puts the nose 6 degrees off the travel instead of 3, and a turn let go of carries
+  the travel on 11 degrees instead of 8. A drift is not affected: it goes where the stick says, as
+  the user wanted it in v0.1.13. Breaking away by turning hard moved with the grip, from 5 degrees
+  to 9, so full lock at speed still breaks away and half lock still does not.
+- **Momentum.** The car takes its time getting up to speed, `acceleration` down from 22 to 16:
+  0 to 30 m/s in 3.5 s instead of 2.5, and to 95% of top speed in 7.5 s instead of 5.4. Above top
+  speed it keeps its momentum, and a wall costs more (see [Accelerating](#accelerating-no-brake)
+  and [Walls](#walls)).
 
 ### Drift
 
@@ -66,8 +94,8 @@ corner by as far as its travel lags its nose; this one does not.
   A press is a press: a button held down since before starts nothing. Turning hard enough starts
   one too, without the button: while the car grips, `Car::slip` is the real angle between its nose
   and its travel, and its reaching `drift_entry_angle` breaks the car away toward the side it came
-  round. With the shipped tuning, full lock at speed puts the nose about 7 degrees off the travel
-  and the entry sits at 5.
+  round. With the shipped tuning, full lock at speed puts the nose about 12 degrees off the travel
+  and the entry sits at 9: full lock breaks away after 0.45 s, half lock never does.
 - **The angle.** The body swings toward `drift_angle` times `1 - (1 - s)²`, where `s` is how far
   the steering points into the drift: most of the angle with the first half of the steering, all
   of it at full lock, none with the steering centered or against the drift. The curve eases in
@@ -114,7 +142,8 @@ corner by as far as its travel lags its nose; this one does not.
   the full second of boost takes two to three seconds of drift. A boost raises the top speed to
   `boost_top_speed`, a fifth above `top_speed` as in the recording, and pushes at
   `boost_acceleration`, in full up to `top_speed` and fading out above it, even without the
-  accelerator. After it, the car settles back to `top_speed` at the `coasting` rate.
+  accelerator. After it, the car keeps its momentum: what is left above `top_speed` fades at
+  `overspeed_drag` (see [Accelerating](#accelerating-no-brake)).
 - **Losing it.** A drift that touches a wall ends at once and pays nothing. The body settles back
   into line on its own, and the button, still held, starts nothing until it is pressed again.
 
@@ -189,8 +218,9 @@ for a tenth of a second:
 | --- | --- | --- | --- | --- |
 | Into a drift | after 0.27 s of full lock | on the press | on the press | on the press |
 | Angle | 20 degrees, 26 held, after a second | 37 degrees at 0.25 s, 52 at 0.5 s | 1 degree at 50 ms, 15 at 0.25 s, 44 at 0.5 s, 55 at 0.75 s | 45 to 55, at 0.35 s |
-| The nose's fastest turn | | 288 degrees per second, at 0.12 s | 192, from 0.25 s to 0.5 s | |
-| Speed after 2 s | 5% lost, 9% held | none, 6% held | none, 6% held | none |
+| The nose's turn after 50 ms and 100 ms | | | 35 and 70 degrees per second, 53 and 96 before the car had weight | |
+| The nose's fastest turn | | 288 degrees per second, at 0.12 s | 193, from 0.25 s to 0.5 s | |
+| Speed after 2 s | 5% lost, 9% held | none, 6% held | none, 7% held | none |
 | Back into line | 0.65 s after straightening | 0.5 s | 0.55 s | about 0.2 s |
 | Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | to 48 m/s, 20% over | 21% over |
 
@@ -202,7 +232,8 @@ models of their time.
 
 | Track | Without the button | With it |
 | --- | --- | --- |
-| **skyway** (34 m, relief from 3 to 47 m) | 49.9 s | **45.9 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 52.6 s | **45.9 s** |
+| skyway, before the car had weight (v0.1.13) | 49.9 s | 45.9 s |
 | skyway, with the drift of 2026-09-20 | 49.9 s | 46.9 s |
 | esplanade (28 m, bottlenecks of 13 to 15 m), no longer shipped | 41.5 s | 39.2 s |
 | esplanade, as it was before v0.1.16 | 48.4 s | 46.6 s |
@@ -211,9 +242,12 @@ models of their time.
 
 The hippodrome was the thin margin, and it should have been: its turns were 38 m sweepers taken
 nearly flat, where tightening the line buys little and the drag costs real speed. The skyway is the
-opposite, slaloms and bowls with hardly a straight, and drifting is worth 3.9 s a lap on it, 8%,
+opposite, slaloms and bowls with hardly a straight, and drifting is worth 6.7 s a lap on it, 13%,
 the most of any circuit so far: ten drifts, 24 s of the 46 spent sliding, and a boost out of every
-one. Without the button, the autopilot never turns hard enough on it to break away.
+one. Without the button, the autopilot never turns hard enough on it to break away. The car's
+weight (v0.1.14) widened the gap from 3.9 s: the gripping lap lost 2.7 s, to the slower start, the
+heavier wheel and the looser grip, while the drifting lap lost nothing, its boosts now lingering
+where they used to be gone in two seconds.
 
 The rule `shipped_tracks_are_drivable` enforces is what holds whatever the table says: on every
 shipped circuit the drifting lap must be the faster one, and a tuning or a road where holding the
@@ -224,6 +258,12 @@ button stops paying fails CI.
 The game is full speed all the time: there is **no brake and no reverse**, only an accelerate
 button. Acceleration fades linearly to zero at `top_speed`, so the car approaches top speed
 smoothly instead of hitting a ceiling. Letting go of the button coasts to a stop.
+
+Above `top_speed`, the car keeps its **momentum**: whatever put it there, a boost or a dive, the
+excess fades by `overspeed_drag`, a share of itself every second, a lot of it quickly and the last
+of it slowly, as air would hold back a heavy car. With the shipped 0.5, a boost that took the car to
+48 m/s leaves it at 45 a second after it ends and 42 three seconds after, where it used to be back
+at 40 within two seconds. Coasting still applies on top of it when the accelerator is let go.
 
 Pressing the accelerator right at the start of a race gives up to `start_boost` seconds of boost,
 graded from S to E (see [Lobbies](lobbies.md#the-start)).
@@ -251,10 +291,10 @@ purely visual.
 
 Along the road the same pull slows a car climbing and speeds one diving. Flat out, a climb costs
 speed where the engine's push, which fades to nothing at top speed, meets the pull: on a 15% climb
-the shipped car settles at 37 m/s instead of 40. A dive does not carry it far past top speed:
-above it, the accelerator pulls the car back at the coasting rate, 4 m/s², more than the 3.8 m/s²
-the steepest centerline a track may have pulls it forward with. Only a boost goes faster downhill
-than on the flat.
+the shipped car settles at 36 m/s instead of 40. A dive carries it past top speed, to where the
+pull meets the momentum fading: `top_speed` plus the pull over `overspeed_drag`, nearly 5 m/s over
+on a 25% grade with the shipped tuning. On the skyway the gripping autopilot reaches 42 m/s at the
+foot of the dive, where it never went past 40 before the car had weight.
 
 Only the planar motion is simulated, and that pull is all the slopes do: cars never leave the road,
 and a crest taken flat out does not throw them into the air.
@@ -267,6 +307,12 @@ circle of `collision_radius`: if it overlaps a wall it is pushed back along the 
 centerline, the speed going into the wall is removed (a `wall_bounce` share of it comes back), and
 scraping along the wall slows the car down (`wall_friction`). Where the road is pinching in, that
 push is the bottleneck squeezing a car that hugs the wall toward the middle of the road.
+
+The hit itself rubs too: it takes speed along the wall, `wall_impact_friction` m/s for every m/s it
+takes into it, as friction does in an impact. A graze costs little and a blow at an angle a lot:
+at 40 m/s and 15 degrees, the stick left alone, the shipped car falls to 32 m/s, where it used to
+keep 38, and being slow to get back up to speed, it is still more than a meter per second down
+four seconds later.
 
 Cars do not collide with each other yet.
 
@@ -318,7 +364,9 @@ around 18. The esplanade, with its bottlenecks, left late information less room:
 its gripping lap stayed clean (40.8 s), but the drifting one scraped into every bottleneck, 19 ticks
 against the walls in a lap. A drift decided on old information runs wider, and a bottleneck is
 where that shows. The skyway, 34 m wide and never pinched, is clean six ticks late in both styles:
-50.0 s gripping, 46.3 s drifting.
+52.8 s gripping, 46.1 s drifting. Weight makes late information costlier: with the wheel slowed as
+well as the rotation (`steering_rate` 10 or 8 rather than 14), the drifting autopilot six ticks
+late swung from wall to wall through the slaloms, 160 ticks against them in a lap.
 
 That margin also turned out to be a latency detector. The first drivable client displayed the race
 770 ms late because of a time-origin bug, and the autopilot, fine in every test, crashed on screen.
@@ -332,6 +380,10 @@ A player would have felt the same delay without being able to name it.
   tick the stick moves, gently, then a little harder every tick after, turning away from a
   wall while stopped against it, walls holding, a banked turn pulling a standing car to its inside,
   a climb slowing the car and a dive speeding it up, input quantization, tuning validation.
+- Weight: the rotation starting on the very tick and changing by no more than `yaw_acceleration`,
+  and a heavy car carrying on round further than a light one once the stick lets go; a dive
+  carrying the car past top speed, and a boost's excess fading by the same share every second; a
+  blow against a wall costing more than four times a graze.
 - Drift: a press of the button starts one at once toward the stick, but not with the stick
   centered nor too slow; turning hard starts one without the button and gentle steering does not,
   toward the side the car came round; the body swings most of the way across in a third of a

@@ -4,6 +4,10 @@
 //! all the time, and letting go of the accelerator only coasts. The velocity is kept apart from the
 //! heading, so the car can slide: when it grips, sideways speed dies out at a rate set by the grip.
 //!
+//! The car is **heavy**: its rotation gathers and dies away steadily rather than at once, it is
+//! carried a little wide of where its nose points while it grips, it keeps its momentum above top
+//! speed, and a wall takes speed along it as well as into it.
+//!
 //! **Drift** is the heart of the gameplay, in the spirit of Rocket Racing, and a driving mode of its
 //! own: the car skates. A tap of the drift button with the stick turned throws the car into a drift
 //! toward that side, and so does turning hard enough to break away. While it lasts, the stick sets
@@ -110,8 +114,13 @@ pub struct CarTuning {
     pub top_speed: f32,
     /// Acceleration from standstill, in m/s². It fades linearly to zero at top speed.
     pub acceleration: f32,
-    /// Deceleration when not accelerating, and back down to top speed after a boost, in m/s².
+    /// Deceleration when not accelerating, in m/s².
     pub coasting: f32,
+    /// How quickly speed above `top_speed` bleeds away, per second: what a boost or a dive gave
+    /// beyond it fades by this share of itself every second, a lot of it quickly and the last of
+    /// it slowly. Low keeps the momentum, so a dive carries the car past top speed and a boost
+    /// lingers; zero keeps it for good.
+    pub overspeed_drag: f32,
     /// Turning radius at full lock when slow, in meters.
     pub turn_radius_slow: f32,
     /// Turning radius at full lock at top speed. In between, the radius follows the speed
@@ -129,6 +138,12 @@ pub struct CarTuning {
     /// the rotation follows the steering almost at once, and only smooths what the steering does
     /// not: the change of radius when a drift starts or ends, or when the drift button tightens it.
     pub steering_response: f32,
+    /// The fastest the car's rotation can change, in degrees per second per second: its weight.
+    /// The rotation starts on the very tick the steering does and gathers speed steadily, and
+    /// once the stick lets go it dies away the same way, the car carrying on round a little. A
+    /// small correction never meets it; a full turn of the wheel, a drift carried over to the
+    /// other side or a slalom does. While drifting, it is the rotation of the travel.
+    pub yaw_acceleration: f32,
     /// How quickly sliding sideways dies out, per second, when not drifting. Higher feels like
     /// rails.
     pub grip: f32,
@@ -198,6 +213,10 @@ pub struct CarTuning {
     pub collision_radius: f32,
     /// Share of the speed into a wall that bounces back, from 0 to 1.
     pub wall_bounce: f32,
+    /// Speed along the wall that a hit takes away, per m/s of the hit: the friction of the
+    /// impact. A graze costs little and a blow at an angle a lot, and the car, slow to get back up
+    /// to speed, pays for it a while.
+    pub wall_impact_friction: f32,
     /// How quickly scraping along a wall slows the car, per second.
     pub wall_friction: f32,
 }
@@ -212,6 +231,7 @@ impl CarTuning {
             ("turn_radius_fast", self.turn_radius_fast),
             ("steering_rate", self.steering_rate),
             ("steering_response", self.steering_response),
+            ("yaw_acceleration", self.yaw_acceleration),
             ("drift_entry_angle", self.drift_entry_angle),
             ("drift_exit_angle", self.drift_exit_angle),
             ("drift_angle", self.drift_angle),
@@ -227,6 +247,7 @@ impl CarTuning {
         ];
         let non_negative = [
             ("coasting", self.coasting),
+            ("overspeed_drag", self.overspeed_drag),
             ("min_steering_speed", self.min_steering_speed),
             ("grip", self.grip),
             ("gravity", self.gravity),
@@ -237,6 +258,7 @@ impl CarTuning {
             ("drift_boost_rate", self.drift_boost_rate),
             ("drift_max_boost", self.drift_max_boost),
             ("start_boost", self.start_boost),
+            ("wall_impact_friction", self.wall_impact_friction),
             ("wall_friction", self.wall_friction),
         ];
         for (name, value) in positive {
@@ -525,7 +547,12 @@ impl Car {
         } else {
             tuning.steering_response
         };
-        self.yaw_rate += (target_yaw_rate - self.yaw_rate) * (1.0 - decay(response, dt));
+        let wanted =
+            self.yaw_rate + (target_yaw_rate - self.yaw_rate) * (1.0 - decay(response, dt));
+        // The car's weight: its rotation changes no faster than this, so it gathers steadily and
+        // dies away steadily once the stick lets go.
+        let weight = tuning.yaw_acceleration.to_radians() * dt;
+        self.yaw_rate = move_towards(self.yaw_rate, wanted, weight);
     }
 
     /// A tick of gripping: the rotation turns the nose, the velocity is split along it, and
@@ -556,7 +583,8 @@ impl Car {
 
     /// New forward speed after one tick of boost, accelerator or coasting, and of holding the
     /// drift button. `speed` is the whole speed, sliding included, which is what the top speeds
-    /// limit.
+    /// limit. Above top speed, whatever put the car there, the excess bleeds away at
+    /// `overspeed_drag`.
     fn drive(
         &self,
         forward_speed: f32,
@@ -571,14 +599,20 @@ impl Car {
                 / (tuning.boost_top_speed - tuning.top_speed))
                 .clamp(0.0, 1.0);
             forward_speed + tuning.boost_acceleration * fade * dt
-        } else if input.accelerate && speed > tuning.top_speed {
-            // Faster than the engine alone goes, after a boost: settle back to top speed.
-            forward_speed - (speed - tuning.top_speed).min(tuning.coasting * dt)
-        } else if input.accelerate {
-            let fade = (1.0 - speed / tuning.top_speed).max(0.0);
+        } else if input.accelerate && speed < tuning.top_speed {
+            let fade = 1.0 - speed / tuning.top_speed;
             forward_speed + tuning.acceleration * fade * dt
         } else {
-            move_towards(forward_speed, 0.0, tuning.coasting * dt)
+            // Faster than the engine alone goes, after a boost or down a dive, the car keeps its
+            // momentum: the excess fades, a lot of it quickly and the last of it slowly.
+            let excess = (speed - tuning.top_speed).max(0.0);
+            let held_back = excess * (1.0 - decay(tuning.overspeed_drag, dt));
+            let coasting = if input.accelerate {
+                0.0
+            } else {
+                tuning.coasting * dt
+            };
+            move_towards(forward_speed, 0.0, held_back + coasting)
         };
         if self.is_drifting() && input.drift {
             // A drift costs nothing; tightening it with the button does, and the longer the
@@ -607,7 +641,12 @@ impl Car {
 
         let into_wall = self.velocity.dot(outward);
         if into_wall > 0.0 {
-            self.velocity -= outward * into_wall * (1.0 + tuning.wall_bounce);
+            let impact = into_wall * (1.0 + tuning.wall_bounce);
+            self.velocity -= outward * impact;
+            // The friction of the impact: the harder the car hits, the more of its speed along the
+            // wall the hit takes, so a graze costs little and a blow at an angle a lot.
+            let along_wall = self.velocity - outward * self.velocity.dot(outward);
+            self.velocity -= along_wall.clamp_length_max(tuning.wall_impact_friction * impact);
         }
         let along_wall = self.velocity - outward * self.velocity.dot(outward);
         self.velocity -= along_wall * (1.0 - decay(tuning.wall_friction, dt));
@@ -787,8 +826,9 @@ mod tests {
             steer: 127,
             ..ACCELERATE
         };
-        // Three seconds, and the fifth of a second the steering takes to reach full lock.
-        run(&mut car, right, 3.2, &track);
+        // Four seconds: while its nose still points into the wall, the car pushes against it, and
+        // the friction of that push holds it back.
+        run(&mut car, right, 4.0, &track);
         assert!(car.heading < 1.0, "{}", car.heading);
         assert!(car.forward_speed() > 5.0, "{}", car.forward_speed());
     }
@@ -952,6 +992,130 @@ mod tests {
             "{shares:?}"
         );
         assert!(shares[shares.len() - 1] > 0.6, "{shares:?}");
+    }
+
+    /// The car's weight: its rotation starts on the very tick the stick moves, gathers no faster
+    /// than `yaw_acceleration` and, once the stick lets go, dies away no faster either, so a heavy
+    /// car carries on round further than a light one.
+    #[test]
+    fn the_rotation_gathers_and_dies_away_with_the_weight() {
+        let track = Track::build(&open_track()).unwrap();
+        let start = at_top_speed(&track);
+        let most = tuning().yaw_acceleration.to_radians() * TICK_SECONDS * 1.001;
+        // Full lock, then the stick let go: the rotation through both, and how far the car turned
+        // after letting go. The car is kept from breaking away, which would hand the rotation over
+        // to a drift.
+        let turned_after_letting_go = |tuning: &CarTuning| {
+            let tuning = &CarTuning {
+                drift_entry_angle: 45.0,
+                ..tuning.clone()
+            };
+            let mut car = start;
+            let mut rates = vec![0.0];
+            for _ in 0..ticks(0.5) {
+                car.step(CarInput::new(true, 1.0), tuning, &track);
+                rates.push(car.yaw_rate);
+            }
+            let heading = car.heading;
+            for _ in 0..ticks(1.0) {
+                car.step(ACCELERATE, tuning, &track);
+                rates.push(car.yaw_rate);
+            }
+            assert!(!car.is_drifting());
+            (
+                rates,
+                Vec2::from_angle(heading).angle_to(car.forward()).abs(),
+            )
+        };
+
+        let (rates, heavy) = turned_after_letting_go(&tuning());
+        assert!(rates[1] < 0.0, "not turning right on the first tick");
+        assert!(
+            rates
+                .windows(2)
+                .all(|pair| (pair[1] - pair[0]).abs() <= most),
+            "{rates:?}"
+        );
+        let light = CarTuning {
+            yaw_acceleration: 1e5,
+            ..tuning()
+        };
+        let (_, light) = turned_after_letting_go(&light);
+        println!(
+            "after letting go, a heavy car turns {} degrees more, a light one {}",
+            heavy.to_degrees(),
+            light.to_degrees()
+        );
+        assert!(heavy > light * 1.3, "{heavy} against {light}");
+    }
+
+    /// Above top speed the car keeps its momentum: a dive carries it past top speed, and what a
+    /// boost gave fades by the same share of itself every second rather than all at once.
+    #[test]
+    fn momentum_carries_the_car_past_top_speed_and_fades() {
+        let top_speed = tuning().top_speed;
+        let mut description = oval(2000.0, 60.0, 0.0);
+        description.elevation = vec![
+            Elevation {
+                at: 0.0,
+                height: 0.0,
+            },
+            Elevation {
+                at: 1000.0,
+                height: -60.0,
+            },
+        ];
+        let diving = Track::build(&description).unwrap();
+        let mut car = Car::new(Vec2::ZERO, 0.0);
+        car.velocity = Vec2::X * top_speed;
+        run(&mut car, ACCELERATE, 15.0, &diving);
+        assert!(
+            car.velocity.length() > top_speed + 0.5,
+            "{}",
+            car.velocity.length()
+        );
+
+        let track = Track::build(&open_track()).unwrap();
+        let mut car = at_top_speed(&track);
+        car.boost = 1.0;
+        run(&mut car, ACCELERATE, 1.0, &track);
+        let excess = |car: &Car| car.velocity.length() - top_speed;
+        let mut after = Vec::new();
+        for _ in 0..3 {
+            run(&mut car, ACCELERATE, 1.0, &track);
+            after.push(excess(&car));
+        }
+        let kept = (-tuning().overspeed_drag).exp();
+        println!("excess speed a second apart: {after:?}");
+        assert!(after[0] > 1.0, "{after:?}");
+        for pair in after.windows(2) {
+            assert!((pair[1] / pair[0] - kept).abs() < 0.01, "{after:?}");
+        }
+    }
+
+    /// A hit takes speed along the wall as well as into it, more the harder the car hits: a graze
+    /// costs little, a blow at an angle a lot.
+    #[test]
+    fn a_wall_costs_more_the_harder_it_is_hit() {
+        let track = long_track();
+        // The speed lost on the tick the car meets the wall.
+        let speed_lost_hitting = |degrees: f32| {
+            let mut car = Car::new(Vec2::new(100.0, 0.0), degrees.to_radians());
+            car.velocity = car.forward() * 30.0;
+            let limit = track.half_width() - tuning().collision_radius;
+            loop {
+                let before = car.velocity.length();
+                car.step(CarInput::new(true, 0.0), &tuning(), &track);
+                if track.project(car.position).lateral >= limit - 1e-3 {
+                    return before - car.velocity.length();
+                }
+            }
+        };
+        let graze = speed_lost_hitting(3.0);
+        let blow = speed_lost_hitting(25.0);
+        println!("a graze costs {graze} m/s, a blow {blow} m/s");
+        assert!(graze < 2.5, "{graze}");
+        assert!(blow > 4.0 * graze, "{blow} against {graze}");
     }
 
     /// The steering turns toward the stick rather than jumping to it, and the body swings with a
