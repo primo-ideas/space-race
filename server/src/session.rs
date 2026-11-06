@@ -14,7 +14,7 @@ use space_race_protocol::{
 use tokio::time::timeout;
 use tracing::info;
 
-use crate::directory::{Directory, OnlineGuard};
+use crate::directory::{Directory, OnlineGuard, Replaced};
 use crate::lobby::Membership;
 
 /// Time given to the client to complete the handshake. Generous, because a web client answers
@@ -52,17 +52,26 @@ pub async fn run(mut socket: WebSocket, directory: Directory) -> Result<()> {
         return Ok(());
     };
     // Held until the connection ends, however it ends. It also carries where the player is, for
-    // the list of connected players.
-    let Some(online) = directory.connect(&player) else {
-        return reject(&mut socket, RejectReason::AlreadyConnected).await;
-    };
+    // the list of connected players. A connection of the same player still open is replaced, and
+    // this one will be in turn if the player connects again (see `Directory::connect`).
+    let (online, mut replaced) = directory.connect(&player);
 
     info!(player = %player.id, nickname = %player.nickname, "player connected");
     // From here on, a dropped connection (crash, lost network) is an ordinary way to leave, not a
     // server failure: it is logged as the reason.
-    let reason = connected(&mut socket, &directory, &player, &online).await;
+    let reason = connected(&mut socket, &directory, &player, &online, &mut replaced).await;
     info!(player = %player.id, nickname = %player.nickname, %reason, "player disconnected");
     Ok(())
+}
+
+/// Why a connection replaced by a newer one of the same player ends.
+const REPLACED: &str = "replaced by a new connection";
+
+/// Tells a replaced connection's client why it is being closed, if it is still there to hear it:
+/// the same words a second window used to get, now said to the first.
+async fn close_replaced(socket: &mut WebSocket) -> String {
+    let _ = reject(socket, RejectReason::AlreadyConnected).await;
+    REPLACED.into()
 }
 
 /// Returns `None` if the player was rejected.
@@ -112,6 +121,7 @@ async fn connected(
     directory: &Directory,
     player: &Player,
     online: &OnlineGuard,
+    replaced: &mut Replaced,
 ) -> String {
     let welcome = ServerMessage::Welcome {
         tracks: directory.tracks(),
@@ -126,6 +136,9 @@ async fn connected(
     players.mark_changed();
     loop {
         let entered = tokio::select! {
+            // The sender lives in the list of connected players, so it only goes, unsent, with
+            // this connection: either way there is nothing left to do.
+            _ = &mut *replaced => return close_replaced(socket).await,
             changed = lobbies.changed() => {
                 if changed.is_err() {
                     return "the server is stopping".into();
@@ -178,7 +191,7 @@ async fn connected(
         match entered {
             Ok(membership) => {
                 online.entered_lobby(membership.lobby.id());
-                if let Some(reason) = play(socket, membership).await {
+                if let Some(reason) = play(socket, membership, replaced).await {
                     // The guard takes the player off the list of connected players.
                     return reason;
                 }
@@ -199,7 +212,11 @@ async fn connected(
 
 /// Relays between the player and their lobby. Returns `None` when the player leaves the lobby,
 /// or why the connection ended.
-async fn play(socket: &mut WebSocket, membership: Membership) -> Option<String> {
+async fn play(
+    socket: &mut WebSocket,
+    membership: Membership,
+    replaced: &mut Replaced,
+) -> Option<String> {
     let Membership {
         lobby,
         car,
@@ -221,6 +238,11 @@ async fn play(socket: &mut WebSocket, membership: Membership) -> Option<String> 
         tokio::select! {
             // The state first, so a player hears of a phase before the snapshots that follow it.
             biased;
+            _ = &mut *replaced => {
+                // Out of the lobby first, so the car does not linger while the client is told.
+                lobby.leave(car).await;
+                return Some(close_replaced(socket).await);
+            }
             changed = state.changed() => {
                 if changed.is_err() {
                     break Some("the lobby closed".into());

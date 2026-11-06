@@ -193,7 +193,7 @@ the session removes the player from their lobby on all of these paths, not only 
 | `ProtocolMismatch { server_version }` | Client and server speak different protocol versions. |
 | `InvalidNickname` | The nickname failed `is_valid_nickname`. |
 | `AuthenticationFailed` | The signature did not verify against the announced public key. |
-| `AlreadyConnected` | This identity is already connected, from another connection. The first connection stays. |
+| `AlreadyConnected` | Sent to a connection that another one of the same identity has just replaced, before it is closed: the newest connection wins (see [Lobbies](lobbies.md#on-the-server)). |
 
 ## Join errors
 

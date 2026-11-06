@@ -101,7 +101,7 @@ New-Item -ItemType Directory -Path $stage, "$stage/web" | Out-Null
 Copy-Item 'deploy/install.sh' $stage
 Copy-Item 'target/x86_64-unknown-linux-musl/release/space-race-server' $stage
 Copy-Item 'server/data' "$stage/data" -Recurse
-Copy-Item 'client/web/index.html' "$stage/web"
+Copy-Item 'client/web/*' "$stage/web"
 
 Invoke-Checked 'generating the JavaScript bindings' {
     wasm-bindgen --target web --no-typescript --out-dir "$stage/web" --out-name space-race-client `

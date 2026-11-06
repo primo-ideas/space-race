@@ -120,7 +120,7 @@ jobs:
           cp deploy/install.sh target/deploy/
           cp "target/x86_64-unknown-linux-musl/release/$NAME-server" target/deploy/
           cp -r server/data target/deploy/data
-          cp client/web/index.html target/deploy/web/
+          cp client/web/* target/deploy/web/
           wasm-bindgen --target web --no-typescript --out-dir target/deploy/web \
             --out-name "$NAME-client" \
             "target/wasm32-unknown-unknown/release/$NAME-client.wasm"

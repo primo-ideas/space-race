@@ -138,8 +138,8 @@ fn spawn_dialog(
     touchscreen: Touchscreen,
 ) -> (Entity, String) {
     // On a phone the card has to fit a screen half as tall: it gives up its padding, its title
-    // shrinks, and the line explaining each setting goes, the settings being their own
-    // explanation.
+    // shrinks, the line explaining each setting goes, the settings being their own explanation,
+    // and it grows wide instead, a phone in landscape having width to spare.
     let pick = |desk: f32, phone: f32| touchscreen.pick(desk, phone);
     let offered_name = match connection {
         Connection::Online { nickname } => format!("{nickname}'s lobby"),
@@ -159,7 +159,7 @@ fn spawn_dialog(
     let field = commands
         .spawn((
             NameField,
-            text_field(fonts, &initial_name, MAX_LOBBY_NAME_CHARS),
+            text_field(fonts, "Lobby name", &initial_name, MAX_LOBBY_NAME_CHARS),
         ))
         .observe(confirm)
         .id();
@@ -167,7 +167,7 @@ fn spawn_dialog(
     let card = commands
         .spawn((
             Node {
-                width: px(pick(560.0, 470.0)),
+                width: px(pick(560.0, 640.0)),
                 flex_direction: FlexDirection::Column,
                 padding: px(pick(28.0, 15.0)).all(),
                 row_gap: px(pick(10.0, 5.0)),
@@ -261,8 +261,69 @@ fn spawn_dialog(
             },
         ),
     ];
+    // On a phone the three numbers share one row, each with its name above its arrows: a row each
+    // with arrows a thumb can hit does not fit a screen that short.
+    let numbers = touchscreen.0.then(|| {
+        commands
+            .spawn(Node {
+                column_gap: px(8),
+                ..default()
+            })
+            .id()
+    });
     for (setting, label, help, stepper) in settings {
         let initial = stepper.value;
+        if let Some(numbers) = numbers.filter(|_| setting != Setting::Track) {
+            let row = commands
+                .spawn((
+                    setting,
+                    stepper,
+                    Selectable,
+                    Node {
+                        flex_direction: FlexDirection::Column,
+                        flex_grow: 1.0,
+                        flex_basis: px(0),
+                        align_items: AlignItems::Center,
+                        padding: UiRect::axes(px(8), px(5)),
+                        row_gap: px(2),
+                        border: px(1.5).all(),
+                        border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
+                        ..default()
+                    },
+                ))
+                .id();
+            commands.entity(row).with_children(|column| {
+                column.spawn((
+                    Text::new(label.to_uppercase()),
+                    fonts.caption(12.5),
+                    theme::CAPTION_SPACING,
+                    TextColor(theme::TEXT_DIM),
+                ));
+                column
+                    .spawn(Node {
+                        align_items: AlignItems::Center,
+                        column_gap: px(6),
+                        ..default()
+                    })
+                    .with_children(|arrows| {
+                        arrows.spawn(step_button(fonts, row, -1));
+                        arrows.spawn((
+                            StepperValue(row),
+                            Text::new(initial.to_string()),
+                            fonts.display(26.0),
+                            TextColor(theme::TEXT),
+                            TextLayout::justify(Justify::Center),
+                            Node {
+                                width: px(40),
+                                ..default()
+                            },
+                        ));
+                        arrows.spawn(step_button(fonts, row, 1));
+                    });
+            });
+            commands.entity(numbers).add_child(row);
+            continue;
+        }
         let row = commands
             .spawn((
                 setting,
@@ -355,6 +416,9 @@ fn spawn_dialog(
             row_content.spawn(step_button(fonts, row, 1));
         });
         commands.entity(card).add_child(row);
+    }
+    if let Some(numbers) = numbers {
+        commands.entity(card).add_child(numbers);
     }
 
     commands.entity(card).with_children(|card| {

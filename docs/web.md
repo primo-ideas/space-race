@@ -42,7 +42,7 @@ cargo build --release -p space-race-client --target wasm32-unknown-unknown
 wasm-bindgen --target web --no-typescript --out-dir dist --out-name space-race-client \
     target/wasm32-unknown-unknown/release/space-race-client.wasm
 wasm-opt -Os dist/space-race-client_bg.wasm -o dist/space-race-client_bg.wasm
-cp client/web/index.html dist/
+cp client/web/* dist/
 ```
 
 `dist/` must be served over HTTP — browsers refuse to load modules from `file://` — with `.wasm`
@@ -80,8 +80,8 @@ where no proxy stands in front, falls back to `ws://127.0.0.1:8080/ws` instead.
 The web client is the only one a phone can run, so the phone is the browser's business. The
 client decides for itself that it is being touched -- `matchMedia("(pointer: coarse)")`, which
 `?touch` overrides -- and lays the interface out for a thumb (see
-[Interface](ui.md#on-a-touchscreen)). `client/web/index.html` does the rest, and all of it in
-CSS, so it holds while the module is still loading:
+[Interface](ui.md#on-a-touchscreen)). `client/web/index.html` does the rest, most of it in CSS,
+so it holds while the module is still loading:
 
 - **The viewport is fixed**: `width=device-width`, no zooming, `viewport-fit=cover` so the canvas
   reaches into the notch.
@@ -90,16 +90,36 @@ CSS, so it holds while the module is still loading:
   it the browser takes that slide for a scroll and the game never sees it.
 - **Portrait says to turn the phone.** The game is drawn wide and wants a bottom corner for each
   thumb, so a full-page notice covers portrait on any coarse-pointer screen.
+- **A loading screen** stands over the page until the game has drawn a second's worth of frames
+  in a row, none held: through the download, the module's compilation, and the browser compiling
+  the game's shaders, which on a first visit holds the page still for half a minute or more
+  (see [Protocol](protocol.md#handshake)). Its ring turns on the compositor, so it keeps turning
+  while the page is held; without it a first visit was a black page, then a frozen one.
+- **The home screen.** `manifest.webmanifest` (full screen, landscape, `icon.png` and
+  `icon-192.png`) and Apple's `apple-mobile-web-app-*` meta tags: added to a phone's home screen,
+  the game opens on its own, full screen and in landscape. It is the only way to full screen on an
+  iPhone, whose Safari cannot put a page full screen. The icon is drawn by a script, a neon
+  circuit with the player's orange car on the game's dark blue; `deploy.ps1` and the workflow copy
+  every file of `client/web/`.
 
-Nothing asks for fullscreen. A browser's own bars leave about 330 logical pixels of height in
-landscape, which the interface still fits, and taking the screen over without being asked is not
-this game's to do.
+Elsewhere the game offers full screen with a button rather than taking it on the first touch: the
+browser's bars take a seventh of the height, but taking the screen over without being asked is
+not this game's to do (see [Interface](ui.md#on-a-touchscreen)).
 
-What a phone still cannot do: **type**. Bevy's text fields read key events, and a soft keyboard
-never opens for a canvas, so the nickname and the lobby name are whatever they are offered --
-the dice rolls another nickname, and the lobby is named after its creator. **Switching the
-watched car while spectating** has no touch control either, and a long lobby list cannot be
-scrolled by dragging it.
+**Typing** goes through the browser's prompt: Bevy's text fields read key events, and a soft
+keyboard never opens for a canvas. **Switching the watched car while spectating** has no touch
+control yet, and a long lobby list cannot be scrolled by dragging it.
+
+Checked in headless Edge emulating a phone held in landscape (915 by 356, touch, coarse pointer),
+on the local web build, with touches sent through the DevTools protocol: the loading screen, the
+nickname typed through the prompt and reaching the lobby list, FULL SCREEN offered on both
+screens, a lobby created from the dialog, and a race steered at three quarters, gently and at
+full lock with the drift branch held. Not checked: full screen itself, which a headless browser
+refuses, the vibration, and a real phone. Under emulation `devicePixelContentBoxSize` comes back
+in CSS pixels rather than device pixels, so the canvas is sized as if the density were 1 while
+winit reads the density from `devicePixelRatio`: the interface comes out 2.6 times too large. It
+is the emulation, not the game -- a real phone reports device pixels -- so layouts are checked
+at a density of 1.
 
 ## What differs from native
 
@@ -107,7 +127,8 @@ scrolled by dragging it.
   instead of a thread with a tokio runtime: browsers give wasm no threads. The session code is
   the same; only `spawn_session` differs.
 - **The identity key lives in local storage**, in hexadecimal, per site. `identity=` selects
-  another slot, so two tabs can be two players; the same identity twice is rejected by the server.
+  another slot, so two tabs can be two players; the same identity in a second tab takes the first
+  one's place, and the first says so.
 - **No clean close on exit.** Native blocks the last frame until the Close frame is sent; on the
   web that would block the very event loop that sends it, and closing the page closes the socket.
 - **No capture mode**, which writes files.

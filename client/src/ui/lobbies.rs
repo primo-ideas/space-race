@@ -17,7 +17,7 @@ use space_race_protocol::{ClientMessage, LobbyId, LobbyStatus, LobbySummary, Pre
 use super::create_lobby::CreateDialog;
 use super::navigation::MenuInput;
 use super::theme::{self, Fonts};
-use super::touch::Touchscreen;
+use super::touch::{FullScreenButton, Touchscreen, full_screen_wanted};
 use super::widgets::{
     Badge, BadgeDot, BadgeText, ButtonKind, ButtonLabel, Selectable, badge, button, hint, hint_row,
     panel, set_badge,
@@ -222,6 +222,12 @@ fn spawn_browser(
                     flex_grow: 1.0,
                     ..default()
                 });
+                if full_screen_wanted(*touchscreen) {
+                    header.spawn((
+                        FullScreenButton,
+                        button(&fonts, ButtonKind::Quiet, "FULL SCREEN"),
+                    ));
+                }
                 header
                     .spawn((
                         Node {
@@ -251,6 +257,9 @@ fn spawn_browser(
                         chip.spawn(button(&fonts, ButtonKind::Quiet, "CHANGE"))
                             .insert(Node {
                                 padding: UiRect::axes(px(8), px(2)),
+                                // Centered, for a touchscreen makes it a thumb high.
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
                                 border: px(1.5).all(),
                                 border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
                                 ..default()

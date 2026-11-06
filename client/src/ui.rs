@@ -22,8 +22,10 @@ const MIN_SCALE: f32 = 0.75;
 const MAX_SCALE: f32 = 2.5;
 /// A phone in landscape is a short window held close, not a tall one across a desk. The same
 /// screens are laid out for a window this high instead, so everything on them comes out larger
-/// against the glass, and they may shrink further before they stop fitting at all.
-const TOUCH_DESIGN_HEIGHT: f32 = 440.0;
+/// against the glass, and they may shrink further before they stop fitting at all. A phone's
+/// browser in landscape leaves the page 330 to 360 pixels of its 375 to 412 while its address bar
+/// shows, so at 400 a caption is still 9 to 10 pixels high and a thumb target 7 mm.
+const TOUCH_DESIGN_HEIGHT: f32 = 400.0;
 const TOUCH_MIN_SCALE: f32 = 0.55;
 
 pub struct UiPlugin;

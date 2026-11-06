@@ -516,36 +516,70 @@ async fn invalid_lobbies_are_refused() {
     );
 }
 
+/// The connection it replaced is told why, then closed.
+async fn assert_replaced(socket: &mut Client) {
+    wait_for(socket, "the rejection of a replaced connection", |message| {
+        (message == ServerMessage::Rejected(RejectReason::AlreadyConnected)).then_some(())
+    })
+    .await;
+    assert_closed(socket).await;
+}
+
+/// A player connecting again while the server still holds their old connection -- a phone back
+/// to a killed tab, or moved onto another network, the old connection never saying it has gone --
+/// takes its place at once instead of being turned away until it times out.
 #[tokio::test]
-async fn same_identity_twice_is_rejected() {
+async fn a_new_connection_of_the_same_player_replaces_the_old_one() {
+    let url = start_server().await;
+    let key = auth::new_signing_key();
+    let mut first = connect(&url).await;
+    let ServerMessage::Welcome { .. } = handshake_as(&mut first, "Old", &key, &key).await else {
+        panic!("expected Welcome");
+    };
+
+    let mut second = connect(&url).await;
+    let ServerMessage::Welcome { .. } = handshake_as(&mut second, "New", &key, &key).await else {
+        panic!("expected Welcome");
+    };
+    assert_replaced(&mut first).await;
+    // Listed once, under the name it came back with.
+    next_players(&mut second, "the player listed once", |players| {
+        players.len() == 1 && players[0].nickname == "New"
+    })
+    .await;
+
+    // And a third time, the second goes the same way.
+    let mut third = connect(&url).await;
+    let ServerMessage::Welcome { .. } = handshake(&mut third, &key, &key).await else {
+        panic!("expected Welcome");
+    };
+    assert_replaced(&mut second).await;
+}
+
+/// Replaced in the middle of a race, the old connection takes its car out of the lobby with it.
+#[tokio::test]
+async fn a_replaced_connection_leaves_its_lobby() {
     let url = start_server().await;
     let key = auth::new_signing_key();
     let mut first = connect(&url).await;
     let ServerMessage::Welcome { .. } = handshake(&mut first, &key, &key).await else {
         panic!("expected Welcome");
     };
+    enter(&mut first, ClientMessage::CreateLobby(settings("Mine", 2, 8)))
+        .await
+        .expect("the lobby was not created");
 
     let mut second = connect(&url).await;
-    assert_eq!(
-        handshake(&mut second, &key, &key).await,
-        ServerMessage::Rejected(RejectReason::AlreadyConnected)
-    );
-    assert_closed(&mut second).await;
-
-    // Once the first connection is gone, the identity can connect again.
-    drop(first);
-    let reconnected = async {
-        loop {
-            let mut third = connect(&url).await;
-            if let ServerMessage::Welcome { .. } = handshake(&mut third, &key, &key).await {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    let ServerMessage::Welcome { .. } = handshake(&mut second, &key, &key).await else {
+        panic!("expected Welcome");
     };
-    timeout(PATIENCE, reconnected)
-        .await
-        .expect("the identity could not connect again");
+    assert_replaced(&mut first).await;
+    // Its only player gone, the lobby closed.
+    wait_for(&mut second, "the lobby to close", |message| match message {
+        ServerMessage::Lobbies(lobbies) if lobbies.is_empty() => Some(()),
+        _ => None,
+    })
+    .await;
 }
 
 #[tokio::test]

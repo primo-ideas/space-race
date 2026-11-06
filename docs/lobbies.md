@@ -164,11 +164,22 @@ Session ──CreateLobby / JoinLobby──▶ Directory ──spawns / finds─
   and the join fails with `NoSuchLobby`: nothing needs locking to be consistent.
 - **The creator** is put in the lobby before its task starts, so a new lobby is never empty.
 
-The one lock of the server holds the connected players: it refuses a second connection with the
-same key (`AlreadyConnected`), and remembers each player's nickname and where they are, which is
-published to browsing players as `Players` (see [Protocol](protocol.md#browsing-lobbies)). It is
-held while one player is added, moved or removed and the list that follows is published, never
-across an await, and a guard removes the player however the connection ends.
+The one lock of the server holds the connected players: one connection per key, and each player's
+nickname and where they are, which is published to browsing players as `Players` (see
+[Protocol](protocol.md#browsing-lobbies)). It is held while one player is added, moved or removed
+and the list that follows is published, never across an await, and a guard removes the player
+however the connection ends.
+
+**The newest connection of a key wins.** It used to be turned away with `AlreadyConnected`, which
+a phone hits all the time: a reloaded page or a tab the phone killed and brought back connects
+again before the server has seen the old connection close, and one moving from Wi-Fi to its
+mobile network leaves behind a connection that will never say it has gone and stays open until
+TCP gives up on it, minutes later. Meanwhile the player could not play. The new connection has
+just signed the challenge, so it is the player: the registry hands it the old one's place (and
+rank in the list), and signals the old one through a `oneshot` it holds. The old one, browsing or
+racing, takes its car out of its lobby, sends `Rejected(AlreadyConnected)` in case its client is
+still there to show it, and closes. Each guard carries the number of its own connection, so a
+replaced one cannot move or remove its successor as it goes.
 
 ## Car tuning
 
