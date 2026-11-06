@@ -125,11 +125,31 @@ laptop that merely has a touch screen as well as a mouse -- and everything follo
 `Touchscreen` resource it puts that answer in. `?touch` on the web, `--touch` natively, force it
 on to look at that interface anywhere.
 
-**The same screens, laid out for a window 440 logical pixels high** instead of 720, and allowed
-to shrink to 0.55 rather than 0.75 before they stop fitting. Nothing is a separate phone screen:
-each one passes the two sizes it cares about through `Touchscreen::pick`, so the difference lives
-in the line that draws the thing rather than in a copy of the screen. What changes beyond sizes:
+**The same screens, laid out for a window 400 logical pixels high** instead of 720, and allowed
+to shrink to 0.55 rather than 0.75 before they stop fitting. A phone's browser in landscape
+leaves the page 330 to 360 pixels of height while its address bar shows (915 by 356 on a common
+Android phone, 667 by 325 on a small iPhone), so at 400 a caption is still 9 to 10 pixels high;
+the first touch layout, at 440, came out about a tenth smaller. Nothing is a separate phone
+screen: each one passes the two sizes it cares about through `Touchscreen::pick`, so the
+difference lives in the line that draws the thing rather than in a copy of the screen. What
+changes beyond sizes:
 
+- **Everything a thumb presses is a thumb high.** `size_for_thumbs` gives every button and every
+  row that can be picked a minimum height of 46 units, and a stepper's arrows 46 square, about
+  7 mm on a phone, against the 34 a mouse is happy with. It does it once, as they appear, so no
+  screen has to.
+- **Text is typed in the browser's own box.** A phone shows its keyboard only for a text box of
+  the page, and the game draws its own fields, so tapping one opens the browser's prompt, named
+  after the field and filled with what it holds; what comes back replaces the field's text, and
+  cancelling leaves it alone (`type_on_touch`).
+- **A FULL SCREEN button**, on the login screen where the native game has QUIT and in the lobby
+  browser's header, while the page is not full screen and the browser can make it so. The
+  browser's bars take a seventh of the height; going full screen also turns the page to
+  landscape, the only time a browser lets a page lock its orientation. It is offered rather than
+  done on the first touch: taking the screen over without being asked is not the game's to do.
+  An iPhone's Safari cannot put a page full screen at all and never shows the button; there,
+  the game added to the home screen opens full screen and in landscape by itself (see
+  [Web](web.md#on-a-phone)).
 - **The lobby browser drops the details panel.** There is no room beside the list for it, and no
   need: a row already gives the track, the players and what the lobby is doing, and tapping the
   row joins. The players connected to the server stay under the list.
@@ -139,18 +159,35 @@ in the line that draws the thing rather than in a copy of the screen. What chang
   screen with no Escape key and no Start button needs.
 - **No key hints anywhere.** `hint_row` hides itself on a touchscreen, and the HUD does not ask
   for its hint blocks at all.
-- **The creation dialog** gives up its padding and the line explaining each setting.
+- **The creation dialog** gives up its padding and the line explaining each setting, grows wide
+  instead of tall, and puts laps, players to start and maximum players side by side, each with
+  its name above its arrows: one row each with arrows a thumb can hit does not fit 400 units.
 
 ### The controls over the race
 
-`ui/touch.rs` draws them and reads them. Two buttons in the bottom left steer, left and right,
-which is all the car is ever told. In the bottom right is a **cross**: touching it anywhere
-accelerates -- there is no brake, so the throttle is simply wherever the thumb lands -- and
-sliding from its hub onto a branch calls that branch's function without letting go of the
-throttle. **Drift is the first branch, straight up**: the shortest slide for a thumb on the hub.
-The other three are drawn as the empty slots they are, and light up grey rather than neon when a
-thumb finds them, so it is plain that they are there and that they are waiting for the turbo and
-whatever comes after it.
+`ui/touch.rs` draws them and reads them. Two buttons in the bottom left steer, and **where the
+thumb rests on them is how hard**, as a stick's angle is on a gamepad: nothing on the gap between
+them, three quarters on the middle of a button, full lock from 66 units out, on its outer part,
+and evenly in between. A mark follows the thumb along the buttons, and each lights up as hard as
+the car turns its way. The first version told the car left or right and nothing between, and at
+top speed full lock held for 0.4 s breaks the car into a drift (measured with the shipped tuning,
+which grips up to 80 % of full lock and breaks away from 85 %): on a phone every turn held a
+moment became a drift. Three quarters, where a thumb lands on a button, is a hard turn that
+still grips; pressing outward is the deliberate way into a drift, as is the drift branch.
+
+In the bottom right is a **cross**: touching it anywhere accelerates -- there is no brake, so the
+throttle is simply wherever the thumb lands -- and sliding from its hub onto a branch calls that
+branch's function without letting go of the throttle. **Drift is the first branch, straight up**:
+the shortest slide for a thumb on the hub, and on Android a 14 ms tick of the vibration motor
+says the thumb got there, so the eyes can stay on the road. The other three are drawn as the empty
+slots they are, and light up grey rather than neon when a thumb finds them, so it is plain that
+they are there and that they are waiting for the turbo and whatever comes after it.
+
+**Neither thumb has to find its control again.** Anywhere in the bottom of the left half steers,
+up to 70 units above the buttons, as hard as the place it rests at; anywhere in the bottom of the
+right half accelerates, up to 70 units above the cross, and only within reach of the cross does it
+choose a branch. A thumb slipping off a button while the eyes are on the road used to let go of
+it. Two thumbs on the steering: the one put down last steers, as the last key pressed would.
 
 They are hit-tested against `Touches` rather than picked as interface nodes. A thumb sliding from
 the hub onto a branch is one gesture on one control, and picking has no event for "the finger

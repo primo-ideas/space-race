@@ -10,6 +10,16 @@
   <!-- The site has one icon, at its root, which every page under it shares: the games do not
        each carry a mark of their own. -->
   <link rel="icon" href="/favicon.png">
+  <!-- Added to a phone's home screen, the game opens on its own, full screen and in landscape,
+       without the browser's bars: the manifest says so to Android, the meta tags to iOS, whose
+       Safari cannot put a page full screen any other way. -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Space Race">
+  <meta name="theme-color" content="#000000">
   <style>
     /* The game canvas fills the page (Window::fit_canvas_to_parent). */
     html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
@@ -24,6 +34,44 @@
       user-select: none;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* Until the game runs smoothly: the module downloading, compiling, then the browser
+       compiling the game's shaders, which on a first visit holds the page still for half a
+       minute or more. The ring turns on the compositor, so it keeps turning while the page is
+       held, and says the game is coming rather than stuck. */
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 24px;
+      background: #07090d;
+      color: #eef2f8;
+      font: 800 italic 22px/1.2 system-ui, sans-serif;
+      letter-spacing: 3px;
+      text-align: center;
+      transition: opacity 0.4s;
+    }
+    #loading.gone { opacity: 0; pointer-events: none; }
+    #loading span {
+      max-width: 340px;
+      font: 400 14px/1.45 system-ui, sans-serif;
+      letter-spacing: 0;
+      color: #8b97a8;
+    }
+    #loading .ring {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 3px solid rgba(47, 184, 255, 0.2);
+      border-top-color: #2fb8ff;
+      animation: turn 0.9s linear infinite;
+    }
+    @keyframes turn { to { transform: rotate(360deg); } }
 
     /* The game is played in landscape: both thumbs need a bottom corner of their own, and the
        track is drawn wide. This is plain CSS, so it stands there while the module is still
@@ -51,9 +99,32 @@
   </style>
 </head>
 <body>
+  <div id="loading">
+    <div class="ring"></div>
+    SPACE RACE
+    <span>Loading. The first visit takes a while: the game is getting its graphics ready.</span>
+  </div>
   <div id="turn">TURN YOUR PHONE<span>Space Race is played in landscape.</span></div>
   <script type="module">
     import init from "./space-race-client.js";
+
+    // The loading screen goes once the game has drawn a second's worth of frames in a row,
+    // none of them held: before that it is downloading, compiling, or compiling its shaders.
+    const loading = document.getElementById("loading");
+    let smooth = 0;
+    let last = performance.now();
+    const watch = (now) => {
+      const running = document.querySelector("canvas") && now - last < 100;
+      smooth = running ? smooth + 1 : 0;
+      last = now;
+      if (smooth >= 60) {
+        loading.classList.add("gone");
+        setTimeout(() => loading.remove(), 500);
+        return;
+      }
+      requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
 
     init().catch((error) => {
       // winit leaves its event loop by throwing this on purpose: not a failure.

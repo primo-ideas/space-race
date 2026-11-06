@@ -83,8 +83,10 @@ impl Directory {
         self.lobbies.clone()
     }
 
-    /// Marks the player as connected until the guard is dropped. `None` if they already are.
-    pub fn connect(&self, player: &Player) -> Option<OnlineGuard> {
+    /// Marks the player as connected until the guard is dropped. If they already were, from another
+    /// connection, this one takes their place: the other is told through the receiver it was
+    /// given, and ends. The receiver returned here is this connection's own.
+    pub fn connect(&self, player: &Player) -> (OnlineGuard, Replaced) {
         self.online.connect(player)
     }
 
@@ -222,8 +224,18 @@ impl Registry {
     }
 }
 
+/// Fires when another connection of the same player has taken this one's place, which must then
+/// end.
+pub type Replaced = oneshot::Receiver<()>;
+
 /// The players connected to the server, and where each of them is: an identity plays from one
 /// connection at a time, and the browser shows who else is here.
+///
+/// The newest connection of an identity wins. A phone that reloads the page, comes back to a
+/// killed tab, or moves from Wi-Fi to its mobile network connects again while the server still
+/// holds the old connection, which may never say it has gone; turning the new one away would leave
+/// the player outside until it timed out. The new one has just proved it holds the key, so it is
+/// the player.
 ///
 /// The only lock of the server: it is held while one player is added, moved or removed, and while
 /// the list that follows is published, never across an await, and a guard removes the player on
@@ -239,13 +251,19 @@ struct Online {
 struct Connected {
     players: HashMap<PlayerId, Session>,
     next_arrival: u64,
+    next_connection: u64,
 }
 
 struct Session {
     nickname: String,
     presence: Presence,
-    /// Rank of arrival: the published list follows it, so nobody jumps around in it.
+    /// Rank of arrival: the published list follows it, so nobody jumps around in it. A connection
+    /// that takes another's place keeps it.
     arrival: u64,
+    /// Which connection this is, so that one replaced cannot move or remove its successor.
+    connection: u64,
+    /// Tells the connection it has been replaced.
+    replace: Option<oneshot::Sender<()>>,
 }
 
 impl Default for Online {
@@ -260,41 +278,65 @@ impl Default for Online {
 }
 
 impl Online {
-    fn connect(&self, player: &Player) -> Option<OnlineGuard> {
+    fn connect(&self, player: &Player) -> (OnlineGuard, Replaced) {
         let mut connected = self.connected.lock().expect("online players poisoned");
-        if connected.players.contains_key(&player.id) {
-            return None;
-        }
-        let arrival = connected.next_arrival;
-        connected.next_arrival += 1;
+        let connection = connected.next_connection;
+        connected.next_connection += 1;
+        let arrival = match connected.players.get_mut(&player.id) {
+            Some(previous) => {
+                if let Some(replace) = previous.replace.take() {
+                    // The previous connection may already be on its way out: nothing to tell.
+                    let _ = replace.send(());
+                }
+                previous.arrival
+            }
+            None => {
+                connected.next_arrival += 1;
+                connected.next_arrival - 1
+            }
+        };
+        let (replace, replaced) = oneshot::channel();
         connected.players.insert(
             player.id,
             Session {
                 nickname: player.nickname.clone(),
                 presence: Presence::Browsing,
                 arrival,
+                connection,
+                replace: Some(replace),
             },
         );
         self.publish(&connected);
-        Some(OnlineGuard {
+        let guard = OnlineGuard {
             online: self.clone(),
             player: player.id,
-        })
+            connection,
+        };
+        (guard, replaced)
     }
 
-    fn move_to(&self, player: PlayerId, presence: Presence) {
+    fn move_to(&self, player: PlayerId, connection: u64, presence: Presence) {
         let mut connected = self.connected.lock().expect("online players poisoned");
-        let Some(session) = connected.players.get_mut(&player) else {
+        let Some(session) = connected
+            .players
+            .get_mut(&player)
+            .filter(|session| session.connection == connection)
+        else {
             return;
         };
         session.presence = presence;
         self.publish(&connected);
     }
 
-    fn disconnect(&self, player: PlayerId) {
+    fn disconnect(&self, player: PlayerId, connection: u64) {
         // A poisoned lock would leave the player listed forever, and there is nothing to do about
         // it here: the connection is ending either way.
-        if let Ok(mut connected) = self.connected.lock() {
+        if let Ok(mut connected) = self.connected.lock()
+            && connected
+                .players
+                .get(&player)
+                .is_some_and(|session| session.connection == connection)
+        {
             connected.players.remove(&player);
             self.publish(&connected);
         }
@@ -318,22 +360,25 @@ impl Online {
 pub struct OnlineGuard {
     online: Online,
     player: PlayerId,
+    connection: u64,
 }
 
 impl OnlineGuard {
     /// The player entered a lobby.
     pub fn entered_lobby(&self, lobby: LobbyId) {
-        self.online.move_to(self.player, Presence::InLobby(lobby));
+        self.online
+            .move_to(self.player, self.connection, Presence::InLobby(lobby));
     }
 
     /// The player is back on the lobby list.
     pub fn browsing(&self) {
-        self.online.move_to(self.player, Presence::Browsing);
+        self.online
+            .move_to(self.player, self.connection, Presence::Browsing);
     }
 }
 
 impl Drop for OnlineGuard {
     fn drop(&mut self) {
-        self.online.disconnect(self.player);
+        self.online.disconnect(self.player, self.connection);
     }
 }

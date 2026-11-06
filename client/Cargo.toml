@@ -29,8 +29,14 @@ tokio = { workspace = true, features = ["rt"] }
 bevy = { version = "0.19.1", features = ["web"] }
 wasm-bindgen-futures = "0.4.79"
 web-sys = { version = "0.3.106", features = [
+    "Document",
+    "Element",
     "Location",
     "MediaQueryList",
+    "Navigator",
+    "OrientationLockType",
+    "Screen",
+    "ScreenOrientation",
     "Storage",
     "UrlSearchParams",
     "Window",

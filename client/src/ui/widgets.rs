@@ -22,6 +22,7 @@ impl Plugin for WidgetsPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(step_on_activate)
             .add_observer(focus_on_press)
+            .add_observer(type_on_touch)
             .add_systems(
                 PostUpdate,
                 (
@@ -31,6 +32,7 @@ impl Plugin for WidgetsPlugin {
                     show_stepper_values,
                     show_hints,
                     hide_hints_on_touch,
+                    size_for_thumbs,
                 ),
             );
     }
@@ -206,13 +208,20 @@ fn style_buttons(
     }
 }
 
-/// A single-line text input.
+/// A single-line text input, and what it holds, for the box a touchscreen types into.
 #[derive(Component)]
-pub struct TextField;
+pub struct TextField {
+    name: &'static str,
+}
 
-pub fn text_field(fonts: &Fonts, initial: &str, max_chars: usize) -> impl Bundle {
+pub fn text_field(
+    fonts: &Fonts,
+    name: &'static str,
+    initial: &str,
+    max_chars: usize,
+) -> impl Bundle {
     (
-        TextField,
+        TextField { name },
         EditableText {
             max_characters: Some(max_chars),
             allow_newlines: false,
@@ -249,6 +258,49 @@ pub fn text_field(fonts: &Fonts, initial: &str, max_chars: usize) -> impl Bundle
 pub fn set_text(field: &mut EditableText, text: &str) {
     field.queue_edit(TextEdit::SelectAll);
     field.queue_edit(TextEdit::Insert(text.into()));
+}
+
+/// A phone shows its keyboard only for a text box of the page itself, and the game draws its own
+/// fields, so a tap on one opens the browser's own box instead, filled with what the field holds:
+/// the keyboard comes up, and what is typed there replaces the field's text. Cancelling leaves it
+/// as it was.
+fn type_on_touch(
+    click: On<Pointer<Click>>,
+    touchscreen: Res<Touchscreen>,
+    mut fields: Query<(&TextField, &mut EditableText)>,
+) {
+    if !touchscreen.0 {
+        return;
+    }
+    let Ok((field, mut text)) = fields.get_mut(click.entity) else {
+        return;
+    };
+    let Some(typed) = ask_for_text(field.name, &text.value().to_string()) else {
+        return;
+    };
+    let typed: String = typed
+        .trim()
+        .chars()
+        .take(text.max_characters.unwrap_or(usize::MAX))
+        .collect();
+    set_text(&mut text, &typed);
+}
+
+/// The browser's own text box, which brings up a phone's keyboard. Nothing natively, where a
+/// touchscreen is only ever asked for to look at its interface, and the keyboard is there.
+fn ask_for_text(name: &str, current: &str) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()?
+            .prompt_with_message_and_default(name, current)
+            .ok()
+            .flatten()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (name, current);
+        None
+    }
 }
 
 fn style_fields(
@@ -564,6 +616,30 @@ pub fn hint_row() -> impl Bundle {
 
 #[derive(Component)]
 struct HintRow;
+
+/// What a thumb can hit without looking twice, in interface units: about 7 mm on a phone held in
+/// landscape, against the 34 a mouse pointer is happy with.
+const THUMB_TARGET: f32 = 46.0;
+
+/// On a touchscreen every button and every row that can be picked is at least a thumb high, and a
+/// stepper's arrows a thumb square. Done here once, as they appear, rather than in every screen
+/// that draws one.
+fn size_for_thumbs(
+    touchscreen: Res<Touchscreen>,
+    mut buttons: Query<(&mut Node, Has<StepButton>), Or<(Added<Button>, Added<Selectable>)>>,
+) {
+    if !touchscreen.0 {
+        return;
+    }
+    for (mut node, stepper) in &mut buttons {
+        if stepper {
+            node.width = px(THUMB_TARGET);
+            node.height = px(THUMB_TARGET);
+        } else {
+            node.min_height = px(THUMB_TARGET);
+        }
+    }
+}
 
 fn hide_hints_on_touch(touchscreen: Res<Touchscreen>, mut rows: Query<&mut Node, Added<HintRow>>) {
     if !touchscreen.0 {

@@ -268,7 +268,8 @@ included. On a slow machine, always build the same way, with `--workspace`.
   graded from the tick players saw, bounded, with their boost.
 - `server/src/tests.rs` starts a real server on a free port, on the shipped data, and drives
   it with raw WebSocket clients. It covers what the game client never does on purpose (a wrong
-  protocol version, an invalid nickname, a signature from another key, the same identity twice,
+  protocol version, an invalid nickname, a signature from another key, the same identity twice
+  replacing its older connection, in the list and mid-race,
   invalid lobby settings) and a player's path: the track list, creating a lobby and seeing it
   listed, joining it, the race starting with enough players, snapshots,
   accelerating moving the car, a second player seen and removed when leaving, the lobby

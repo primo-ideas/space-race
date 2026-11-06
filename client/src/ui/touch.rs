@@ -1,18 +1,26 @@
 //! Playing with thumbs: the controls drawn over the race, and what tells every other screen that
 //! it is being touched rather than pointed at.
 //!
-//! A phone is held in landscape, a thumb in each bottom corner. The left one steers, on two
-//! buttons rather than a stick: left and right is all the car is ever told. The right one holds
-//! the cross. Touching the cross anywhere accelerates -- the game has no brake, so the throttle
-//! is simply wherever the thumb lands -- and sliding from its hub onto a branch calls that
-//! branch's function without ever letting go of the throttle. Drift is the first branch, straight
-//! up; the other three are drawn as the empty slots they are, waiting for the turbo and whatever
-//! follows it.
+//! A phone is held in landscape, a thumb in each bottom corner. The left one steers on two
+//! buttons, and how hard depends on where it rests: on the middle of a button the car turns hard
+//! and still grips, pushed toward the button's outer edge it turns at full lock, which at speed
+//! breaks it into a drift, and rolled in toward the gap between the two it turns gently. A thumb
+//! cannot hold half a button down, so its place on the buttons is what a stick's angle is on a
+//! gamepad. The right one holds the cross. Touching the cross anywhere accelerates -- the game has
+//! no brake, so the throttle is simply wherever the thumb lands -- and sliding from its hub onto a
+//! branch calls that branch's function without ever letting go of the throttle. Drift is the
+//! first branch, straight up; the other three are drawn as the empty slots they are, waiting for
+//! the turbo and whatever follows it.
+//!
+//! Neither thumb has to find its control again once it is down: anywhere in the bottom of the
+//! left half steers, and anywhere in the bottom of the right half accelerates, so a thumb that
+//! slips off a button while the eyes are on the road loses nothing.
 //!
 //! The controls are hit-tested against `Touches` rather than picked as interface nodes: a thumb
 //! sliding from the hub onto a branch is one gesture on one control, and no picking event ever
 //! says "the finger that pressed there is now here".
 
+use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -27,8 +35,20 @@ const MARGIN: f32 = 24.0;
 /// The steering buttons: two circles a thumb rocks between.
 const STEER_RADIUS: f32 = 44.0;
 const STEER_GAP: f32 = 14.0;
-/// How far past a button's edge a finger still steers: a thumb covers more than it points at.
-const STEER_SLACK: f32 = 16.0;
+/// From the middle of the gap between the buttons to the middle of either.
+const STEER_SPAN: f32 = STEER_RADIUS + STEER_GAP / 2.0;
+/// Within this of the gap's middle, a thumb steers straight on.
+const STEER_DEAD: f32 = 6.0;
+/// From this far out, full lock: the outer part of a button. Its middle, `STEER_SPAN` out, steers
+/// at three quarters, a hard turn that still grips at top speed: with the shipped tuning the car
+/// breaks away into a drift from about 85 % of full lock, after 0.6 s of it. So a thumb resting
+/// on a button turns, and a thumb pressed outward drifts.
+const STEER_FULL: f32 = 66.0;
+/// How far above the buttons a thumb still steers, and above the cross still accelerates: a
+/// thumb wanders, and these corners have nothing else in them.
+const ZONE_ABOVE: f32 = 70.0;
+/// The mark that follows the steering thumb along the buttons.
+const KNOB: f32 = 18.0;
 
 /// The cross: from its center to the tip of a branch, the hub in the middle, and how wide a
 /// branch is drawn.
@@ -37,8 +57,13 @@ const HUB_RADIUS: f32 = 34.0;
 const BRANCH_WIDTH: f32 = 42.0;
 /// A finger further than this from the center has left the hub for a branch.
 const BRANCH_FROM: f32 = HUB_RADIUS + 11.0;
-/// And further than this has left the cross altogether: the throttle closes.
+/// And further than this has left the cross: it still accelerates, anywhere in the bottom of the
+/// right half, but it is on no branch.
 const CROSS_SLACK: f32 = 22.0;
+
+/// How long the phone vibrates as a thumb arrives on the drift branch, in milliseconds: a tick
+/// that says the slide was felt, so the eyes can stay on the road.
+const DRIFT_BUZZ: u32 = 14;
 
 /// Dark enough to read the road through, solid enough to stand out over a lit wall.
 const PAD: Color = Color::srgba(0.02, 0.05, 0.09, 0.72);
@@ -53,6 +78,8 @@ impl Plugin for TouchPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Touchscreen>()
             .init_resource::<TouchControls>()
+            .add_observer(go_full_screen)
+            .add_systems(Update, offer_full_screen.run_if(touching))
             .add_systems(OnEnter(Screen::Lobby), spawn_controls.run_if(touching))
             .add_systems(
                 Update,
@@ -89,12 +116,84 @@ fn touching(screen: Res<Touchscreen>) -> bool {
     screen.0
 }
 
+/// A button that puts the page full screen and turns it to landscape, offered on a phone's
+/// browser while the page is not full screen and the browser can make it so: the browser's own
+/// bars take a seventh of a phone's height in landscape. It is offered rather than done: taking
+/// the screen over without being asked is not the game's to do. An iPhone's Safari cannot put a
+/// page full screen at all, and never shows it; there, the game added to the home screen opens
+/// full screen by itself (see `client/web/index.html`).
+#[derive(Component)]
+pub struct FullScreenButton;
+
+/// Whether a full screen button belongs on this screen at all: a touchscreen in a browser.
+pub fn full_screen_wanted(touchscreen: Touchscreen) -> bool {
+    touchscreen.0 && cfg!(target_arch = "wasm32")
+}
+
+fn go_full_screen(activate: On<bevy::ui_widgets::Activate>, buttons: Query<(), With<FullScreenButton>>) {
+    if !buttons.contains(activate.entity) {
+        return;
+    }
+    // The browser allows it for a few seconds after a touch, which the frame or two between the
+    // tap and this comfortably fits.
+    #[cfg(target_arch = "wasm32")]
+    if let Some(page) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.document_element())
+    {
+        let _ = page.request_fullscreen();
+    }
+}
+
+/// Shows the full screen buttons while they can do something, and turns the page to landscape
+/// once it is full screen, which is the only time a browser lets a page lock its orientation.
+fn offer_full_screen(
+    mut buttons: Query<&mut Node, With<FullScreenButton>>,
+    mut locked: Local<bool>,
+) {
+    #[cfg(target_arch = "wasm32")]
+    let (offered, full) = match web_sys::window().and_then(|window| window.document()) {
+        Some(document) => {
+            let full = document.fullscreen_element().is_some();
+            (document.fullscreen_enabled() && !full, full)
+        }
+        None => (false, false),
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let (offered, full) = (false, false);
+
+    if full && !*locked {
+        // Awaited only so that a browser refusing it is not reported as an error: the page stays
+        // as the phone is held, and portrait says to turn it.
+        #[cfg(target_arch = "wasm32")]
+        if let Some(Ok(lock)) = web_sys::window()
+            .and_then(|window| window.screen().ok())
+            .map(|screen| screen.orientation().lock(web_sys::OrientationLockType::Landscape))
+        {
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = wasm_bindgen_futures::JsFuture::from(lock).await;
+            });
+        }
+    }
+    *locked = full;
+
+    let display = if offered { Display::Flex } else { Display::None };
+    for mut node in &mut buttons {
+        if node.display != display {
+            node.display = display;
+        }
+    }
+}
+
 /// What the thumbs are asking for, worked out from where they rest on the screen.
-#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq)]
 pub struct TouchControls {
-    left: bool,
-    right: bool,
-    /// A finger is on the cross, so the car accelerates.
+    /// From full left at -1 to full right at 1, as a stick.
+    steer: f32,
+    /// Where the steering thumb rests along the buttons, from the middle of the gap between them,
+    /// if one does.
+    thumb: Option<f32>,
+    /// A finger is on the cross, or near enough, so the car accelerates.
     throttle: bool,
     /// The branch it has slid onto, if it has left the hub.
     branch: Option<Branch>,
@@ -106,12 +205,20 @@ impl TouchControls {
     }
 
     pub fn steer(self) -> f32 {
-        f32::from(self.right) - f32::from(self.left)
+        self.steer
     }
 
     pub fn drifting(self) -> bool {
         self.branch == Some(Branch::DRIFT)
     }
+}
+
+/// How hard a thumb resting `offset` from the middle of the gap between the buttons steers, and
+/// which way: nothing on the gap, three quarters on the middle of a button, full lock on its outer
+/// part.
+fn steering_at(offset: f32) -> f32 {
+    let amount = ((offset.abs() - STEER_DEAD) / (STEER_FULL - STEER_DEAD)).clamp(0.0, 1.0);
+    amount.copysign(offset)
 }
 
 /// A branch of the cross, named by the way the thumb slides to reach it.
@@ -188,12 +295,14 @@ enum Pad {
 }
 
 impl Pad {
-    fn held(self, controls: &TouchControls) -> bool {
+    /// How far the pad is held, from 0 to 1: a steering button lights up as hard as the car
+    /// turns its way.
+    fn held(self, controls: &TouchControls) -> f32 {
         match self {
-            Self::Steer(false) => controls.left,
-            Self::Steer(true) => controls.right,
-            Self::Hub => controls.throttle,
-            Self::Branch(branch) => controls.branch == Some(branch),
+            Self::Steer(false) => (-controls.steer).max(0.0),
+            Self::Steer(true) => controls.steer.max(0.0),
+            Self::Hub => f32::from(u8::from(controls.throttle)),
+            Self::Branch(branch) => f32::from(u8::from(controls.branch == Some(branch))),
         }
     }
 
@@ -203,20 +312,34 @@ impl Pad {
         !matches!(self, Self::Branch(branch) if branch != Branch::DRIFT)
     }
 
-    /// Background, border and text, as it should look now.
-    fn colors(self, held: bool) -> (Color, Color, Color) {
-        match (self.works(), held) {
-            (true, true) => (PAD_HELD, theme::NEON, theme::TEXT),
-            (true, false) => (PAD, theme::NEON_DIM, theme::TEXT_DIM),
-            (false, true) => (SLOT_HELD, theme::TEXT_FAINT, theme::TEXT_DIM),
-            (false, false) => (SLOT, theme::PANEL_BORDER, theme::TEXT_FAINT),
-        }
+    /// Background, border and text, as it should look now, held this far.
+    fn colors(self, held: f32) -> (Color, Color, Color) {
+        let (rest, pressed) = if self.works() {
+            (
+                (PAD, theme::NEON_DIM, theme::TEXT_DIM),
+                (PAD_HELD, theme::NEON, theme::TEXT),
+            )
+        } else {
+            (
+                (SLOT, theme::PANEL_BORDER, theme::TEXT_FAINT),
+                (SLOT_HELD, theme::TEXT_FAINT, theme::TEXT_DIM),
+            )
+        };
+        (
+            rest.0.mix(&pressed.0, held),
+            rest.1.mix(&pressed.1, held),
+            rest.2.mix(&pressed.2, held),
+        )
     }
 }
 
+/// The mark that follows the steering thumb along the buttons.
+#[derive(Component)]
+struct SteerKnob;
+
 fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
     let pad = |kind: Pad, node: Node, label: &'static str, size: f32| {
-        let (background, border, text) = kind.colors(false);
+        let (background, border, text) = kind.colors(0.0);
         (
             kind,
             node,
@@ -264,6 +387,19 @@ fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
                 let arrow = if right { "\u{2192}" } else { "\u{2190}" };
                 root.spawn(pad(Pad::Steer(right), node, arrow, 30.0));
             }
+            // Over them, the mark of where the thumb rests, so its place on the buttons reads as
+            // how hard the car turns.
+            let mut knob = round(KNOB, 2.0);
+            knob.bottom = px(MARGIN + STEER_RADIUS - KNOB / 2.0);
+            knob.display = Display::None;
+            root.spawn((
+                SteerKnob,
+                knob,
+                BackgroundColor(theme::TEXT.with_alpha(0.85)),
+                BorderColor::all(theme::NEON),
+                BoxShadow::new(theme::NEON.with_alpha(0.6), px(0), px(0), px(0), px(10)),
+                Pickable::IGNORE,
+            ));
 
             // Bottom right, under the right thumb: the cross.
             root.spawn((
@@ -311,33 +447,62 @@ fn read_touches(
             // are brought to meet them.
             let scale = scale.0.max(0.1);
             let size = Vec2::new(window.width(), window.height()) / scale;
-            fingers(touches.iter().map(|touch| touch.position() / scale), size)
+            fingers(
+                touches
+                    .iter()
+                    .map(|touch| (touch.id(), touch.position() / scale)),
+                size,
+            )
         }
         _ => TouchControls::default(),
     };
+    if next.drifting() && !controls.drifting() {
+        buzz(DRIFT_BUZZ);
+    }
     controls.set_if_neq(next);
 }
 
 /// What fingers resting at these places, in interface units on a screen of this size, are asking
-/// the car to do.
-fn fingers(fingers: impl Iterator<Item = Vec2>, size: Vec2) -> TouchControls {
-    let left = Vec2::new(MARGIN + STEER_RADIUS, size.y - MARGIN - STEER_RADIUS);
-    let right = left + Vec2::X * (2.0 * STEER_RADIUS + STEER_GAP);
+/// the car to do. Each finger comes with its touch's number, which grows with every new touch.
+fn fingers(fingers: impl Iterator<Item = (u64, Vec2)>, size: Vec2) -> TouchControls {
+    let gap = Vec2::new(MARGIN + STEER_RADIUS + STEER_SPAN, size.y - MARGIN - STEER_RADIUS);
     let cross = Vec2::new(size.x - MARGIN - REACH, size.y - MARGIN - REACH);
+    let steering_top = size.y - MARGIN - 2.0 * STEER_RADIUS - ZONE_ABOVE;
+    let throttle_top = size.y - MARGIN - 2.0 * REACH - ZONE_ABOVE;
 
     let mut controls = TouchControls::default();
-    for at in fingers {
-        let steering = STEER_RADIUS + STEER_SLACK;
-        controls.left |= at.distance(left) <= steering;
-        controls.right |= at.distance(right) <= steering;
-
-        let from_hub = at - cross;
-        if from_hub.length() <= REACH + CROSS_SLACK {
+    // Two thumbs on the steering: the one put down last steers, as the last key pressed would.
+    let mut steering: Option<(u64, f32)> = None;
+    for (id, at) in fingers {
+        let left_half = at.x < size.x / 2.0;
+        if left_half && at.y >= steering_top {
+            if steering.is_none_or(|(latest, _)| id > latest) {
+                steering = Some((id, at.x - gap.x));
+            }
+        } else if !left_half && at.y >= throttle_top {
             controls.throttle = true;
-            controls.branch = branch_at(from_hub).or(controls.branch);
+            let from_hub = at - cross;
+            if from_hub.length() <= REACH + CROSS_SLACK {
+                controls.branch = branch_at(from_hub).or(controls.branch);
+            }
         }
     }
+    if let Some((_, offset)) = steering {
+        controls.steer = steering_at(offset);
+        controls.thumb = Some(offset);
+    }
     controls
+}
+
+/// A short tick of the phone's vibration motor, where there is one and the browser lets the page
+/// use it: Android does, iOS does not, and a desktop has nothing to vibrate.
+fn buzz(milliseconds: u32) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(window) = web_sys::window() {
+        let _ = window.navigator().vibrate_with_duration(milliseconds);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = milliseconds;
 }
 
 /// The branch a finger `from_hub` away from the center of the cross is on: the way it leans, once
@@ -363,7 +528,8 @@ fn style_controls(
     controls: Res<TouchControls>,
     view: Res<RaceView>,
     dialog: Res<LeaveDialog>,
-    mut root: Query<&mut Node, With<Controls>>,
+    mut root: Query<&mut Node, (With<Controls>, Without<SteerKnob>)>,
+    mut knob: Query<&mut Node, (With<SteerKnob>, Without<Controls>)>,
     mut pads: Query<(&Pad, &Children, &mut BackgroundColor, &mut BorderColor)>,
     mut labels: Query<&mut TextColor>,
 ) {
@@ -377,6 +543,22 @@ fn style_controls(
     }
     if !shown {
         return;
+    }
+
+    // The mark rides along the buttons, from the outer edge of one to the outer edge of the other.
+    for mut node in &mut knob {
+        let (display, left) = match controls.thumb {
+            Some(offset) => {
+                let along = offset.clamp(-STEER_SPAN - STEER_RADIUS, STEER_SPAN + STEER_RADIUS);
+                let left = MARGIN + STEER_RADIUS + STEER_SPAN + along - KNOB / 2.0;
+                (Display::Flex, px(left))
+            }
+            None => (Display::None, node.left),
+        };
+        if node.display != display || node.left != left {
+            node.display = display;
+            node.left = left;
+        }
     }
 
     for (pad, children, mut background, mut border) in &mut pads {
@@ -401,12 +583,17 @@ mod tests {
 
     /// A phone held in landscape, in interface units: what `scale_to_window` leaves a 844 by 390
     /// screen at the touch design height.
-    const SCREEN: Vec2 = Vec2::new(952.0, 440.0);
+    const SCREEN: Vec2 = Vec2::new(844.0 * 400.0 / 390.0, 400.0);
 
-    /// The middle of a control, from the corner it is anchored to.
-    fn steering(right: bool) -> Vec2 {
+    /// The middle of a steering button.
+    fn button(right: bool) -> Vec2 {
+        gap() + Vec2::X * if right { STEER_SPAN } else { -STEER_SPAN }
+    }
+
+    /// The middle of the gap between the steering buttons.
+    fn gap() -> Vec2 {
         Vec2::new(
-            MARGIN + STEER_RADIUS + f32::from(right) * (2.0 * STEER_RADIUS + STEER_GAP),
+            MARGIN + STEER_RADIUS + STEER_SPAN,
             SCREEN.y - MARGIN - STEER_RADIUS,
         )
     }
@@ -415,23 +602,34 @@ mod tests {
         Vec2::new(SCREEN.x - MARGIN - REACH, SCREEN.y - MARGIN - REACH)
     }
 
+    /// Fingers put down in this order.
     fn read(at: impl IntoIterator<Item = Vec2>) -> TouchControls {
-        fingers(at.into_iter(), SCREEN)
+        fingers(at.into_iter().enumerate().map(|(id, at)| (id as u64, at)), SCREEN)
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
     }
 
     #[test]
-    fn a_thumb_anywhere_on_the_cross_accelerates() {
+    fn a_thumb_anywhere_in_the_bottom_right_accelerates() {
         let hub = hub();
         assert!(read([hub]).accelerating());
-        // Out along a branch, and a little past its tip: still the throttle.
+        // Out along a branch, and a little past its tip.
         assert!(read([hub + Vec2::new(0.0, -REACH)]).accelerating());
         assert!(read([hub + Vec2::new(REACH + CROSS_SLACK - 1.0, 0.0)]).accelerating());
-        // Off the cross, and in the middle of the screen: nothing at all.
-        assert!(!read([hub + Vec2::splat(REACH)]).accelerating());
-        assert_eq!(read([SCREEN / 2.0]), TouchControls::default());
+        // Slipped off the cross toward the middle of the screen, or above it: still the throttle,
+        // since nothing else is there.
+        assert!(read([hub + Vec2::new(-REACH - 60.0, 0.0)]).accelerating());
+        assert!(read([hub + Vec2::new(0.0, -REACH - ZONE_ABOVE + 2.0)]).accelerating());
+        // Up by the standings and the LEAVE button, or in the left half: no throttle.
+        assert!(!read([Vec2::new(SCREEN.x - 60.0, 30.0)]).accelerating());
+        assert!(!read([Vec2::new(SCREEN.x * 0.4, SCREEN.y - 40.0)]).accelerating());
+        assert_eq!(read([SCREEN / 2.0 - Vec2::Y * 120.0]), TouchControls::default());
     }
 
-    /// Sliding up from the hub drifts; the other three branches are found and do nothing yet.
+    /// Sliding up from the hub drifts; the other three branches are found and do nothing yet,
+    /// and a thumb off the cross is on no branch at all.
     #[test]
     fn sliding_up_from_the_hub_drifts() {
         let hub = hub();
@@ -441,20 +639,46 @@ mod tests {
             Vec2::new(0.0, REACH - 6.0),
             Vec2::new(-REACH + 6.0, 0.0),
             Vec2::new(REACH - 6.0, 0.0),
+            Vec2::new(-REACH - 60.0, -REACH),
         ] {
             let controls = read([hub + slid]);
             assert!(controls.accelerating() && !controls.drifting(), "{slid}");
         }
     }
 
+    /// Where the thumb rests is how hard the car turns: nothing on the gap, three quarters on the
+    /// middle of a button, which still grips at top speed, full lock on its outer part.
+    #[test]
+    fn the_steering_is_graded_by_where_the_thumb_rests() {
+        let gap = gap();
+        assert_eq!(read([gap]).steer(), 0.0);
+        assert_eq!(read([gap + Vec2::X * (STEER_DEAD - 1.0)]).steer(), 0.0);
+        assert!(close(read([button(false)]).steer(), -0.75));
+        assert!(close(read([button(true)]).steer(), 0.75));
+        let between = read([gap + Vec2::X * STEER_SPAN / 2.0]).steer();
+        assert!(between > 0.2 && between < 0.5, "{between}");
+        assert_eq!(read([gap - Vec2::X * STEER_FULL]).steer(), -1.0);
+        assert_eq!(read([button(true) + Vec2::X * STEER_RADIUS]).steer(), 1.0);
+        // Past the buttons on either side, and above them: still steering, as hard as it goes.
+        assert_eq!(read([Vec2::new(4.0, SCREEN.y - 10.0)]).steer(), -1.0);
+        assert_eq!(read([Vec2::new(SCREEN.x * 0.45, gap.y)]).steer(), 1.0);
+        assert!(read([button(false) - Vec2::Y * (STEER_RADIUS + ZONE_ABOVE - 2.0)]).steer() < 0.0);
+        // Up by the speed, nothing.
+        assert_eq!(read([Vec2::new(button(false).x, 40.0)]).steer(), 0.0);
+    }
+
     #[test]
     fn one_thumb_steers_while_the_other_drifts() {
-        let controls = read([steering(false), hub() + Vec2::new(0.0, -REACH + 6.0)]);
-        assert_eq!(controls.steer(), -1.0);
+        let controls = read([button(false), hub() + Vec2::new(0.0, -REACH + 6.0)]);
+        assert!(close(controls.steer(), -0.75));
         assert!(controls.accelerating() && controls.drifting());
+    }
 
-        assert_eq!(read([steering(true)]).steer(), 1.0);
-        // Both buttons at once is straight on, as both keys are on a keyboard.
-        assert_eq!(read([steering(false), steering(true)]).steer(), 0.0);
+    /// Two fingers on the steering: the one put down last steers, as the last key pressed would,
+    /// rather than the two cancelling out into a car going straight into the wall.
+    #[test]
+    fn the_last_thumb_down_steers() {
+        assert!(close(read([button(false), button(true)]).steer(), 0.75));
+        assert!(close(read([button(true), button(false)]).steer(), -0.75));
     }
 }

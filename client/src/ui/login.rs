@@ -12,7 +12,7 @@ use space_race_protocol::{MAX_NICKNAME_CHARS, PROTOCOL_VERSION, RejectReason, is
 
 use super::navigation::MenuInput;
 use super::theme::{self, Fonts};
-use super::touch::Touchscreen;
+use super::touch::{FullScreenButton, Touchscreen, full_screen_wanted};
 use super::widgets::{ButtonKind, button, hint, hint_row, panel, set_text, text_field};
 use crate::net::{Connection, Network};
 use crate::nickname;
@@ -82,7 +82,7 @@ fn spawn_login(
     let field = commands
         .spawn((
             NicknameField,
-            text_field(&fonts, &initial, MAX_NICKNAME_CHARS),
+            text_field(&fonts, "Nickname", &initial, MAX_NICKNAME_CHARS),
         ))
         .id();
 
@@ -234,6 +234,23 @@ fn spawn_login(
                         ..default()
                     })
                     .observe(quit);
+            }
+            // In its place on a phone's browser, the way to the whole screen.
+            if full_screen_wanted(*touchscreen) {
+                root.spawn((
+                    FullScreenButton,
+                    button(&fonts, ButtonKind::Secondary, "FULL SCREEN"),
+                ))
+                .insert(Node {
+                    width: px(200),
+                    margin: UiRect::top(px(10)),
+                    padding: UiRect::axes(px(20), px(9)),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border: px(1.5).all(),
+                    border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
+                    ..default()
+                });
             }
             root.spawn((
                 Node {
