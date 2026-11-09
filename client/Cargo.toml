@@ -1,6 +1,6 @@
 [package]
 name = "space-race-client"
-version = "0.1.16"
+version = "0.1.17"
 edition = "2024"
 license = "Unlicense"
 
@@ -29,8 +29,10 @@ tokio = { workspace = true, features = ["rt"] }
 bevy = { version = "0.19.1", features = ["web"] }
 wasm-bindgen-futures = "0.4.79"
 web-sys = { version = "0.3.106", features = [
+    "CssStyleDeclaration",
     "Document",
     "Element",
+    "History",
     "Location",
     "MediaQueryList",
     "Navigator",

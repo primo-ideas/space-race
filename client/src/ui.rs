@@ -1,12 +1,14 @@
 //! The game's interface: the login screen, the lobby browser and its creation dialog, the race HUD,
 //! and what they are built from.
 
+mod back;
 mod backdrop;
 mod create_lobby;
 pub mod hud;
 mod lobbies;
 mod login;
 mod navigation;
+pub mod safe_area;
 pub mod theme;
 pub mod thumbnail;
 pub mod touch;
@@ -42,6 +44,7 @@ impl Plugin for UiPlugin {
             create_lobby::CreateLobbyPlugin,
             hud::HudPlugin,
             touch::TouchPlugin,
+            back::BackPlugin,
         ))
         .add_systems(PreUpdate, scale_to_window);
     }

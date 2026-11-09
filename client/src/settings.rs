@@ -1,6 +1,6 @@
 //! What the client is asked to do: from the command line on native, from the page address on the
 //! web (`?server=ws://…&nickname=…&lobby=…&track=…&identity=…&volume=…&autopilot`,
-//! `&autopilot_drift`, `&touch` or `&latency`).
+//! `&autopilot_drift`, `&touch`, `&safe_area=…` or `&latency`).
 //!
 //! Without a nickname the game opens on the login screen. The other options skip screens, so the
 //! game can reach a lobby and drive with nobody at the keyboard.
@@ -10,6 +10,7 @@ use space_race_sim::autopilot::Style;
 
 use crate::net::identity::IdentityStore;
 use crate::preferences::{DEFAULT_LAPS, DEFAULT_MIN_PLAYERS};
+use crate::ui::safe_area::SafeArea;
 
 pub struct Settings {
     /// Server WebSocket URL.
@@ -32,6 +33,10 @@ pub struct Settings {
     /// The window size asked for, in logical pixels. Always `None` on the web, where the page
     /// decides how big the canvas is.
     pub window_size: Option<(u32, u32)>,
+    /// Insets standing for a phone's notch, rounded corners and home bar, in logical pixels, to
+    /// look at the interface laid out around them. `None` reads them from the browser, which is
+    /// where they come from on a phone (docs/ui.md).
+    pub safe_area: Option<SafeArea>,
 }
 
 /// Screens the client goes through on its own, for unattended runs.
@@ -166,6 +171,12 @@ pub fn read() -> Settings {
         /// phone held in landscape, to go with --touch.
         #[arg(long, value_parser = window_size)]
         window_size: Option<(u32, u32)>,
+
+        /// Keep the interface this far in from the window's edges, as TOP,RIGHT,BOTTOM,LEFT
+        /// logical pixels, such as 0,47,21,47: an iPhone's notch, rounded corners and home bar,
+        /// held in landscape. Goes with --touch and --window-size.
+        #[arg(long)]
+        safe_area: Option<SafeArea>,
     }
 
     let args = Args::parse();
@@ -194,6 +205,7 @@ pub fn read() -> Settings {
         latency: args.latency,
         capture: args.capture.map(|path| (path, capture_delay)),
         window_size: args.window_size,
+        safe_area: args.safe_area,
     }
 }
 
@@ -243,6 +255,7 @@ pub fn read() -> Settings {
         touch: has("touch") || touchscreen(),
         latency: has("latency"),
         window_size: None,
+        safe_area: get("safe_area").and_then(|value| value.parse().ok()),
     }
 }
 

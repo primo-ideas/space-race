@@ -11,12 +11,14 @@ use bevy::ui_widgets::Activate;
 use space_race_protocol::{MAX_NICKNAME_CHARS, PROTOCOL_VERSION, RejectReason, is_valid_nickname};
 
 use super::navigation::MenuInput;
+use super::safe_area::SafePadding;
 use super::theme::{self, Fonts};
 use super::touch::{FullScreenButton, Touchscreen, full_screen_wanted};
 use super::widgets::{ButtonKind, button, hint, hint_row, panel, set_text, text_field};
 use crate::net::{Connection, Network};
 use crate::nickname;
 use crate::preferences::{OfferedNickname, StoredPreferences};
+use crate::reconnect::Reconnect;
 use crate::screen::Screen;
 use crate::settings::Script;
 
@@ -91,8 +93,8 @@ fn spawn_login(
             Node {
                 width: px(pick(440.0, 380.0)),
                 flex_direction: FlexDirection::Column,
-                padding: px(pick(28.0, 18.0)).all(),
-                row_gap: px(pick(12.0, 9.0)),
+                padding: px(pick(28.0, 14.0)).all(),
+                row_gap: px(pick(12.0, 7.0)),
                 border: px(1).all(),
                 border_radius: BorderRadius::all(px(theme::RADIUS)),
                 ..default()
@@ -183,6 +185,7 @@ fn spawn_login(
     commands
         .spawn((
             DespawnOnExit(Screen::Login),
+            SafePadding::default(),
             Node {
                 width: percent(100),
                 height: percent(100),
@@ -200,7 +203,7 @@ fn spawn_login(
         .with_children(|root| {
             root.spawn((
                 Text::new("SPACE RACE"),
-                fonts.display(pick(92.0, 56.0)),
+                fonts.display(pick(92.0, 48.0)),
                 TextColor(theme::TEXT),
                 TextShadow {
                     offset: Vec2::new(4.0, 4.0),
@@ -213,7 +216,7 @@ fn spawn_login(
                 LetterSpacing::Px(5.0),
                 TextColor(theme::NEON),
                 Node {
-                    margin: UiRect::bottom(px(pick(46.0, 18.0))),
+                    margin: UiRect::bottom(px(pick(46.0, 10.0))),
                     ..default()
                 },
             ));
@@ -243,7 +246,7 @@ fn spawn_login(
                 ))
                 .insert(Node {
                     width: px(200),
-                    margin: UiRect::top(px(10)),
+                    margin: UiRect::top(px(6)),
                     padding: UiRect::axes(px(20), px(9)),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
@@ -388,6 +391,7 @@ fn update_login(
     fields: Query<&EditableText, With<NicknameField>>,
     connection: Res<Connection>,
     network: Res<Network>,
+    reconnect: Res<Reconnect>,
     time: Res<Time<Real>>,
     play_buttons: Query<(Entity, Has<InteractionDisabled>), With<PlayButton>>,
     mut texts: ParamSet<(
@@ -422,7 +426,11 @@ fn update_login(
         color.0 = help_color;
     }
 
-    let (status, status_color) = match &*connection {
+    // Lost, and being tried again: the screen says so rather than why it was lost.
+    let reconnecting = reconnect
+        .status(&connection, time.elapsed_secs_f64())
+        .map(|status| (status, theme::AMBER));
+    let (status, status_color) = reconnecting.unwrap_or_else(|| match &*connection {
         Connection::Offline | Connection::Online { .. } => (String::new(), theme::TEXT_DIM),
         Connection::Connecting { .. } => {
             let dots = ".".repeat(1 + (time.elapsed_secs() * 3.0) as usize % 3);
@@ -442,7 +450,7 @@ fn update_login(
             format!("Can't reach the server at {}.", network.server()),
             theme::RED,
         ),
-    };
+    });
     for (mut text, mut color) in &mut texts.p2() {
         set(&mut text, status.clone());
         color.0 = status_color;
@@ -475,6 +483,9 @@ fn rejection_text(reason: &RejectReason) -> String {
         }
         RejectReason::InvalidNickname => "The server refused this nickname.".into(),
         RejectReason::AuthenticationFailed => "The server could not verify your identity.".into(),
-        RejectReason::AlreadyConnected => "You are already connected, from another window.".into(),
+        // Said to the connection that was replaced: the newest one of a player wins.
+        RejectReason::AlreadyConnected => {
+            "You connected again from another window, which took over from this one.".into()
+        }
     }
 }

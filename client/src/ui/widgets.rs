@@ -20,9 +20,12 @@ pub struct WidgetsPlugin;
 
 impl Plugin for WidgetsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(step_on_activate)
+        app.init_resource::<TouchTravel>()
+            .add_observer(step_on_activate)
             .add_observer(focus_on_press)
             .add_observer(type_on_touch)
+            .add_observer(start_touch_travel)
+            .add_observer(scroll_on_drag)
             .add_systems(
                 PostUpdate,
                 (
@@ -641,6 +644,67 @@ fn size_for_thumbs(
     }
 }
 
+/// How far a finger may slide between touching the screen and leaving it and still have tapped,
+/// in logical pixels. Past it, the finger was scrolling a list.
+const TAP_SLOP: f32 = 12.0;
+
+/// How far the last finger to touch the screen has slid since, in logical pixels: lifted after
+/// sliding a list, it has scrolled it rather than tapped the row it lay on.
+#[derive(Resource, Default)]
+pub struct TouchTravel(f32);
+
+impl TouchTravel {
+    /// Whether the finger just lifted touched the screen and left it rather than sliding.
+    pub fn tapped(&self) -> bool {
+        self.0 < TAP_SLOP
+    }
+}
+
+/// A new finger on the screen has not slid anywhere yet. Pointer events bubble up through every
+/// ancestor of what was touched, and this sees each step: only the first counts.
+fn start_touch_travel(press: On<Pointer<Press>>, mut travel: ResMut<TouchTravel>) {
+    if press.pointer_id.is_touch() && press.entity == press.original_event_target() {
+        travel.0 = 0.0;
+    }
+}
+
+/// A finger sliding over a list that scrolls scrolls it, the way a phone's own lists do: the
+/// content follows the finger, and stops at either end. The list is whichever ancestor of what
+/// the finger first touched scrolls vertically, the touched node itself included.
+fn scroll_on_drag(
+    drag: On<Pointer<Drag>>,
+    scale: Res<UiScale>,
+    ancestors: Query<&ChildOf>,
+    mut lists: Query<(&Node, &ComputedNode, &mut ScrollPosition)>,
+    mut travel: ResMut<TouchTravel>,
+) {
+    if !drag.pointer_id.is_touch() || drag.entity != drag.original_event_target() {
+        return;
+    }
+    travel.0 = travel.0.max(drag.event.distance.length());
+    let mut at = Some(drag.entity);
+    while let Some(entity) = at {
+        if let Ok((node, computed, mut position)) = lists.get_mut(entity)
+            && node.overflow.y == OverflowAxis::Scroll
+        {
+            position.y = scrolled(
+                position.y,
+                drag.event.delta.y / scale.0.max(0.1),
+                (computed.content_size.y - computed.size.y) * computed.inverse_scale_factor,
+            );
+            return;
+        }
+        at = ancestors.get(entity).ok().map(ChildOf::parent);
+    }
+}
+
+/// Where a list scrolled to `position` is after a finger moves `delta` down it, both in interface
+/// units, when its content overflows it by `overflow`: the content follows the finger, so a
+/// finger moving down shows what is above.
+fn scrolled(position: f32, delta: f32, overflow: f32) -> f32 {
+    (position - delta).clamp(0.0, overflow.max(0.0))
+}
+
 fn hide_hints_on_touch(touchscreen: Res<Touchscreen>, mut rows: Query<&mut Node, Added<HintRow>>) {
     if !touchscreen.0 {
         return;
@@ -672,5 +736,29 @@ fn show_hints(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The content follows the finger, and stops at either end of the list.
+    #[test]
+    fn a_list_scrolls_with_the_finger_and_stops_at_its_ends() {
+        // A finger moving up the list shows what is below.
+        assert_eq!(scrolled(0.0, -30.0, 100.0), 30.0);
+        assert_eq!(scrolled(30.0, 10.0, 100.0), 20.0);
+        assert_eq!(scrolled(90.0, -30.0, 100.0), 100.0);
+        assert_eq!(scrolled(10.0, 30.0, 100.0), 0.0);
+        // A list that fits does not move.
+        assert_eq!(scrolled(0.0, -30.0, -12.0), 0.0);
+    }
+
+    #[test]
+    fn a_finger_that_slid_has_not_tapped() {
+        assert!(TouchTravel(0.0).tapped());
+        assert!(TouchTravel(TAP_SLOP - 1.0).tapped());
+        assert!(!TouchTravel(TAP_SLOP).tapped());
     }
 }

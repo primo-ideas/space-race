@@ -24,10 +24,15 @@ use bevy::color::Mix;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+use bevy::ui::Pressed;
+use bevy::ui_widgets::{Activate, Button};
+
 use super::hud::LeaveDialog;
+use super::safe_area::{SafeArea, SafeInset};
 use super::theme::{self, Fonts};
-use crate::race::{RaceUpdate, RaceView};
+use crate::race::{RaceUpdate, RaceView, Spectated};
 use crate::screen::Screen;
+use crate::weight::FollowedPush;
 
 /// Between the controls and the edges of the screen.
 const MARGIN: f32 = 24.0;
@@ -64,6 +69,19 @@ const CROSS_SLACK: f32 = 22.0;
 /// How long the phone vibrates as a thumb arrives on the drift branch, in milliseconds: a tick
 /// that says the slide was felt, so the eyes can stay on the road.
 const DRIFT_BUZZ: u32 = 14;
+/// A wall hit buzzes for as long as this, in milliseconds, for every m/s it took from the car,
+/// between the shortest buzz a phone makes felt and one that still reads as a knock.
+const HIT_BUZZ_PER_SPEED: f32 = 4.0;
+const HIT_BUZZ_SHORTEST: f32 = 12.0;
+const HIT_BUZZ_LONGEST: f32 = 45.0;
+/// A hit taking less than this from the car, in m/s, is a graze, and buzzes nothing.
+const HIT_BUZZ_FROM: f32 = 1.5;
+/// Scraping along a wall is a hit on every frame: one buzz at most this often, in seconds.
+const HIT_BUZZ_EVERY: f64 = 0.3;
+
+/// The buttons that pick which car a spectator watches: the size of the steering buttons, under
+/// the same thumbs.
+const WATCH_RADIUS: f32 = STEER_RADIUS;
 
 /// Dark enough to read the road through, solid enough to stand out over a lit wall.
 const PAD: Color = Color::srgba(0.02, 0.05, 0.09, 0.72);
@@ -80,13 +98,23 @@ impl Plugin for TouchPlugin {
             .init_resource::<TouchControls>()
             .add_observer(go_full_screen)
             .add_systems(Update, offer_full_screen.run_if(touching))
-            .add_systems(OnEnter(Screen::Lobby), spawn_controls.run_if(touching))
+            .add_observer(watch_another_car)
+            .add_systems(
+                OnEnter(Screen::Lobby),
+                (spawn_controls, spawn_watch_controls).run_if(touching),
+            )
             .add_systems(
                 Update,
-                (read_touches, style_controls)
+                (read_touches, style_controls, style_watch_controls)
                     .chain()
                     .in_set(TouchUpdate)
                     .after(RaceUpdate)
+                    .run_if(in_state(Screen::Lobby))
+                    .run_if(touching),
+            )
+            .add_systems(
+                PostUpdate,
+                buzz_on_hits
                     .run_if(in_state(Screen::Lobby))
                     .run_if(touching),
             );
@@ -130,7 +158,10 @@ pub fn full_screen_wanted(touchscreen: Touchscreen) -> bool {
     touchscreen.0 && cfg!(target_arch = "wasm32")
 }
 
-fn go_full_screen(activate: On<bevy::ui_widgets::Activate>, buttons: Query<(), With<FullScreenButton>>) {
+fn go_full_screen(
+    activate: On<bevy::ui_widgets::Activate>,
+    buttons: Query<(), With<FullScreenButton>>,
+) {
     if !buttons.contains(activate.entity) {
         return;
     }
@@ -168,7 +199,11 @@ fn offer_full_screen(
         #[cfg(target_arch = "wasm32")]
         if let Some(Ok(lock)) = web_sys::window()
             .and_then(|window| window.screen().ok())
-            .map(|screen| screen.orientation().lock(web_sys::OrientationLockType::Landscape))
+            .map(|screen| {
+                screen
+                    .orientation()
+                    .lock(web_sys::OrientationLockType::Landscape)
+            })
         {
             wasm_bindgen_futures::spawn_local(async move {
                 let _ = wasm_bindgen_futures::JsFuture::from(lock).await;
@@ -177,7 +212,11 @@ fn offer_full_screen(
     }
     *locked = full;
 
-    let display = if offered { Display::Flex } else { Display::None };
+    let display = if offered {
+        Display::Flex
+    } else {
+        Display::None
+    };
     for mut node in &mut buttons {
         if node.display != display {
             node.display = display;
@@ -371,6 +410,9 @@ fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
             Controls,
             DespawnOnExit(Screen::Lobby),
             Pickable::IGNORE,
+            // Laid out in the safe area, so a notch never covers a steering button and a thumb on
+            // the cross stays above an iPhone's home bar.
+            SafeInset,
             Node {
                 position_type: PositionType::Absolute,
                 width: percent(100),
@@ -435,6 +477,7 @@ fn read_touches(
     touches: Res<Touches>,
     windows: Query<&Window, With<PrimaryWindow>>,
     scale: Res<UiScale>,
+    safe_area: Res<SafeArea>,
     view: Res<RaceView>,
     dialog: Res<LeaveDialog>,
     mut controls: ResMut<TouchControls>,
@@ -443,15 +486,15 @@ fn read_touches(
     let driving = view.own_car.is_some() && !dialog.open;
     let next = match windows.single() {
         Ok(window) if driving => {
-            // The controls are laid out in the interface's own units, which is where the fingers
-            // are brought to meet them.
+            // The controls are laid out in the interface's own units, inside the safe area, which
+            // is where the fingers are brought to meet them.
             let scale = scale.0.max(0.1);
-            let size = Vec2::new(window.width(), window.height()) / scale;
+            let area = safe_area.rect(Vec2::new(window.width(), window.height()), scale);
             fingers(
                 touches
                     .iter()
-                    .map(|touch| (touch.id(), touch.position() / scale)),
-                size,
+                    .map(|touch| (touch.id(), touch.position() / scale - area.min)),
+                area.size(),
             )
         }
         _ => TouchControls::default(),
@@ -465,7 +508,10 @@ fn read_touches(
 /// What fingers resting at these places, in interface units on a screen of this size, are asking
 /// the car to do. Each finger comes with its touch's number, which grows with every new touch.
 fn fingers(fingers: impl Iterator<Item = (u64, Vec2)>, size: Vec2) -> TouchControls {
-    let gap = Vec2::new(MARGIN + STEER_RADIUS + STEER_SPAN, size.y - MARGIN - STEER_RADIUS);
+    let gap = Vec2::new(
+        MARGIN + STEER_RADIUS + STEER_SPAN,
+        size.y - MARGIN - STEER_RADIUS,
+    );
     let cross = Vec2::new(size.x - MARGIN - REACH, size.y - MARGIN - REACH);
     let steering_top = size.y - MARGIN - 2.0 * STEER_RADIUS - ZONE_ABOVE;
     let throttle_top = size.y - MARGIN - 2.0 * REACH - ZONE_ABOVE;
@@ -577,6 +623,143 @@ fn style_controls(
     }
 }
 
+/// What a spectator's thumbs have instead of the controls: a button under each, the left one
+/// watching the car ahead and the right one the car behind, as left and right do on a keyboard.
+#[derive(Component)]
+struct WatchControls;
+
+/// A button that watches the car this many places behind the one watched now.
+#[derive(Component, Clone, Copy)]
+struct WatchButton(i32);
+
+fn spawn_watch_controls(mut commands: Commands, fonts: Res<Fonts>) {
+    let watch = |step: i32, arrow: &'static str, caption: &'static str| {
+        let mut node = Node {
+            position_type: PositionType::Absolute,
+            bottom: px(MARGIN),
+            width: px(2.0 * WATCH_RADIUS),
+            height: px(2.0 * WATCH_RADIUS),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            border: px(1.5).all(),
+            border_radius: BorderRadius::MAX,
+            ..default()
+        };
+        if step < 0 {
+            node.left = px(MARGIN);
+        } else {
+            node.right = px(MARGIN);
+        }
+        (
+            WatchButton(step),
+            Button,
+            node,
+            BackgroundColor(PAD),
+            BorderColor::all(theme::NEON_DIM),
+            children![
+                (
+                    Text::new(arrow),
+                    fonts.caption(30.0),
+                    TextColor(theme::TEXT),
+                    Pickable::IGNORE,
+                ),
+                (
+                    Text::new(caption),
+                    fonts.caption(11.0),
+                    theme::CAPTION_SPACING,
+                    TextColor(theme::TEXT_DIM),
+                    Pickable::IGNORE,
+                ),
+            ],
+        )
+    };
+    commands.spawn((
+        WatchControls,
+        DespawnOnExit(Screen::Lobby),
+        Pickable::IGNORE,
+        SafeInset,
+        Node {
+            position_type: PositionType::Absolute,
+            width: percent(100),
+            height: percent(100),
+            display: Display::None,
+            ..default()
+        },
+        children![
+            watch(-1, "\u{2190}", "AHEAD"),
+            watch(1, "\u{2192}", "BEHIND"),
+        ],
+    ));
+}
+
+fn watch_another_car(
+    activate: On<Activate>,
+    buttons: Query<&WatchButton>,
+    view: Res<RaceView>,
+    mut spectated: ResMut<Spectated>,
+) {
+    if let Ok(button) = buttons.get(activate.entity) {
+        spectated.step(&view, button.0);
+    }
+}
+
+/// The spectator's buttons show while there is a car to watch and nothing of the player's own to
+/// drive, and light up under the thumb.
+fn style_watch_controls(
+    view: Res<RaceView>,
+    dialog: Res<LeaveDialog>,
+    mut root: Query<&mut Node, With<WatchControls>>,
+    mut buttons: Query<(Has<Pressed>, &mut BackgroundColor, &mut BorderColor), With<WatchButton>>,
+) {
+    let shown = view.own_car.is_none() && view.cars.len() > 1 && !dialog.open;
+    let display = if shown { Display::Flex } else { Display::None };
+    for mut node in &mut root {
+        if node.display != display {
+            node.display = display;
+        }
+    }
+    for (pressed, mut background, mut border) in &mut buttons {
+        let (fill, edge) = if pressed {
+            (PAD_HELD, theme::NEON)
+        } else {
+            (PAD, theme::NEON_DIM)
+        };
+        if background.0 != fill {
+            background.0 = fill;
+            *border = BorderColor::all(edge);
+        }
+    }
+}
+
+/// A wall hit knocks the phone in the player's hands, harder the more speed it took, so a hit is
+/// felt as well as seen: the eyes are on the road, and the thumbs on the glass feel nothing of it
+/// otherwise. Only the player's own car, and only where the browser lets a page vibrate.
+fn buzz_on_hits(
+    push: Res<FollowedPush>,
+    view: Res<RaceView>,
+    time: Res<Time<Real>>,
+    mut last: Local<f64>,
+) {
+    let Some(push) = push.0 else {
+        return;
+    };
+    let now = time.elapsed_secs_f64();
+    if view.own_car.is_none() || now - *last < HIT_BUZZ_EVERY {
+        return;
+    }
+    if let Some(milliseconds) = hit_buzz(push.impact) {
+        buzz(milliseconds);
+        *last = now;
+    }
+}
+
+/// How long a hit that took `impact` m/s from the car buzzes, if it is more than a graze.
+fn hit_buzz(impact: f32) -> Option<u32> {
+    (impact >= HIT_BUZZ_FROM)
+        .then(|| (impact * HIT_BUZZ_PER_SPEED).clamp(HIT_BUZZ_SHORTEST, HIT_BUZZ_LONGEST) as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,7 +787,10 @@ mod tests {
 
     /// Fingers put down in this order.
     fn read(at: impl IntoIterator<Item = Vec2>) -> TouchControls {
-        fingers(at.into_iter().enumerate().map(|(id, at)| (id as u64, at)), SCREEN)
+        fingers(
+            at.into_iter().enumerate().map(|(id, at)| (id as u64, at)),
+            SCREEN,
+        )
     }
 
     fn close(a: f32, b: f32) -> bool {
@@ -625,7 +811,10 @@ mod tests {
         // Up by the standings and the LEAVE button, or in the left half: no throttle.
         assert!(!read([Vec2::new(SCREEN.x - 60.0, 30.0)]).accelerating());
         assert!(!read([Vec2::new(SCREEN.x * 0.4, SCREEN.y - 40.0)]).accelerating());
-        assert_eq!(read([SCREEN / 2.0 - Vec2::Y * 120.0]), TouchControls::default());
+        assert_eq!(
+            read([SCREEN / 2.0 - Vec2::Y * 120.0]),
+            TouchControls::default()
+        );
     }
 
     /// Sliding up from the hub drifts; the other three branches are found and do nothing yet,
@@ -680,5 +869,16 @@ mod tests {
     fn the_last_thumb_down_steers() {
         assert!(close(read([button(false), button(true)]).steer(), 0.75));
         assert!(close(read([button(true), button(false)]).steer(), -0.75));
+    }
+
+    /// A graze buzzes nothing; a hit buzzes longer the more speed it took, within what a phone
+    /// makes felt and what still reads as a knock.
+    #[test]
+    fn a_hit_buzzes_as_hard_as_it_was() {
+        assert_eq!(hit_buzz(0.0), None);
+        assert_eq!(hit_buzz(HIT_BUZZ_FROM - 0.1), None);
+        assert_eq!(hit_buzz(HIT_BUZZ_FROM), Some(HIT_BUZZ_SHORTEST as u32));
+        assert_eq!(hit_buzz(5.0), Some(20));
+        assert_eq!(hit_buzz(40.0), Some(HIT_BUZZ_LONGEST as u32));
     }
 }

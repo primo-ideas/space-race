@@ -17,6 +17,7 @@ use space_race_sim::TICK_RATE;
 use space_race_sim::race::{self, RaceStanding, StartGrade};
 
 use super::navigation::MenuInput;
+use super::safe_area::SafeInset;
 use super::theme::{self, Fonts};
 use super::touch::Touchscreen;
 use super::widgets::{ButtonKind, button, hint, hint_row, panel};
@@ -164,6 +165,11 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
     commands
         .spawn((
             DespawnOnExit(Screen::Lobby),
+            // Every corner of the HUD keeps clear of a phone's notch, rounded corners and home bar.
+            SafeInset,
+            // It covers the whole screen and shows nothing itself, so it must not stand in front
+            // of the buttons a spectator's thumbs press, which are drawn in a root of their own.
+            Pickable::IGNORE,
             Node {
                 position_type: PositionType::Absolute,
                 width: percent(100),

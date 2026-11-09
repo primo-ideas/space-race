@@ -169,7 +169,7 @@ fn spawn_dialog(
             Node {
                 width: px(pick(560.0, 640.0)),
                 flex_direction: FlexDirection::Column,
-                padding: px(pick(28.0, 15.0)).all(),
+                padding: px(pick(28.0, 12.0)).all(),
                 row_gap: px(pick(10.0, 5.0)),
                 border: px(1).all(),
                 border_radius: BorderRadius::all(px(theme::RADIUS)),
@@ -203,8 +203,8 @@ fn spawn_dialog(
     commands.entity(card).with_children(|card| {
         // A minimum height on a text itself inflates the panel around it: it goes on a box.
         card.spawn(Node {
-            min_height: px(18),
-            margin: UiRect::bottom(px(6)),
+            min_height: px(pick(18.0, 16.0)),
+            margin: UiRect::bottom(px(pick(6.0, 0.0))),
             ..default()
         })
         .with_child((
@@ -423,8 +423,8 @@ fn spawn_dialog(
 
     commands.entity(card).with_children(|card| {
         card.spawn(Node {
-            min_height: px(18),
-            margin: UiRect::top(px(4)),
+            min_height: px(pick(18.0, 14.0)),
+            margin: UiRect::top(px(pick(4.0, 0.0))),
             ..default()
         })
         .with_child((
@@ -436,7 +436,7 @@ fn spawn_dialog(
         card.spawn(Node {
             justify_content: JustifyContent::FlexEnd,
             column_gap: px(12),
-            margin: UiRect::top(px(6)),
+            margin: UiRect::top(px(pick(6.0, 2.0))),
             ..default()
         })
         .with_children(|buttons| {

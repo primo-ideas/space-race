@@ -117,6 +117,18 @@ on arrival times.
 On the web there are no threads: the same session runs on the page's event loop instead, and the
 identity key lives in local storage (see [Web build](web.md)).
 
+**A connection lost is tried again** (`client/src/reconnect.rs`). Once the server has welcomed
+the player, losing it -- a phone moving from Wi-Fi to its mobile network, a browser put to sleep,
+a server restarting for an update -- starts new sessions under the same nickname on their own,
+0.5 s after the loss, then after 1, 2, 4 and every 8 s, for as long as the page is open, and once
+welcomed back the client joins the lobby it was in again, if it is still listed (the next race,
+as anyone joining). The login screen says it is reconnecting meanwhile, in amber, and pressing
+PLAY is a try like any other. A rejection stops it: a server on another protocol version will not
+change its mind, and a connection replaced by the same player's newer one must not take its place
+back, or two windows would push each other out forever. It is the server letting the newest
+connection of a key replace the one it holds (see [Lobbies](lobbies.md#on-the-server)) that lets
+a player come back before the server has noticed they had gone.
+
 When the game quits, a system in `Last` (after Bevy's own exit systems, so closing the window is
 seen too) tells the network thread to send a WebSocket Close frame, and waits for it at most one
 second. Without it the process dies with the socket open and the server sees a reset connection
@@ -129,6 +141,7 @@ The client module layout follows the path of the data:
 | Module | Role |
 | --- | --- |
 | `net` | Sessions started on demand, `NetEvent` messages, `Connection`, `Network`. |
+| `reconnect` | Tries a lost connection again, and goes back into the lobby the player was in. |
 | `screen` | The `Screen` state (login, lobbies, lobby) and what moves the player between them. |
 | `lobby` | The server's tracks, the lobby list and the lobby the player is in. |
 | `track` | Builds the lobby's track with the shared code, and its meshes. |

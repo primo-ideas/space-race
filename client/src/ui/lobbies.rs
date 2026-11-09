@@ -16,11 +16,12 @@ use space_race_protocol::{ClientMessage, LobbyId, LobbyStatus, LobbySummary, Pre
 
 use super::create_lobby::CreateDialog;
 use super::navigation::MenuInput;
+use super::safe_area::SafePadding;
 use super::theme::{self, Fonts};
 use super::touch::{FullScreenButton, Touchscreen, full_screen_wanted};
 use super::widgets::{
-    Badge, BadgeDot, BadgeText, ButtonKind, ButtonLabel, Selectable, badge, button, hint, hint_row,
-    panel, set_badge,
+    Badge, BadgeDot, BadgeText, ButtonKind, ButtonLabel, Selectable, TouchTravel, badge, button,
+    hint, hint_row, panel, set_badge,
 };
 use crate::lobby::{LobbyList, Notice, OnlinePlayers, Tracks};
 use crate::net::{Connection, NetEvent, Network};
@@ -33,6 +34,8 @@ const DETAILS_WIDTH: f32 = 330.0;
 /// Two rows of connected players fit under the lobby list; past that the panel clips, and its
 /// caption still counts everyone.
 const ONLINE_HEIGHT: f32 = 58.0;
+/// One row on a phone, whose short screen would rather show another lobby.
+const ONLINE_HEIGHT_ON_TOUCH: f32 = 26.0;
 
 pub struct LobbiesPlugin;
 
@@ -86,6 +89,10 @@ struct LobbyCount;
 
 #[derive(Component)]
 struct NoticeText;
+
+/// The row under the list that holds the notice.
+#[derive(Component)]
+struct NoticeRow;
 
 #[derive(Component)]
 struct CreateButton;
@@ -177,6 +184,7 @@ fn spawn_browser(
         .spawn((
             BrowserRoot,
             DespawnOnExit(Screen::Lobbies),
+            SafePadding::default(),
             Node {
                 width: percent(100),
                 height: percent(100),
@@ -295,8 +303,13 @@ fn spawn_browser(
                     left.spawn((
                         Node {
                             flex_grow: 1.0,
+                            // Takes what is left, and no more: without these the panel grew with
+                            // its rows, pushing what was under it off the screen, and the list
+                            // inside never had anything to scroll.
+                            flex_basis: px(0),
+                            min_height: px(0),
                             flex_direction: FlexDirection::Column,
-                            padding: px(14).all(),
+                            padding: px(pick(14.0, 8.0)).all(),
                             row_gap: px(6),
                             border: px(1).all(),
                             border_radius: BorderRadius::all(px(theme::RADIUS)),
@@ -346,6 +359,8 @@ fn spawn_browser(
                                 row_gap: px(6),
                                 overflow: Overflow::scroll_y(),
                                 flex_grow: 1.0,
+                                flex_basis: px(0),
+                                min_height: px(0),
                                 ..default()
                             },
                         ));
@@ -384,8 +399,8 @@ fn spawn_browser(
                         Node {
                             flex_shrink: 0.0,
                             flex_direction: FlexDirection::Column,
-                            padding: px(14).all(),
-                            row_gap: px(9),
+                            padding: px(pick(14.0, 8.0)).all(),
+                            row_gap: px(pick(9.0, 5.0)),
                             border: px(1).all(),
                             border_radius: BorderRadius::all(px(theme::RADIUS)),
                             ..default()
@@ -401,7 +416,7 @@ fn spawn_browser(
                                 flex_wrap: FlexWrap::Wrap,
                                 column_gap: px(8),
                                 row_gap: px(6),
-                                max_height: px(ONLINE_HEIGHT),
+                                max_height: px(pick(ONLINE_HEIGHT, ONLINE_HEIGHT_ON_TOUCH)),
                                 overflow: Overflow::clip(),
                                 ..default()
                             },
@@ -522,11 +537,17 @@ fn spawn_browser(
             });
 
             // Footer: what just went wrong, and the controls.
-            root.spawn(Node {
-                align_items: AlignItems::Center,
-                min_height: px(24),
-                ..default()
-            })
+            // On a phone there are no controls to list, and the row only exists while there is
+            // something to say: on so short a screen it is most of another lobby.
+            root.spawn((
+                NoticeRow,
+                Node {
+                    align_items: AlignItems::Center,
+                    min_height: px(pick(24.0, 0.0)),
+                    display: touchscreen.pick(Display::Flex, Display::None),
+                    ..default()
+                },
+            ))
             .with_children(|footer| {
                 footer.spawn((
                     NoticeText,
@@ -617,7 +638,24 @@ fn spawn_row(commands: &mut Commands, fonts: &Fonts, id: LobbyId) -> Entity {
         ))
         .add_children(&[name, track, players, status])
         .observe(join_row)
+        .observe(tap_to_join)
         .id()
+}
+
+/// A finger tapping a row joins its lobby. A click only selects it, for the details panel and its
+/// JOIN button beside the list, but a phone has no room for that panel: the row is all there is.
+/// A finger that slid the list on its way is scrolling, and joins nothing.
+fn tap_to_join(
+    click: On<Pointer<Click>>,
+    travel: Res<TouchTravel>,
+    rows: Query<(), With<LobbyRow>>,
+    mut commands: Commands,
+) {
+    if click.pointer_id.is_touch() && travel.tapped() && rows.contains(click.entity) {
+        commands.trigger(Activate {
+            entity: click.entity,
+        });
+    }
 }
 
 /// The badge of a lobby: its phase, and the detail that matters in it.
@@ -1041,7 +1079,9 @@ fn update_frame(
     notice: Res<Notice>,
     time: Res<Time<Real>>,
     dialog: Res<CreateDialog>,
+    touchscreen: Res<Touchscreen>,
     mut roots: Query<&mut Visibility, With<BrowserRoot>>,
+    mut notice_rows: Query<&mut Node, With<NoticeRow>>,
     mut texts: ParamSet<(
         Query<&mut Text, With<LobbyCount>>,
         Query<&mut Text, With<NoticeText>>,
@@ -1061,6 +1101,18 @@ fn update_frame(
         .current(time.elapsed_secs_f64())
         .unwrap_or_default()
         .to_owned();
+    if touchscreen.0 {
+        let display = if notice.is_empty() {
+            Display::None
+        } else {
+            Display::Flex
+        };
+        for mut row in &mut notice_rows {
+            if row.display != display {
+                row.display = display;
+            }
+        }
+    }
     for mut text in &mut texts.p1() {
         if text.0 != notice {
             text.0 = notice.clone();

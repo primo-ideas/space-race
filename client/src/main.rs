@@ -13,6 +13,7 @@ mod nickname;
 mod prediction;
 mod preferences;
 mod race;
+mod reconnect;
 mod scenery;
 mod screen;
 mod settings;
@@ -111,6 +112,12 @@ fn main() {
         ui::UiPlugin,
         sound::SoundPlugin {
             volume: settings.volume,
+        },
+    ))
+    .add_plugins((
+        reconnect::ReconnectPlugin,
+        ui::safe_area::SafeAreaPlugin {
+            fixed: settings.safe_area,
         },
     ));
 

@@ -150,9 +150,28 @@ changes beyond sizes:
   An iPhone's Safari cannot put a page full screen at all and never shows the button; there,
   the game added to the home screen opens full screen and in landscape by itself (see
   [Web](web.md#on-a-phone)).
+- **The notch, the rounded corners and the home bar are kept clear.** The page fills the whole
+  screen, notch to notch, so the race and the menus' backdrop reach into the corners; but
+  everything read or pressed stays inside the safe area the browser gives through CSS's
+  `env(safe-area-inset-*)` (`ui/safe_area.rs`). An iPhone held in landscape takes about 47
+  pixels from each side and 21 from the bottom, which put the left steering button half under
+  the notch and the cross on the bar that sends the phone home. `index.html` pads an invisible
+  element by those insets and the game reads its padding back twice a second: they change when
+  the phone is turned over, which resizes nothing, and when the page goes full screen. Two kinds
+  of root follow them: the HUD and the touch controls have their edges moved onto the safe
+  area's (`SafeInset`), so everything pinned to their corners comes in with them; the login
+  screen and the lobby browser add the insets to their padding (`SafePadding`), their
+  backgrounds still filling the screen. Centered dialogs are clear of the edges already.
 - **The lobby browser drops the details panel.** There is no room beside the list for it, and no
-  need: a row already gives the track, the players and what the lobby is doing, and tapping the
-  row joins. The players connected to the server stay under the list.
+  need: a row already gives the track, the players and what the lobby is doing, and **tapping the
+  row joins** (`tap_to_join`). A click only selects a row, for the panel and its JOIN button; the
+  first touch layout dropped the panel and kept that, so a phone could select a lobby and never
+  enter it. The players connected to the server stay under the list, on one row, and the line
+  under it only exists while there is a notice to read: three rows of lobbies fit instead of two.
+- **Lists scroll under a finger**, the content following it and stopping at either end, as a
+  phone's own lists do (`scroll_on_drag`): whichever ancestor of what the finger touched scrolls
+  vertically moves by the finger's travel, divided by the interface's scale. A finger that slid
+  more than 12 pixels on its way was scrolling, and lifting it taps nothing (`TouchTravel`).
 - **The race HUD moves out of the thumbs' way.** The speed and its gauge leave the bottom left
   corner for under the lobby's name; the frame rate leaves the bottom right for the bottom edge,
   between the two thumbs; the standings move down to make room for a **LEAVE** button, which a
@@ -189,6 +208,17 @@ right half accelerates, up to 70 units above the cross, and only within reach of
 choose a branch. A thumb slipping off a button while the eyes are on the road used to let go of
 it. Two thumbs on the steering: the one put down last steers, as the last key pressed would.
 
+**A wall hit is felt.** On Android, a hit that takes more than 1.5 m/s from the player's own car
+knocks the phone for 4 ms per m/s, from 12 to 45 ms, at most every 0.3 s so that scraping along a
+wall is not one long buzz. It is measured as the camera's shake is, from the speed the car lost
+at once beyond anything driving does (see [Architecture](architecture.md#displaying-the-race)).
+iOS lets no page vibrate.
+
+**A spectator picks the car to watch** with two round buttons where the thumbs rest, the left
+one watching the car ahead and the right one the car behind, as left and right do on a keyboard.
+They are ordinary buttons, tapped rather than held, and show only while there is more than one
+car to watch and nothing of the player's own to drive.
+
 They are hit-tested against `Touches` rather than picked as interface nodes. A thumb sliding from
 the hub onto a branch is one gesture on one control, and picking has no event for "the finger
 that pressed there is now here". The geometry is written once, in interface units, and both the
@@ -207,6 +237,14 @@ Worth knowing before changing the interface:
   in a way that adds to the panel's height. Put `min_height` on a box around the text.
 - **An editable text without `visible_lines` measures as tall as the space it is offered**, which
   also inflates the panel around it.
+- **A list only scrolls if it cannot grow.** A column's flex items are as tall as their content
+  at least, unless told otherwise: the lobby list's panel grew with its rows and pushed everything
+  under it off the screen, and the list inside it never overflowed. Every box between the screen
+  and the list needs `min_height: px(0)`, and those that share what is left a `flex_basis` of 0.
+- **A full-screen root stands in front of other roots unless it is `Pickable::IGNORE`**, even
+  with nothing drawn on it: the HUD's root swallowed the touches meant for the spectator's
+  buttons, which are in a root of their own, and which root comes first depends on the order
+  systems happened to run in.
 - **Every `Node` has a `UiTransform`**: a query on `UiTransform` needs a marker to target one node.
 - **A bundle must not contain the same component twice**, which panics at spawn. Style helpers
   return fonts only, not colors or spacing, so they can be combined freely; to change a widget's
@@ -226,7 +264,9 @@ ready (see [Architecture](architecture.md#testing)):
 | `--nickname N --lobby L` | the lobby, once its state and a car are displayed |
 
 `--touch --window-size 844x390` shows any of them as a phone held in landscape does, which is how
-the touch interface is looked at without a phone. The window size is taken as logical pixels,
+the touch interface is looked at without a phone. `--safe-area 0,47,21,47` (top, right, bottom,
+left, as CSS writes padding) adds an iPhone's notch, corners and home bar to it; `?safe_area=`
+does the same on the web, where the insets otherwise come from the browser. The window size is taken as logical pixels,
 scale factor and all, so the interface is laid out in exactly the size asked for. What a capture
 cannot show is a thumb: the pads only light up under a real finger, and the gestures themselves
 are covered by the tests in `ui/touch.rs`.

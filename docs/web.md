@@ -64,6 +64,7 @@ With no command line, the web client reads its settings from the page address:
 | `autopilot` | `--autopilot` | off |
 | `autopilot_drift` | `--autopilot-drift` | off |
 | `touch` | `--touch` | whether the browser says the pointer is coarse |
+| `safe_area=T,R,B,L` | `--safe-area` | what the browser says a notch takes (see [Interface](ui.md#on-a-touchscreen)) |
 | `latency` | `--latency` | off; F3 shows the figures anyway (see [Latency](latency.md)) |
 | `log=error\|warn\|info\|debug\|trace` | `--log` | `warn` (see below) |
 
@@ -84,10 +85,33 @@ client decides for itself that it is being touched -- `matchMedia("(pointer: coa
 so it holds while the module is still loading:
 
 - **The viewport is fixed**: `width=device-width`, no zooming, `viewport-fit=cover` so the canvas
-  reaches into the notch.
-- **`touch-action: none` on the body**, with `overscroll-behavior: none` and no text selection or
-  tap highlight. This is what lets a thumb slide from the hub of the cross onto a branch: without
-  it the browser takes that slide for a scroll and the game never sees it.
+  reaches into the notch. An invisible element padded by `env(safe-area-inset-*)` tells the game
+  what the notch, the corners and the home bar take, which the interface keeps clear of (see
+  [Interface](ui.md#on-a-touchscreen)).
+- **The page is as high as what the browser shows** (`100dvh`, after `100%` for older
+  browsers): on a phone, `100%` can be the height with the browser's bars hidden, which would
+  put the bottom of the game, and the thumbs' controls with it, under the toolbar.
+- **`touch-action: none` on the body**, with `overscroll-behavior: none` and no text selection,
+  long-press menu or tap highlight. This is what lets a thumb slide from the hub of the cross onto
+  a branch: without it the browser takes that slide for a scroll and the game never sees it.
+  Safari ignores `user-scalable=no`, so its `gesture*` events are cancelled as well, and a pinch
+  never zooms the page.
+- **Sound starts on the first touch.** A browser lets a page play sound only once someone has
+  touched it, and Bevy opens its audio context as it starts, before anyone has, so the context
+  waits, suspended. Chrome starts it by itself at the first click; Safari never does, and a phone
+  stayed silent. The page keeps every audio context the game opens (it wraps the `AudioContext`
+  constructor before the module loads), and each touch, click or key resumes any that is not
+  running: the first one, and again after a call or another app took the sound away.
+- **The screen stays on** while the game is in view on a coarse-pointer screen: between races,
+  waiting for players or watching one, nobody touches it, and it went dark. The screen wake lock
+  is let go whenever the page is hidden, so it is taken again each time it comes back.
+- **Back asks before leaving a lobby.** On a phone, back is a swipe in from the edge, which a
+  thumb steering near the left edge makes by accident, and it left the game, race and all. In a
+  lobby the game adds a step to the page's history (`history.pushState`, same address); going
+  back takes that step instead, and the game asks whether to leave the lobby, as LEAVE does.
+  Staying puts the step back; leaving through the button takes it out, so it never costs one
+  more press of back for nothing (`ui/back.rs`). In a desktop browser the back button does the
+  same.
 - **Portrait says to turn the phone.** The game is drawn wide and wants a bottom corner for each
   thumb, so a full-page notice covers portrait on any coarse-pointer screen.
 - **A loading screen** stands over the page until the game has drawn a second's worth of frames
@@ -107,15 +131,25 @@ browser's bars take a seventh of the height, but taking the screen over without 
 not this game's to do (see [Interface](ui.md#on-a-touchscreen)).
 
 **Typing** goes through the browser's prompt: Bevy's text fields read key events, and a soft
-keyboard never opens for a canvas. **Switching the watched car while spectating** has no touch
-control yet, and a long lobby list cannot be scrolled by dragging it.
+keyboard never opens for a canvas.
+
+**A phone loses its connection all the time** -- moving from Wi-Fi to its mobile network, the
+browser put to sleep while the player answers a message -- and the game now connects again on
+its own and goes back into the lobby it was in (see
+[Architecture](architecture.md#client-networking)).
 
 Checked in headless Edge emulating a phone held in landscape (915 by 356, touch, coarse pointer),
 on the local web build, with touches sent through the DevTools protocol: the loading screen, the
 nickname typed through the prompt and reaching the lobby list, FULL SCREEN offered on both
 screens, a lobby created from the dialog, and a race steered at three quarters, gently and at
-full lock with the drift branch held. Not checked: full screen itself, which a headless browser
-refuses, the vibration, and a real phone. Under emulation `devicePixelContentBoxSize` comes back
+full lock with the drift branch held. Then (v0.1.17), the same way, with six lobbies open: the
+list dragged with a finger and scrolled without joining anything, a row tapped and its lobby
+joined, `history.back()` opening the leaving question and STAY putting the step back, LEAVE
+taking it out, the car driven from the cross, the page's WebSockets closed and the game back in
+its lobby in 0.6 s, the safe area read through `env()` from insets set by
+`Emulation.setSafeAreaInsetsOverride`, and a spectator's two buttons switching the car watched.
+Not checked: full screen itself, which a headless browser refuses, the vibration, the wake lock,
+sound starting on a phone, and a real phone. Under emulation `devicePixelContentBoxSize` comes back
 in CSS pixels rather than device pixels, so the canvas is sized as if the density were 1 while
 winit reads the density from `devicePixelRatio`: the interface comes out 2.6 times too large. It
 is the emulation, not the game -- a real phone reports device pixels -- so layouts are checked
@@ -191,7 +225,8 @@ and driving a lap shows three console lines, all three the audio notice below.
   real GPU.
 - **The one line left in the console.** Chrome logs `The AudioContext was not allowed to start`,
   three times, as the page loads. It is its autoplay policy: a page may not open an audio context
-  before someone has clicked in it, and Bevy opens one as it starts. The context resumes by itself
-  at the first click and the sound then works, so the line is a notice and not a fault. Removing
+  before someone has clicked in it, and Bevy opens one as it starts. The page resumes it at the
+  first touch, click or key (see [On a phone](#on-a-phone)) and the sound then works, so the line
+  is a notice and not a fault. Removing
   it would mean not building `AudioPlugin` until a gesture, which Bevy cannot do after startup --
   the game would have to ship without sound in the browser. Left as it is, deliberately.

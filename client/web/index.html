@@ -21,18 +21,41 @@
   <meta name="apple-mobile-web-app-title" content="Space Race">
   <meta name="theme-color" content="#000000">
   <style>
-    /* The game canvas fills the page (Window::fit_canvas_to_parent). */
-    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+    /* The game canvas fills the page (Window::fit_canvas_to_parent). The page is as high as what
+       the browser shows of it, its bars included or not as they come and go (`dvh`): on a phone,
+       100% can be the height with the bars hidden, which put the bottom of the game, and the
+       thumbs' controls with it, under the browser's own toolbar. */
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background: #000;
+    }
     canvas { display: block; outline: none; }
-    /* A finger on the game steers it; it never scrolls, zooms, selects or flashes a tap
-       highlight. `touch-action: none` is what makes a thumb sliding across the cross reach the
-       game as one gesture instead of being taken for a scroll. */
+    /* A finger on the game steers it; it never scrolls, zooms, selects, opens a menu on a long
+       press or flashes a tap highlight. `touch-action: none` is what makes a thumb sliding
+       across the cross reach the game as one gesture instead of being taken for a scroll. */
     body {
       touch-action: none;
       overscroll-behavior: none;
       -webkit-user-select: none;
       user-select: none;
+      -webkit-touch-callout: none;
       -webkit-tap-highlight-color: transparent;
+    }
+
+    /* What a phone's notch, rounded corners and home bar take from the screen, as padding the
+       game reads back (client/src/ui/safe_area.rs): CSS can say it, and nothing else can. */
+    #safe-area {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      visibility: hidden;
+      pointer-events: none;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+               env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     }
 
     /* Until the game runs smoothly: the module downloading, compiling, then the browser
@@ -105,8 +128,58 @@
     <span>Loading. The first visit takes a while: the game is getting its graphics ready.</span>
   </div>
   <div id="turn">TURN YOUR PHONE<span>Space Race is played in landscape.</span></div>
+  <div id="safe-area"></div>
   <script type="module">
     import init from "./space-race-client.js";
+
+    // Sound. A browser lets a page play sound only once someone has touched it, and the game
+    // opens its audio context as it starts, before anyone has: the context waits, suspended.
+    // Chrome starts it by itself at the first click; Safari never does, and a phone stayed
+    // silent. So every context the game opens is kept, and each touch, click or key starts any
+    // that is not running -- the first one, and again after a call or another app took the
+    // sound away.
+    const contexts = [];
+    const Context = window.AudioContext || window.webkitAudioContext;
+    if (Context) {
+      const Kept = class extends Context {
+        constructor(...args) {
+          super(...args);
+          contexts.push(this);
+        }
+      };
+      window.AudioContext = Kept;
+      if (window.webkitAudioContext) window.webkitAudioContext = Kept;
+    }
+    const startSound = () => {
+      for (const context of contexts) {
+        if (context.state !== "running") context.resume().catch(() => {});
+      }
+    };
+    for (const type of ["pointerup", "touchend", "click", "keydown"]) {
+      document.addEventListener(type, startSound, { capture: true, passive: true });
+    }
+
+    // The screen stays on while the game is in view on a phone: between races, waiting for
+    // players or watching one, nobody touches it, and it went dark. The browser lets go of the
+    // lock whenever the page is hidden, so it is taken again each time it comes back.
+    const phone = matchMedia("(pointer: coarse)").matches;
+    let awake = null;
+    const keepAwake = async () => {
+      if (!phone || awake || !navigator.wakeLock || document.visibilityState !== "visible") return;
+      awake = navigator.wakeLock.request("screen").then(
+        (lock) => lock.addEventListener("release", () => { awake = null; }),
+        () => { awake = null; },
+      );
+    };
+    document.addEventListener("visibilitychange", keepAwake);
+    document.addEventListener("pointerup", keepAwake, { passive: true });
+    keepAwake();
+
+    // Safari ignores the viewport's `user-scalable=no`; `touch-action` stops a pinch from zooming
+    // the page, and these stop the gesture events it sends besides.
+    for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+      document.addEventListener(type, (event) => event.preventDefault());
+    }
 
     // The loading screen goes once the game has drawn a second's worth of frames in a row,
     // none of them held: before that it is downloading, compiling, or compiling its shaders.

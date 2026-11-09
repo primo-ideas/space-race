@@ -179,7 +179,10 @@ just signed the challenge, so it is the player: the registry hands it the old on
 rank in the list), and signals the old one through a `oneshot` it holds. The old one, browsing or
 racing, takes its car out of its lobby, sends `Rejected(AlreadyConnected)` in case its client is
 still there to show it, and closes. Each guard carries the number of its own connection, so a
-replaced one cannot move or remove its successor as it goes.
+replaced one cannot move or remove its successor as it goes. The client, for its part, connects
+again on its own when it loses the server and goes back into its lobby, but never after a
+rejection: the replaced window says another one took over and stays put (see
+[Architecture](architecture.md#client-networking)).
 
 ## Car tuning
 

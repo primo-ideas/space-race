@@ -83,6 +83,24 @@ pub struct RaceView {
 #[derive(Resource, Default)]
 pub struct Spectated(pub Option<CarId>);
 
+impl Spectated {
+    /// Watches the car `step` places behind the one watched now, in race order, wrapping around:
+    /// 1 is the car behind, -1 the car ahead. Nothing while there is no car to watch.
+    pub fn step(&mut self, view: &RaceView, step: i32) {
+        if view.cars.is_empty() {
+            return;
+        }
+        let mut order: Vec<_> = view.cars.iter().collect();
+        order.sort_by(|a, b| b.progress.total_cmp(&a.progress));
+        let current = view
+            .followed
+            .and_then(|(id, _)| order.iter().position(|car| car.id == id))
+            .unwrap_or(0);
+        let next = (current as i32 + step).rem_euclid(order.len() as i32) as usize;
+        self.0 = Some(order[next].id);
+    }
+}
+
 /// A car as drawn: placed on the road here, its body riding on springs over that place (see
 /// weight.rs).
 #[derive(Component)]
@@ -168,16 +186,8 @@ fn choose_spectated(
     } else {
         return;
     };
-
     // In race order, so right goes to the car behind.
-    let mut order: Vec<_> = view.cars.iter().collect();
-    order.sort_by(|a, b| b.progress.total_cmp(&a.progress));
-    let current = view
-        .followed
-        .and_then(|(id, _)| order.iter().position(|car| car.id == id))
-        .unwrap_or(0);
-    let next = (current as i32 + step).rem_euclid(order.len() as i32) as usize;
-    spectated.0 = Some(order[next].id);
+    spectated.step(&view, step);
 }
 
 fn display_cars(

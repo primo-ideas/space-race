@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use space_race_protocol::{
-    CarId, ClientMessage, JoinError, LobbyPlayer, LobbySettings, LobbyState, LobbySummary,
+    CarId, ClientMessage, JoinError, LobbyId, LobbyPlayer, LobbySettings, LobbyState, LobbySummary,
     OnlinePlayer, PlayerStatus,
 };
 use space_race_sim::track::{Track, TrackDescription};
@@ -79,6 +79,8 @@ pub struct OnlinePlayers(pub Vec<OnlinePlayer>);
 pub struct CurrentLobby(pub Option<Membership>);
 
 pub struct Membership {
+    /// Which lobby it is.
+    pub lobby: LobbyId,
     /// The player's own car id, whether or not they have a car right now.
     pub car: CarId,
     pub settings: LobbySettings,
@@ -186,9 +188,14 @@ fn receive_lobby_events(
                 };
             }
             NetEvent::Players(players) => online.0 = players.clone(),
-            NetEvent::JoinedLobby { car, settings, .. } => {
+            NetEvent::JoinedLobby {
+                lobby,
+                car,
+                settings,
+            } => {
                 *buffer = SnapshotBuffer::default();
                 current.0 = Some(Membership {
+                    lobby: *lobby,
                     car: *car,
                     settings: settings.clone(),
                     state: None,
