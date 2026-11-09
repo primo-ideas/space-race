@@ -168,6 +168,8 @@ changes beyond sizes:
   first touch layout dropped the panel and kept that, so a phone could select a lobby and never
   enter it. The players connected to the server stay under the list, on one row, and the line
   under it only exists while there is a notice to read: three rows of lobbies fit instead of two.
+  In the header, CREATE LOBBY is just CREATE, under a title that already says what is being
+  created, the buttons keep their one line, and it is a long nickname that gives way, cut off.
 - **Lists scroll under a finger**, the content following it and stopping at either end, as a
   phone's own lists do (`scroll_on_drag`): whichever ancestor of what the finger touched scrolls
   vertically moves by the finger's travel, divided by the interface's scale. A finger that slid
@@ -241,6 +243,8 @@ Worth knowing before changing the interface:
   at least, unless told otherwise: the lobby list's panel grew with its rows and pushed everything
   under it off the screen, and the list inside it never overflowed. Every box between the screen
   and the list needs `min_height: px(0)`, and those that share what is left a `flex_basis` of 0.
+- **A node clips its children, not its own text.** To cut a long text off, put it in a box with
+  `overflow: clip` and `min_width: px(0)`, and give the text `TextLayout::no_wrap()`.
 - **A full-screen root stands in front of other roots unless it is `Pickable::IGNORE`**, even
   with nothing drawn on it: the HUD's root swallowed the touches meant for the spectator's
   buttons, which are in a root of their own, and which root comes first depends on the order

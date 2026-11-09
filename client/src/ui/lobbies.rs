@@ -231,11 +231,15 @@ fn spawn_browser(
                     ..default()
                 });
                 if full_screen_wanted(*touchscreen) {
-                    header.spawn((
-                        FullScreenButton,
-                        button(&fonts, ButtonKind::Quiet, "FULL SCREEN"),
-                    ));
+                    header
+                        .spawn((
+                            FullScreenButton,
+                            button(&fonts, ButtonKind::Quiet, "FULL SCREEN"),
+                        ))
+                        .insert(unshrinking_button());
                 }
+                // When the header is short of room, as on a phone with a long nickname, the
+                // nickname gives way and is cut off: the buttons keep their one line.
                 header
                     .spawn((
                         Node {
@@ -243,6 +247,7 @@ fn spawn_browser(
                             column_gap: px(8),
                             padding: UiRect::axes(px(12), px(6)),
                             border_radius: BorderRadius::MAX,
+                            min_width: px(0),
                             ..default()
                         },
                         BackgroundColor(theme::SURFACE),
@@ -252,19 +257,29 @@ fn spawn_browser(
                             Node {
                                 width: px(8),
                                 height: px(8),
+                                flex_shrink: 0.0,
                                 border_radius: BorderRadius::MAX,
                                 ..default()
                             },
                             BackgroundColor(theme::OWN),
                         ));
-                        chip.spawn((
+                        // In a box of its own, which does the cutting: a node clips its children,
+                        // not its own text.
+                        chip.spawn(Node {
+                            min_width: px(0),
+                            overflow: Overflow::clip(),
+                            ..default()
+                        })
+                        .with_child((
                             Text::new(nickname),
                             fonts.text(16.0, 600),
                             TextColor(theme::TEXT),
+                            TextLayout::no_wrap(),
                         ));
                         chip.spawn(button(&fonts, ButtonKind::Quiet, "CHANGE"))
                             .insert(Node {
                                 padding: UiRect::axes(px(8), px(2)),
+                                flex_shrink: 0.0,
                                 // Centered, for a touchscreen makes it a thumb high.
                                 justify_content: JustifyContent::Center,
                                 align_items: AlignItems::Center,
@@ -274,11 +289,11 @@ fn spawn_browser(
                             })
                             .observe(change_nickname);
                     });
+                // On a phone the screen's title already says what is being created.
+                let create = touchscreen.pick("+  CREATE LOBBY", "+  CREATE");
                 header
-                    .spawn((
-                        CreateButton,
-                        button(&fonts, ButtonKind::Primary, "+  CREATE LOBBY"),
-                    ))
+                    .spawn((CreateButton, button(&fonts, ButtonKind::Primary, create)))
+                    .insert(unshrinking_button())
                     .observe(open_create_dialog);
             });
 
@@ -570,6 +585,20 @@ fn spawn_browser(
                 ));
             });
         });
+}
+
+/// A button's usual layout, except that it keeps its width when its row is short of room, rather
+/// than wrapping its label onto a second line.
+fn unshrinking_button() -> Node {
+    Node {
+        padding: UiRect::axes(px(20), px(9)),
+        flex_shrink: 0.0,
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        border: px(1.5).all(),
+        border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
+        ..default()
+    }
 }
 
 fn spawn_row(commands: &mut Commands, fonts: &Fonts, id: LobbyId) -> Entity {
