@@ -7,24 +7,34 @@ no extra crate.
 ## Screens
 
 ```text
-Login ──connected──▶ Lobbies ──entered a lobby──▶ Lobby (race view and HUD)
+        ┌────── quick play, a ranked match ──────┐
+        │                                        ▼
+      Login ──browse lobbies──▶ Lobbies ──join──▶ Lobby (race view and HUD)
 ```
 
-`screen::Screen` is a Bevy state. The server's answers move the player forward (`Welcome`,
-`JoinedLobby`), any disconnection or rejection goes back to the login screen, which says why, and
-the player's own actions go back (leaving a lobby, changing nickname). Each screen's entities
-despawn when it is left.
+`screen::Screen` is a Bevy state. The first screen is the hub: everything starts from it and
+ends back on it, still connected, a player who left a lobby going back to the menu they came from
+(`AfterLobby`). A button pressed there says what the player wants (`Intent`), which is carried out
+once connected, at once if they already are. `JoinedLobby` moves them into a lobby, any
+disconnection or rejection goes back to the first screen, which says why, and so does the end of a
+ranked match. Each screen's entities despawn when it is left.
 
-- **Login** (`login.rs`): the title, and a nickname field already filled in, with the nickname last
-  played under or a generated one. Playing is one press away, even with a gamepad, which cannot
-  type. The dice button rolls another nickname. The last nickname is saved next to the identity key
-  when the player connects. Under the card, QUIT closes the game: the window's close button does
-  the same, but a gamepad cannot reach it. It has no shortcut, Escape and B being "back" on every
-  other screen, where pressing them once too often must not close the game; and the web has no
-  such button, since a page cannot close the tab it is in.
+- **Login** (`login.rs`): the title, a nickname field already filled in, with the nickname last
+  played under or a generated one, and the two ways into a race as big as the screen allows:
+  **QUICK PLAY**, and **QUEUE FOR RANKED** under it with where the player stands on the ladder
+  (see [Quick play and ranked](ranked.md)). A race is one press away from the moment the game
+  opens, even with a gamepad, which cannot type; Enter in the field is quick play. While queued,
+  the ranked button counts the time and cancels. The dice button rolls another nickname. The last
+  nickname is saved next to the identity key when the player presses a button. Under the card:
+  BROWSE LOBBIES, LEADERBOARD (a dialog with the ten best, `leaderboard.rs`) and QUIT, which closes
+  the game: the window's close button does the same, but a gamepad cannot reach it. QUIT has no
+  shortcut, Escape and B being "back" on every other screen, where pressing them once too often
+  must not close the game; and the web has no such button, since a page cannot close the tab it is
+  in.
 - **Lobbies** (`lobbies.rs`): every lobby, live, with its track, players and a status badge; the
   focused lobby's details beside the list (track thumbnail, what joining means right now, who is
-  in). A header shows the player's nickname and the button to create a lobby. Under the list,
+  in). A header shows the player's nickname, HOME back to the first screen, and the button to
+  create a lobby. Under the list,
   everyone connected to the server, as a chip each: a dot in the color of where they are, their
   name (the player's own in orange), and the lobby they are in or "on the list". It is the one
   place that shows a player who is in no lobby, and its caption counts them all, including those
@@ -102,7 +112,7 @@ Every screen works with the mouse, the keyboard and a gamepad (`navigation.rs`):
 | Change a stepper | left / right | D-pad, left stick |
 | Activate | Enter | A |
 | Back, cancel | Escape | B |
-| Other nickname (login) | F2 | Y |
+| Other nickname (first screen) | F2 | Y |
 | Create a lobby (lobbies) | C | Y |
 | Leave the lobby (race) | Escape | Start |
 
@@ -265,6 +275,8 @@ ready (see [Architecture](architecture.md#testing)):
 | none | the login screen |
 | `--nickname N` | the lobby list, once received |
 | `--nickname N --create-dialog` | the creation dialog |
+| `--nickname N --quick-play` | the lobby quick play puts the player in |
+| `--nickname N --ranked` | the ranked match, once the queue has found one |
 | `--nickname N --lobby L` | the lobby, once its state and a car are displayed |
 
 `--touch --window-size 844x390` shows any of them as a phone held in landscape does, which is how

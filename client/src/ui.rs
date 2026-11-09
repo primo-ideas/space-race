@@ -5,6 +5,7 @@ mod back;
 mod backdrop;
 mod create_lobby;
 pub mod hud;
+pub mod leaderboard;
 mod lobbies;
 mod login;
 mod navigation;
@@ -45,6 +46,7 @@ impl Plugin for UiPlugin {
             hud::HudPlugin,
             touch::TouchPlugin,
             back::BackPlugin,
+            leaderboard::LeaderboardPlugin,
         ))
         .add_systems(PreUpdate, scale_to_window);
     }

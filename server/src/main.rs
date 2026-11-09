@@ -1,6 +1,8 @@
 mod content;
 mod directory;
 mod lobby;
+mod matchmaking;
+mod ranking;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -22,6 +24,7 @@ use tracing::{Instrument, info, info_span, warn};
 use crate::content::CarTuningFile;
 use crate::directory::Directory;
 use crate::lobby::Timings;
+use crate::ranking::Ratings;
 
 #[derive(Parser)]
 struct Args {
@@ -32,6 +35,10 @@ struct Args {
     /// game on the default one (see docs/deploy.md).
     #[arg(long, default_value_t = DEFAULT_PORT)]
     port: u16,
+    /// Where the ranked ladder is kept. Outside the data directory, which a deployment replaces:
+    /// relative to the working directory, the service's home on the deployment machine.
+    #[arg(long, default_value = "ratings.ron")]
+    ratings: PathBuf,
 }
 
 /// Plain text and loopback only: in production, the reverse proxy terminates TLS and forwards here.
@@ -56,7 +63,13 @@ async fn main() -> Result<()> {
     }
     let (tuning_file, tuning) =
         CarTuningFile::load(args.data_dir.join(content::CAR_TUNING_FILE), &tracks)?;
-    let directory = Directory::spawn(tracks, tuning_file.watch(tuning), Timings::default());
+    let ratings = Ratings::load(args.ratings)?;
+    let directory = Directory::spawn(
+        tracks,
+        tuning_file.watch(tuning),
+        Timings::default(),
+        ratings,
+    );
 
     let listener = TcpListener::bind(listen_addr(args.port)).await?;
     info!(addr = %listener.local_addr()?, path = WS_PATH, "server listening");

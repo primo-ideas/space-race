@@ -60,6 +60,8 @@ With no command line, the web client reads its settings from the page address:
 | `track=…` | `--track` | the skyway |
 | `laps=…`, `min_players=…` | `--laps`, `--min-players` | 3, 2 |
 | `create_dialog` | `--create-dialog` | off |
+| `quick_play` | `--quick-play` | off; with `nickname`, straight into a race |
+| `ranked` | `--ranked` | off; with `nickname`, straight into the ranked queue |
 | `identity=…` | `--identity` | the browser's main identity |
 | `autopilot` | `--autopilot` | off |
 | `autopilot_drift` | `--autopilot-drift` | off |

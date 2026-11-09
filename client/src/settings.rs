@@ -1,6 +1,6 @@
 //! What the client is asked to do: from the command line on native, from the page address on the
 //! web (`?server=ws://…&nickname=…&lobby=…&track=…&identity=…&volume=…&autopilot`,
-//! `&autopilot_drift`, `&touch`, `&safe_area=…` or `&latency`).
+//! `&autopilot_drift`, `&quick_play`, `&ranked`, `&touch`, `&safe_area=…` or `&latency`).
 //!
 //! Without a nickname the game opens on the login screen. The other options skip screens, so the
 //! game can reach a lobby and drive with nobody at the keyboard.
@@ -48,6 +48,10 @@ pub struct Script {
     pub lobby: Option<ScriptedLobby>,
     /// Once connected, open the lobby creation dialog.
     pub create_dialog: bool,
+    /// Once connected, go straight into a race, as the QUICK PLAY button does.
+    pub quick_play: bool,
+    /// Once connected, enter the ranked queue, as the QUEUE FOR RANKED button does.
+    pub ranked: bool,
     /// Let the autopilot drive, in this style.
     pub autopilot: Option<Style>,
 }
@@ -128,6 +132,14 @@ pub fn read() -> Settings {
         #[arg(long, requires = "nickname", conflicts_with = "lobby")]
         create_dialog: bool,
 
+        /// With --nickname, go straight into a race, as the QUICK PLAY button does.
+        #[arg(long, requires = "nickname", conflicts_with_all = ["lobby", "create_dialog"])]
+        quick_play: bool,
+
+        /// With --nickname, enter the ranked queue, as the QUEUE FOR RANKED button does.
+        #[arg(long, requires = "nickname", conflicts_with_all = ["lobby", "create_dialog", "quick_play"])]
+        ranked: bool,
+
         /// Player identity directory. Useful to run several clients on the same machine.
         #[arg(long)]
         identity: Option<PathBuf>,
@@ -199,6 +211,8 @@ pub fn read() -> Settings {
                 min_players: args.min_players,
             }),
             create_dialog: args.create_dialog,
+            quick_play: args.quick_play,
+            ranked: args.ranked,
             autopilot: autopilot_style(args.autopilot, args.autopilot_drift),
         },
         touch: args.touch,
@@ -250,6 +264,8 @@ pub fn read() -> Settings {
                 min_players: number(get("min_players"), DEFAULT_MIN_PLAYERS),
             }),
             create_dialog: has("create_dialog"),
+            quick_play: has("quick_play"),
+            ranked: has("ranked"),
             autopilot: autopilot_style(has("autopilot"), has("autopilot_drift")),
         },
         touch: has("touch") || touchscreen(),

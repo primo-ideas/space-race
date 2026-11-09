@@ -9,14 +9,16 @@ use std::fmt;
 use bitcode::{Decode, DecodeOwned, Encode};
 
 use crate::auth::{Nonce, PublicKey, SignatureBytes};
+use crate::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
 use space_race_sim::car::{Car, CarInput, CarTuning};
 use space_race_sim::race::StartGrade;
 use space_race_sim::track::TrackDescription;
 
 pub mod auth;
+pub mod ranked;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 21;
+pub const PROTOCOL_VERSION: u32 = 22;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -55,6 +57,14 @@ pub enum ClientMessage {
     CreateLobby(LobbySettings),
     /// Only while browsing lobbies.
     JoinLobby(LobbyId),
+    /// Puts the player in the lobby that will race soonest, or opens one. Only while browsing
+    /// lobbies.
+    QuickPlay,
+    /// Enters the ranked queue. The server pulls the player into a match when it has one for
+    /// them. Only while browsing lobbies; entering a lobby leaves the queue.
+    QueueRanked,
+    /// Leaves the ranked queue.
+    LeaveQueue,
     /// Back to browsing lobbies. Only while in a lobby.
     LeaveLobby,
     /// What the player presses now. Sent only when it changes: the connection is reliable, so the
@@ -102,6 +112,17 @@ pub enum ServerMessage {
     JoinFailed(JoinError),
     /// The phase and players of the lobby. Sent on entering it and whenever they change.
     Lobby(LobbyState),
+    /// The lobby closed around the player, as a ranked match does once its results have shown. The
+    /// player browses lobbies again.
+    LobbyEnded,
+    /// Where the player stands on the ladder. Sent after [`ServerMessage::Welcome`], and each
+    /// time they come back from a lobby.
+    Profile(RankedProfile),
+    /// The best players, best first. Sent to a browsing player when they arrive and whenever it
+    /// changes.
+    Leaderboard(Vec<LeaderboardEntry>),
+    /// Where the ranked queue stands while the player is in it, `None` once they are out of it.
+    Queue(Option<QueueStatus>),
     /// Every car of the lobby, once per simulation tick.
     Snapshot(Snapshot),
     /// The answer to [`ClientMessage::Ping`], sent as soon as the ping arrives.
@@ -214,6 +235,9 @@ pub enum Presence {
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub struct LobbyState {
     pub phase: LobbyPhase,
+    /// A ranked match: one race for rating, among the players the matchmaker put in it. Nobody
+    /// else can join, leaving counts as coming last, and the lobby closes after the results.
+    pub ranked: bool,
     /// In the order they joined.
     pub players: Vec<LobbyPlayer>,
     /// The car tuning the lobby drives with, which the client predicts the player's car with.
@@ -223,8 +247,9 @@ pub struct LobbyState {
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum LobbyPhase {
-    /// Fewer players than the lobby needs: everyone drives freely.
-    Waiting,
+    /// Fewer players than the lobby needs: everyone drives freely. A lobby opened by quick play
+    /// does not wait forever: at `solo_tick` it races with whoever is there.
+    Waiting { solo_tick: Option<u32> },
     /// The cars were lined up on the grid as soon as the lobby had enough players, and stand
     /// still until `start_tick`, the start. Players joining before it race too.
     Racing { start_tick: u32 },
@@ -234,7 +259,17 @@ pub enum LobbyPhase {
         /// Best first. Players who left before finishing are not listed.
         results: Vec<RaceResult>,
         end_tick: u32,
+        /// In a ranked match, what the race did to each rating. Empty otherwise.
+        ratings: Vec<RatingChange>,
     },
+}
+
+/// What a ranked race did to a player's rating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
+pub struct RatingChange {
+    pub car: CarId,
+    pub before: i32,
+    pub after: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
@@ -244,6 +279,8 @@ pub struct LobbyPlayer {
     pub status: PlayerStatus,
     /// How well the player started the current or last race, once graded.
     pub start: Option<StartGrade>,
+    /// Their rating, in a ranked match.
+    pub rating: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -441,12 +478,19 @@ mod tests {
                     time_ms: Some(61_250),
                 }],
                 end_tick: 9000,
+                ratings: vec![RatingChange {
+                    car: CarId(2),
+                    before: 1000,
+                    after: 1024,
+                }],
             },
+            ranked: true,
             players: vec![LobbyPlayer {
                 car: CarId(2),
                 nickname: "Zoë".into(),
                 status: PlayerStatus::Finished { time_ms: 61_250 },
                 start: Some(StartGrade::A),
+                rating: Some(1000),
             }],
             // The server's own tuning: every field of it crosses the wire.
             tuning: ron::from_str::<CarTuning>(include_str!("../../server/data/car.ron")).unwrap(),
@@ -482,10 +526,39 @@ mod tests {
             seq: 42,
         };
 
-        for message in [welcome, lobby, snapshot, ServerMessage::Pong(7)] {
+        let profile = ServerMessage::Profile(RankedProfile {
+            rating: 1024,
+            games: 3,
+            wins: 1,
+            place: Some(12),
+        });
+        let leaderboard = ServerMessage::Leaderboard(vec![LeaderboardEntry {
+            place: 1,
+            nickname: "Zoë".into(),
+            rating: 1650,
+            games: 41,
+        }]);
+        let queue = ServerMessage::Queue(Some(QueueStatus { players: 3 }));
+
+        for message in [
+            welcome,
+            lobby,
+            snapshot,
+            ServerMessage::Pong(7),
+            ServerMessage::LobbyEnded,
+            profile,
+            leaderboard,
+            queue,
+        ] {
             assert_eq!(decode::<ServerMessage>(&encode(&message)).unwrap(), message);
         }
-        for message in [input, ClientMessage::Ping(7)] {
+        for message in [
+            input,
+            ClientMessage::Ping(7),
+            ClientMessage::QuickPlay,
+            ClientMessage::QueueRanked,
+            ClientMessage::LeaveQueue,
+        ] {
             assert_eq!(decode::<ClientMessage>(&encode(&message)).unwrap(), message);
         }
     }

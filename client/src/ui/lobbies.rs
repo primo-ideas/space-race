@@ -25,7 +25,7 @@ use super::widgets::{
 };
 use crate::lobby::{LobbyList, Notice, OnlinePlayers, Tracks};
 use crate::net::{Connection, NetEvent, Network};
-use crate::screen::Screen;
+use crate::screen::{AfterLobby, Screen};
 
 const TRACK_COLUMN: f32 = 150.0;
 const PLAYERS_COLUMN: f32 = 80.0;
@@ -160,7 +160,9 @@ fn spawn_browser(
     mut selected: ResMut<Selected>,
     mut joining: ResMut<Joining>,
     mut focus: ResMut<InputFocus>,
+    mut after: ResMut<AfterLobby>,
 ) {
+    after.0 = Screen::Lobbies;
     // A phone has no room beside the list for the details of one lobby, and no need of them: a
     // row says the track, the players and what the lobby is doing, and tapping it joins.
     let pick = |desk: f32, phone: f32| touchscreen.pick(desk, phone);
@@ -276,7 +278,7 @@ fn spawn_browser(
                             TextColor(theme::TEXT),
                             TextLayout::no_wrap(),
                         ));
-                        chip.spawn(button(&fonts, ButtonKind::Quiet, "CHANGE"))
+                        chip.spawn(button(&fonts, ButtonKind::Quiet, "HOME"))
                             .insert(Node {
                                 padding: UiRect::axes(px(8), px(2)),
                                 flex_shrink: 0.0,
@@ -287,7 +289,7 @@ fn spawn_browser(
                                 border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
                                 ..default()
                             })
-                            .observe(change_nickname);
+                            .observe(go_home);
                     });
                 // On a phone the screen's title already says what is being created.
                 let create = touchscreen.pick("+  CREATE LOBBY", "+  CREATE");
@@ -580,7 +582,7 @@ fn spawn_browser(
                         hint(&fonts, "↑ ↓", "D-pad", "Select"),
                         hint(&fonts, "Enter", "A", "Join"),
                         hint(&fonts, "C", "Y", "Create"),
-                        hint(&fonts, "Esc", "B", "Change nickname"),
+                        hint(&fonts, "Esc", "B", "Home"),
                     ],
                 ));
             });
@@ -1163,8 +1165,6 @@ fn shortcuts(
     dialog: Res<CreateDialog>,
     create: Query<Entity, With<CreateButton>>,
     mut commands: Commands,
-    mut network: ResMut<Network>,
-    mut connection: ResMut<Connection>,
     mut next_screen: ResMut<NextState<Screen>>,
 ) {
     if dialog.open {
@@ -1175,7 +1175,6 @@ fn shortcuts(
             commands.trigger(Activate { entity });
         }
     } else if input.back() {
-        network.disconnect(&mut connection);
         next_screen.set(Screen::Login);
     }
 }
@@ -1230,13 +1229,8 @@ fn request_join(
     joining.0 = true;
 }
 
-fn change_nickname(
-    _: On<Activate>,
-    mut network: ResMut<Network>,
-    mut connection: ResMut<Connection>,
-    mut next_screen: ResMut<NextState<Screen>>,
-) {
-    network.disconnect(&mut connection);
+/// Back to the first screen, still connected.
+fn go_home(_: On<Activate>, mut next_screen: ResMut<NextState<Screen>>) {
     next_screen.set(Screen::Login);
 }
 

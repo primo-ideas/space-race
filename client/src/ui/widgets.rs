@@ -63,6 +63,8 @@ pub enum ButtonKind {
     Secondary,
     /// Minor actions, text only until hovered.
     Quiet,
+    /// The way into ranked: as prominent as the main action, and not to be mistaken for it.
+    Ranked,
 }
 
 /// The text of a button, styled with it.
@@ -71,9 +73,19 @@ pub struct ButtonLabel;
 
 pub fn button(fonts: &Fonts, kind: ButtonKind, label: impl Into<String>) -> impl Bundle {
     let size = match kind {
-        ButtonKind::Primary => 18.0,
+        ButtonKind::Primary | ButtonKind::Ranked => 18.0,
         ButtonKind::Secondary | ButtonKind::Quiet => 15.0,
     };
+    button_of_size(fonts, kind, label, size)
+}
+
+/// A button whose label is this big.
+pub fn button_of_size(
+    fonts: &Fonts,
+    kind: ButtonKind,
+    label: impl Into<String>,
+    size: f32,
+) -> impl Bundle {
     (
         Node {
             padding: UiRect::axes(px(20), px(9)),
@@ -144,6 +156,24 @@ fn style_buttons(
                     Color::srgb(0.35, 0.78, 1.0)
                 } else {
                     theme::NEON
+                };
+                let edge = if focused { theme::TEXT } else { fill };
+                let text = if disabled {
+                    theme::TEXT_ON_NEON.with_alpha(0.5)
+                } else {
+                    theme::TEXT_ON_NEON
+                };
+                (fill, edge, text)
+            }
+            ButtonKind::Ranked => {
+                let fill = if disabled {
+                    theme::MAGENTA.with_alpha(0.22)
+                } else if pressed {
+                    Color::srgb(0.65, 0.12, 0.38)
+                } else if hovered || focused {
+                    Color::srgb(1.0, 0.45, 0.7)
+                } else {
+                    theme::MAGENTA
                 };
                 let edge = if focused { theme::TEXT } else { fill };
                 let text = if disabled {

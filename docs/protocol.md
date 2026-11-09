@@ -88,6 +88,23 @@ Client                                        Server
   no server clock while browsing. The server keeps deadlines and converts them at sending time.
 - **Creating a lobby enters it**, as its first player.
 
+`QuickPlay`, `QueueRanked` and `LeaveQueue` are the other ways out of browsing, and
+`Profile`, `Leaderboard` and `Queue` what the player is told about the ladder and the queue (see
+[Quick play and ranked](ranked.md)):
+
+```
+Client                                        Server
+  |<---------------- Profile(standing) ----------|  after Welcome, and on coming back from a lobby
+  |<---------------- Leaderboard(best) ----------|  on arriving, and whenever it changes
+  |-- QuickPlay ------------------------------->|
+  |<------ JoinedLobby { lobby, car, settings } -|  the soonest race, or a new lobby
+  |-- QueueRanked ----------------------------->|
+  |<---------------- Queue(Some(status)) --------|  on entering it, and whenever its size changes
+  |<------ JoinedLobby { lobby, car, settings } -|  when a match is found
+  |<---------------- Lobby(state) ---------------|  `ranked`, then `Results { ratings, .. }`
+  |<---------------- LobbyEnded -----------------|  the match is over: browsing again
+```
+
 ## In a lobby
 
 ```

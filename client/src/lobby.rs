@@ -5,15 +5,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
+use space_race_protocol::ranked::{LeaderboardEntry, RankedProfile};
 use space_race_protocol::{
-    CarId, ClientMessage, JoinError, LobbyId, LobbyPlayer, LobbySettings, LobbyState, LobbySummary,
-    OnlinePlayer, PlayerStatus,
+    CarId, ClientMessage, JoinError, LobbyId, LobbyPhase, LobbyPlayer, LobbySettings, LobbyState,
+    LobbySummary, OnlinePlayer, PlayerStatus, RatingChange,
 };
 use space_race_sim::track::{Track, TrackDescription};
 
 use crate::net::{Connection, NetEvent, Network};
 use crate::race::SnapshotBuffer;
-use crate::screen::Screen;
+use crate::screen::{AfterLobby, Screen};
 use crate::settings::Script;
 use crate::ui::thumbnail;
 
@@ -25,6 +26,7 @@ impl Plugin for LobbyPlugin {
             .init_resource::<LobbyList>()
             .init_resource::<OnlinePlayers>()
             .init_resource::<CurrentLobby>()
+            .init_resource::<Ladder>()
             .init_resource::<Notice>()
             .add_systems(
                 PreUpdate,
@@ -102,7 +104,28 @@ impl Membership {
     }
 }
 
-/// A short message for the player, shown on the lobby list, such as why joining failed.
+/// Where the player stands in ranked, as last heard from the server.
+#[derive(Resource, Default)]
+pub struct Ladder {
+    /// Their standing. `None` until they have connected once; kept across connections.
+    pub profile: Option<RankedProfile>,
+    pub leaderboard: Vec<LeaderboardEntry>,
+    /// Their place in the queue, if they are in it.
+    pub queue: Option<Queueing>,
+    /// What their last ranked race did to their rating, until they queue again.
+    pub last_change: Option<RatingChange>,
+}
+
+/// A player in the ranked queue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Queueing {
+    /// Everyone in the queue, the player included.
+    pub players: u16,
+    /// Real time they entered it, in seconds.
+    pub since: f64,
+}
+
+/// A short message for the player, shown on the menus, such as why joining failed.
 #[derive(Resource, Default)]
 pub struct Notice(pub Option<(String, f64)>);
 
@@ -131,15 +154,16 @@ pub fn join_error_text(error: JoinError) -> &'static str {
     }
 }
 
-/// Leaves the current lobby and goes back to the list.
+/// Leaves the current lobby and goes back to the menu the player came from.
 pub fn leave_lobby(
     network: &Network,
     current: &mut CurrentLobby,
+    after: &AfterLobby,
     next_screen: &mut NextState<Screen>,
 ) {
     network.send(ClientMessage::LeaveLobby);
     current.0 = None;
-    next_screen.set(Screen::Lobbies);
+    next_screen.set(after.0);
 }
 
 fn receive_lobby_events(
@@ -149,6 +173,7 @@ fn receive_lobby_events(
     mut online: ResMut<OnlinePlayers>,
     mut current: ResMut<CurrentLobby>,
     mut notice: ResMut<Notice>,
+    mut ladder: ResMut<Ladder>,
     mut buffer: ResMut<SnapshotBuffer>,
     mut images: ResMut<Assets<Image>>,
     time: Res<Time<Real>>,
@@ -179,6 +204,7 @@ fn receive_lobby_events(
                 *list = LobbyList::default();
                 online.0.clear();
                 current.0 = None;
+                ladder.queue = None;
             }
             NetEvent::Lobbies(lobbies) => {
                 *list = LobbyList {
@@ -194,6 +220,7 @@ fn receive_lobby_events(
                 settings,
             } => {
                 *buffer = SnapshotBuffer::default();
+                ladder.queue = None;
                 current.0 = Some(Membership {
                     lobby: *lobby,
                     car: *car,
@@ -206,12 +233,32 @@ fn receive_lobby_events(
                 // Ignored once the player has left: the server may have sent it just before.
                 if let Some(membership) = &mut current.0 {
                     membership.state = Some(state.clone());
+                    if let LobbyPhase::Results { ratings, .. } = &state.phase
+                        && let Some(change) =
+                            ratings.iter().find(|change| change.car == membership.car)
+                    {
+                        ladder.last_change = Some(*change);
+                    }
                 }
+            }
+            NetEvent::LobbyEnded => current.0 = None,
+            NetEvent::Profile(profile) => ladder.profile = Some(*profile),
+            NetEvent::Leaderboard(board) => ladder.leaderboard = board.clone(),
+            NetEvent::Queue(status) => {
+                let since = ladder.queue.map_or(now, |queue| queue.since);
+                if status.is_some() {
+                    ladder.last_change = None;
+                }
+                ladder.queue = status.map(|status| Queueing {
+                    players: status.players,
+                    since,
+                });
             }
             NetEvent::Rejected(_) | NetEvent::Disconnected(_) => {
                 current.0 = None;
                 *list = LobbyList::default();
                 online.0.clear();
+                ladder.queue = None;
             }
             NetEvent::Snapshot { .. } | NetEvent::Pong { .. } => {}
         }

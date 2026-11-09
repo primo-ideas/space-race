@@ -2,7 +2,9 @@
 
 Players race in lobbies. A lobby is created by a player, races on one track, and holds its players
 race after race until the last one leaves. The rules live on the server (`server/src/lobby.rs`),
-which has full authority; what they share with the client lives in `sim/src/race.rs`.
+which has full authority; what they share with the client lives in `sim/src/race.rs`. Quick play
+and ranked matches run on the same lobbies, with the differences told in
+[Quick play and ranked](ranked.md).
 
 ## Settings
 

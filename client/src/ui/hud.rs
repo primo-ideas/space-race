@@ -12,6 +12,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
+use space_race_protocol::ranked::Tier;
 use space_race_protocol::{CarId, LobbyPhase, PlayerStatus};
 use space_race_sim::TICK_RATE;
 use space_race_sim::race::{self, RaceStanding, StartGrade};
@@ -26,7 +27,7 @@ use crate::latency::{Latency, LatencyOverlay};
 use crate::lobby::{CurrentLobby, Membership, Tracks, leave_lobby};
 use crate::net::Network;
 use crate::race::{RaceUpdate, RaceView};
-use crate::screen::Screen;
+use crate::screen::{AfterLobby, Screen};
 use crate::track::CurrentTrack;
 use crate::world;
 
@@ -92,6 +93,8 @@ enum Slot {
     ResultPosition(usize),
     ResultName(usize),
     ResultTime(usize),
+    /// What a ranked race did to the player's rating.
+    ResultRating(usize),
     ResultsFooter,
     FrameRate,
     /// The latency figures, one per line, beside their names.
@@ -631,6 +634,12 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                                     fonts.text(17.0, 600),
                                     TextColor(theme::TEXT_DIM),
                                 ));
+                                line.spawn((
+                                    Slot::ResultRating(row),
+                                    Text::default(),
+                                    fonts.text(17.0, 700),
+                                    TextColor(theme::TEXT_DIM),
+                                ));
                             });
                         }
                         card.spawn((
@@ -844,19 +853,36 @@ fn build_model(
     let tick = view.own_tick.or(view.tick).unwrap_or(0.0);
     let seconds_until = |target: u32| (f64::from(target) - tick) / f64::from(TICK_RATE);
     let own_status = membership.own_status();
+    if state.ranked {
+        model.text(Slot::LobbyName, settings.name.clone(), theme::MAGENTA);
+    }
 
     match &state.phase {
-        LobbyPhase::Waiting => {
-            model.text(Slot::Title, "WAITING FOR PLAYERS", theme::TEXT);
-            model.text(
-                Slot::Subtitle,
-                format!(
-                    "{} of {} players  ·  drive around while you wait",
-                    state.players.len(),
-                    settings.min_players
-                ),
-                theme::TEXT_DIM,
-            );
+        LobbyPhase::Waiting { solo_tick } => {
+            match solo_tick {
+                // Opened by quick play: the race comes whether or not anyone else does.
+                Some(tick) => {
+                    let seconds = seconds_until(*tick).ceil().max(0.0);
+                    model.text(Slot::Title, format!("RACE IN {seconds}"), theme::TEXT);
+                    model.text(
+                        Slot::Subtitle,
+                        "Looking for other players  ·  drive around while you wait",
+                        theme::TEXT_DIM,
+                    );
+                }
+                None => {
+                    model.text(Slot::Title, "WAITING FOR PLAYERS", theme::TEXT);
+                    model.text(
+                        Slot::Subtitle,
+                        format!(
+                            "{} of {} players  ·  drive around while you wait",
+                            state.players.len(),
+                            settings.min_players
+                        ),
+                        theme::TEXT_DIM,
+                    );
+                }
+            }
             player_list(&mut model, membership);
         }
         LobbyPhase::Racing { start_tick } => {
@@ -920,7 +946,11 @@ fn build_model(
             }
             race_standings(&mut model, membership, view, track_length);
         }
-        LobbyPhase::Results { results, end_tick } => {
+        LobbyPhase::Results {
+            results,
+            end_tick,
+            ratings,
+        } => {
             model.shown.insert(Block::Results);
             for (row, result) in results.iter().take(ROWS).enumerate() {
                 model.shown.insert(Block::ResultRow(row));
@@ -939,13 +969,27 @@ fn build_model(
                     }
                     None => model.text(Slot::ResultTime(row), "DID NOT FINISH", theme::TEXT_FAINT),
                 }
+                if let Some(change) = ratings.iter().find(|change| change.car == result.car) {
+                    let gained = change.after - change.before;
+                    let color = if gained >= 0 {
+                        theme::GREEN
+                    } else {
+                        theme::RED
+                    };
+                    model.text(Slot::ResultRating(row), format!("{gained:+}"), color);
+                }
             }
             let seconds = seconds_until(*end_tick).ceil().max(0.0);
-            model.text(
-                Slot::ResultsFooter,
-                format!("NEXT RACE IN {seconds}"),
-                theme::TEXT_DIM,
-            );
+            let footer = match ratings.iter().find(|change| change.car == membership.car) {
+                Some(change) => format!(
+                    "{} {}  ·  BACK TO THE MENU IN {seconds}",
+                    Tier::of(change.after).name(),
+                    change.after
+                ),
+                None if state.ranked => format!("BACK TO THE MENU IN {seconds}"),
+                None => format!("NEXT RACE IN {seconds}"),
+            };
+            model.text(Slot::ResultsFooter, footer, theme::TEXT_DIM);
         }
     }
     model
@@ -1183,10 +1227,24 @@ fn show_leave_dialog(
     roots: Query<Entity, With<LeaveDialogRoot>>,
     stay: Query<Entity, With<StayButton>>,
     fonts: Res<Fonts>,
+    current: Res<CurrentLobby>,
+    after: Res<AfterLobby>,
     mut focus: ResMut<InputFocus>,
 ) {
     match (dialog.open, roots.single()) {
         (true, Err(_)) => {
+            let racing_for_rating = current
+                .0
+                .as_ref()
+                .and_then(|membership| membership.state.as_ref())
+                .is_some_and(|state| {
+                    state.ranked && matches!(state.phase, LobbyPhase::Racing { .. })
+                });
+            let warning = match (racing_for_rating, after.0) {
+                (true, _) => "This is a ranked race: leaving counts as coming last.",
+                (false, Screen::Lobbies) => "You will go back to the lobby list.",
+                (false, _) => "You will go back to the main menu.",
+            };
             let stay_button = commands
                 .spawn((StayButton, button(&fonts, ButtonKind::Secondary, "STAY")))
                 .observe(stay_in_lobby)
@@ -1230,7 +1288,7 @@ fn show_leave_dialog(
                             TextColor(theme::TEXT),
                         ));
                         card.spawn((
-                            Text::new("You will go back to the lobby list."),
+                            Text::new(warning),
                             fonts.text(15.5, 400),
                             TextColor(theme::TEXT_DIM),
                         ));
@@ -1263,9 +1321,10 @@ fn leave(
     _: On<Activate>,
     network: Res<Network>,
     mut current: ResMut<CurrentLobby>,
+    after: Res<AfterLobby>,
     mut next_screen: ResMut<NextState<Screen>>,
 ) {
-    leave_lobby(&network, &mut current, &mut next_screen);
+    leave_lobby(&network, &mut current, &after, &mut next_screen);
 }
 
 #[cfg(test)]

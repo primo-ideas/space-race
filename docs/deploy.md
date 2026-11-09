@@ -30,6 +30,9 @@ Both build the game server for Linux and the client for the browser, upload them
 then restarts the service and checks it is still up two seconds later, so a binary that dies on
 startup fails the deployment instead of passing for one.
 
+The ranked ladder, `/home/space-race/ratings.ron`, sits beside them and is not part of a build: a
+deployment restarts the server, which reads it back (see [Quick play and ranked](ranked.md)).
+
 It **never** touches the `space-race` user, the systemd unit, the Apache configuration, the TLS
 certificate, or anything under the document root that is not its own directory. Those belong to
 the machine, not to the repository: a deployment that rewrote the virtual host could take the

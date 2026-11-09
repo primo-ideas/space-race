@@ -8,6 +8,7 @@ the current status; these pages explain *why* the code looks the way it does.
 - [Simulation](simulation.md) — conventions, the car model and its tuning, drift, walls, autopilot.
 - [Tracks](tracks.md) — the track file format, transitions, scenery, validation, built geometry.
 - [Lobbies](lobbies.md) — lobby settings and phases, race rules, how the server runs them.
+- [Quick play and ranked](ranked.md) — finding a race at once, the queue, matchmaking, ratings.
 - [Interface](ui.md) — screens, look, widgets, keyboard and gamepad navigation.
 - [Sound](sound.md) — sounds synthesized in code, and when they play.
 - [Sky](sky.md) — the starry night over the circuits, at infinity and made of triangles.

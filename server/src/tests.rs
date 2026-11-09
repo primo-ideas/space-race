@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use space_race_protocol::auth::{self, SigningKey};
+use space_race_protocol::ranked::{QueueStatus, RankedProfile};
 use space_race_protocol::{
     self as protocol, CarId, ClientMessage, JoinError, LobbyId, LobbyPhase, LobbySettings,
     LobbyState, LobbyStatus, LobbySummary, OnlinePlayer, PROTOCOL_VERSION, PlayerStatus, Presence,
@@ -27,6 +28,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use crate::content;
 use crate::directory::Directory;
 use crate::lobby::Timings;
+use crate::ranking::Ratings;
 
 type Client = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -35,14 +37,17 @@ const PATIENCE: Duration = Duration::from_secs(5);
 
 /// Starts a server on a free port, on the shipped data, and returns its URL.
 async fn start_server() -> String {
+    start_server_with(Timings::default()).await
+}
+
+async fn start_server_with(timings: Timings) -> String {
     let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("data");
     let tracks = content::load_tracks(&data_dir).unwrap();
     let tuning =
         content::load_car_tuning(&data_dir.join(content::CAR_TUNING_FILE), &tracks).unwrap();
     // Nothing will change the tuning: the sender can go.
     let (_, tuning) = watch::channel(tuning);
-    let timings = Timings::default();
-    let directory = Directory::spawn(tracks, tuning, timings);
+    let directory = Directory::spawn(tracks, tuning, timings, Ratings::in_memory());
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -190,6 +195,26 @@ fn settings(name: &str, min_players: u8, max_players: u8) -> LobbySettings {
     }
 }
 
+/// Timings short enough for a whole match to fit in a test.
+fn brisk_timings() -> Timings {
+    Timings {
+        grid: Duration::from_millis(100),
+        finish_timeout: Duration::from_secs(1),
+        results: Duration::from_millis(200),
+        quick_solo: Duration::from_millis(300),
+        ranked_grid: Duration::from_millis(100),
+        gather: Duration::from_millis(100),
+    }
+}
+
+async fn next_profile(socket: &mut Client) -> RankedProfile {
+    wait_for(socket, "the player's profile", |message| match message {
+        ServerMessage::Profile(profile) => Some(profile),
+        _ => None,
+    })
+    .await
+}
+
 /// Sends `message`, and returns where the player entered, or why they could not.
 async fn enter(socket: &mut Client, message: ClientMessage) -> Result<(LobbyId, CarId), JoinError> {
     send(socket, &message).await;
@@ -248,7 +273,7 @@ async fn a_created_lobby_is_listed_until_its_last_player_leaves() {
     .await
     .unwrap();
     let state = next_state(&mut creator).await;
-    assert_eq!(state.phase, LobbyPhase::Waiting);
+    assert_eq!(state.phase, LobbyPhase::Waiting { solo_tick: None });
     assert_eq!(state.players.len(), 1);
     assert_eq!(state.players[0].car, car);
     assert_eq!(state.players[0].status, PlayerStatus::Driving);
@@ -628,4 +653,212 @@ async fn invalid_nickname_is_rejected() {
         ServerMessage::Rejected(RejectReason::InvalidNickname)
     );
     assert_closed(&mut socket).await;
+}
+
+#[tokio::test]
+async fn a_new_player_is_told_where_they_stand() {
+    let url = start_server().await;
+    let mut socket = welcome_as(&url, "Ada").await;
+    let profile = next_profile(&mut socket).await;
+    assert_eq!(profile.rating, 1000);
+    assert_eq!(profile.games, 0);
+    assert_eq!(profile.place, None);
+}
+
+/// Quick play opens a lobby for the first player and puts the next one in it, which starts the
+/// race.
+#[tokio::test]
+async fn quick_play_brings_players_together() {
+    let url = start_server().await;
+    let mut first = welcome_as(&url, "Ada").await;
+    let (lobby, _) = enter(&mut first, ClientMessage::QuickPlay).await.unwrap();
+    let state = next_state(&mut first).await;
+    assert!(matches!(
+        state.phase,
+        LobbyPhase::Waiting {
+            solo_tick: Some(_)
+        }
+    ));
+
+    let mut second = welcome_as(&url, "Grace").await;
+    let (joined, _) = enter(&mut second, ClientMessage::QuickPlay).await.unwrap();
+    assert_eq!(joined, lobby, "the second player finds the first");
+    let state = wait_for(&mut second, "the grid", |message| match message {
+        ServerMessage::Lobby(state) if matches!(state.phase, LobbyPhase::Racing { .. }) => {
+            Some(state)
+        }
+        _ => None,
+    })
+    .await;
+    assert_eq!(state.players.len(), 2);
+}
+
+/// Alone, quick play still gets to a race.
+#[tokio::test]
+async fn quick_play_races_alone_rather_than_waiting_forever() {
+    let url = start_server_with(brisk_timings()).await;
+    let mut socket = welcome_as(&url, "Ada").await;
+    enter(&mut socket, ClientMessage::QuickPlay).await.unwrap();
+    wait_for(&mut socket, "a solo race", |message| match message {
+        ServerMessage::Lobby(state) if matches!(state.phase, LobbyPhase::Racing { .. }) => Some(()),
+        _ => None,
+    })
+    .await;
+}
+
+/// Quick play leaves a lobby alone that it could only watch: a new one opens beside it.
+#[tokio::test]
+async fn quick_play_does_not_put_a_player_in_a_race_they_would_only_watch() {
+    let url = start_server_with(brisk_timings()).await;
+    let mut racer = welcome_as(&url, "Ada").await;
+    let (busy, _) = enter(&mut racer, ClientMessage::CreateLobby(settings("Busy", 1, 8)))
+        .await
+        .unwrap();
+    // Past the grid: joining now would only be to watch.
+    wait_for(&mut racer, "the race", |message| match message {
+        ServerMessage::Snapshot(snapshot) if snapshot.tick > 12 => Some(()),
+        _ => None,
+    })
+    .await;
+
+    let mut late = welcome_as(&url, "Grace").await;
+    let (lobby, _) = enter(&mut late, ClientMessage::QuickPlay).await.unwrap();
+    assert_ne!(lobby, busy);
+}
+
+/// Two players queue, are put in a match together that is not listed, and one walking out hands
+/// the other the race: the ratings move, the leaderboard says so, and both are back on the list.
+#[tokio::test]
+async fn a_ranked_match_from_the_queue_to_the_ladder() {
+    let url = start_server_with(brisk_timings()).await;
+    let mut ada = welcome_as(&url, "Ada").await;
+    let mut grace = welcome_as(&url, "Grace").await;
+
+    send(&mut ada, &ClientMessage::QueueRanked).await;
+    let status = wait_for(&mut ada, "the queue", |message| match message {
+        ServerMessage::Queue(Some(status)) if status.players == 1 => Some(status),
+        _ => None,
+    })
+    .await;
+    assert_eq!(status, QueueStatus { players: 1 });
+
+    send(&mut grace, &ClientMessage::QueueRanked).await;
+    // Told they are out of the queue, or the client would go on saying it is searching.
+    wait_for(&mut ada, "leaving the queue for the match", |message| {
+        matches!(message, ServerMessage::Queue(None)).then_some(())
+    })
+    .await;
+    let entered = |message| match message {
+        ServerMessage::JoinedLobby {
+            lobby,
+            car,
+            settings,
+        } => Some((lobby, car, settings)),
+        _ => None,
+    };
+    let (lobby, ada_car, settings) = wait_for(&mut ada, "the match", entered).await;
+    let (same, _, _) = wait_for(&mut grace, "the match", entered).await;
+    assert_eq!(lobby, same);
+    assert_eq!((settings.min_players, settings.max_players), (2, 2));
+
+    let state = next_state(&mut grace).await;
+    assert!(state.ranked);
+    assert_eq!(state.players.len(), 2);
+    assert!(state.players.iter().all(|player| player.rating == Some(1000)));
+
+    // Nobody else can see or enter it.
+    let mut other = welcome_as(&url, "Linus").await;
+    assert!(next_lobbies(&mut other).await.is_empty());
+    assert_eq!(
+        enter(&mut other, ClientMessage::JoinLobby(lobby)).await,
+        Err(JoinError::LobbyFull)
+    );
+
+    // Ada walks out, and Grace has won.
+    send(&mut ada, &ClientMessage::LeaveLobby).await;
+    let changes = wait_for(&mut grace, "the results", |message| match message {
+        ServerMessage::Lobby(LobbyState {
+            phase: LobbyPhase::Results { ratings, .. },
+            ..
+        }) => Some(ratings),
+        _ => None,
+    })
+    .await;
+    assert_eq!(changes.len(), 2);
+    let ada_change = changes.iter().find(|change| change.car == ada_car).unwrap();
+    assert_eq!((ada_change.before, ada_change.after), (1000, 976));
+
+    wait_for(&mut grace, "the match to end", |message| {
+        matches!(message, ServerMessage::LobbyEnded).then_some(())
+    })
+    .await;
+    let profile = next_profile(&mut grace).await;
+    assert_eq!(profile.rating, 1024);
+    assert_eq!((profile.games, profile.wins, profile.place), (1, 1, Some(1)));
+
+    let board = wait_for(&mut grace, "the leaderboard", |message| match message {
+        ServerMessage::Leaderboard(board) if board.len() == 2 => Some(board),
+        _ => None,
+    })
+    .await;
+    assert_eq!(board[0].nickname, "Grace");
+    assert_eq!(board[1].nickname, "Ada");
+    assert_eq!(board[1].rating, 976);
+}
+
+#[tokio::test]
+async fn leaving_the_queue_is_being_out_of_it() {
+    let url = start_server_with(brisk_timings()).await;
+    let mut ada = welcome_as(&url, "Ada").await;
+    let mut grace = welcome_as(&url, "Grace").await;
+
+    send(&mut ada, &ClientMessage::QueueRanked).await;
+    wait_for(&mut ada, "the queue", |message| {
+        matches!(message, ServerMessage::Queue(Some(_))).then_some(())
+    })
+    .await;
+    send(&mut ada, &ClientMessage::LeaveQueue).await;
+    wait_for(&mut ada, "leaving the queue", |message| {
+        matches!(message, ServerMessage::Queue(None)).then_some(())
+    })
+    .await;
+
+    // Grace queues alone, and stays alone: Ada is not matched with her.
+    send(&mut grace, &ClientMessage::QueueRanked).await;
+    let status = wait_for(&mut grace, "the queue", |message| match message {
+        ServerMessage::Queue(Some(status)) if status.players == 1 => Some(status),
+        _ => None,
+    })
+    .await;
+    assert_eq!(status.players, 1);
+    assert!(!matched_within(&mut grace, Duration::from_millis(600)).await);
+}
+
+/// A lost connection takes the player out of the queue.
+#[tokio::test]
+async fn disconnecting_leaves_the_queue() {
+    let url = start_server_with(brisk_timings()).await;
+    let mut ada = welcome_as(&url, "Ada").await;
+    let mut grace = welcome_as(&url, "Grace").await;
+    send(&mut ada, &ClientMessage::QueueRanked).await;
+    wait_for(&mut ada, "the queue", |message| {
+        matches!(message, ServerMessage::Queue(Some(_))).then_some(())
+    })
+    .await;
+    drop(ada);
+
+    send(&mut grace, &ClientMessage::QueueRanked).await;
+    assert!(!matched_within(&mut grace, Duration::from_millis(600)).await);
+}
+
+/// Whether the player is put in a match within `limit`.
+async fn matched_within(socket: &mut Client, limit: Duration) -> bool {
+    let found = async {
+        loop {
+            if let ServerMessage::JoinedLobby { .. } = receive(socket).await {
+                return;
+            }
+        }
+    };
+    timeout(limit, found).await.is_ok()
 }

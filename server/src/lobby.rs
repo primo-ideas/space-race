@@ -20,7 +20,7 @@ use axum::body::Bytes;
 use space_race_protocol::{
     self as protocol, CarId, CarSnapshot, JoinError, LobbyId, LobbyPhase, LobbyPlayer,
     LobbySettings, LobbyState, LobbyStatus, LobbySummary, MAX_INPUT_LEAD, PlayerStatus, RaceResult,
-    ServerMessage, Snapshot,
+    RatingChange, ServerMessage, Snapshot,
 };
 use space_race_sim::autopilot;
 use space_race_sim::car::{Car, CarInput, CarTuning};
@@ -32,7 +32,8 @@ use tokio::time::{self, MissedTickBehavior};
 use tracing::{debug, info};
 
 use crate::content::LoadedTrack;
-use crate::session::Player;
+use crate::ranking::{Placed, rating_changes};
+use crate::session::{Player, PlayerId};
 
 /// Snapshots waiting to be sent to one player. A player whose connection cannot keep up skips
 /// snapshots rather than slowing the lobby down: the next one supersedes them anyway.
@@ -54,6 +55,14 @@ pub struct Timings {
     pub finish_timeout: Duration,
     /// Showing the results.
     pub results: Duration,
+    /// How long a lobby opened by quick play waits for a second player before racing anyway.
+    pub quick_solo: Duration,
+    /// Standing on the grid before a ranked race. Longer than `grid`: nobody chose the moment a
+    /// match was found, and a browser that has not raced yet can hold its page for many seconds
+    /// compiling the race's shaders, which must not cost a start that counts.
+    pub ranked_grid: Duration,
+    /// How long the matchmaker lets a match smaller than full wait for others to turn up.
+    pub gather: Duration,
 }
 
 impl Default for Timings {
@@ -62,6 +71,9 @@ impl Default for Timings {
             grid: Duration::from_secs(3 + u64::from(race::START_LIGHTS_SECONDS)),
             finish_timeout: Duration::from_secs(30),
             results: Duration::from_secs(8),
+            quick_solo: Duration::from_secs(15),
+            ranked_grid: Duration::from_secs(12),
+            gather: Duration::from_secs(15),
         }
     }
 }
@@ -84,6 +96,8 @@ pub struct LobbyInfo {
     pub settings: LobbySettings,
     pub players: Vec<String>,
     pub status: InfoStatus,
+    /// A ranked match, which nobody can join and which is not listed.
+    pub ranked: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,6 +136,25 @@ pub enum LobbyEvent {
     Changed(LobbyInfo),
     /// The last player left, and the lobby's task has ended.
     Closed(LobbyId),
+    /// A ranked race is over: what it did to everyone's rating.
+    MatchFinished(Vec<Placed>),
+}
+
+/// How a lobby came to be, which decides how long it waits and how it ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LobbyKind {
+    /// Opened by a player, with their settings.
+    Custom,
+    /// Opened by quick play: it waits for a second player, but not forever.
+    QuickPlay,
+}
+
+/// A player the matchmaker put in a ranked match, and where they stood when it started.
+#[derive(Debug, Clone)]
+pub struct Entrant {
+    pub player: Player,
+    pub rating: i32,
+    pub games: u32,
 }
 
 /// A running lobby, as seen by the directory and the sessions. Cheap to clone.
@@ -215,36 +248,72 @@ impl LobbyHandle {
 /// membership along with the lobby as the directory should list it.
 ///
 /// `settings` must be valid: the directory checks them.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn(
     id: LobbyId,
     settings: LobbySettings,
     track: Arc<LoadedTrack>,
     tuning: watch::Receiver<CarTuning>,
     timings: Timings,
+    kind: LobbyKind,
     creator: Player,
     events: mpsc::UnboundedSender<LobbyEvent>,
 ) -> (Membership, LobbyInfo) {
-    let mut lobby = Lobby::new(id, settings, track, tuning.borrow().clone(), timings);
-    let (car, snapshots) = lobby
-        .join(creator)
+    let mut lobby = Lobby::new(id, settings, track, tuning.borrow().clone(), timings, kind);
+    let joined = lobby
+        .add_member(creator)
         .expect("a new lobby has room for its creator");
-    lobby.changed = false;
+    let (mut memberships, info) = launch(lobby, vec![joined], tuning, events);
+    (memberships.remove(0), info)
+}
 
-    let (state_sender, mut state) = watch::channel(lobby.encoded_state());
-    state.mark_changed();
+/// Starts a ranked match on its own task, with all its players in it and the race already lining
+/// up, and returns each one's membership, in the order given.
+pub fn spawn_match(
+    id: LobbyId,
+    settings: LobbySettings,
+    track: Arc<LoadedTrack>,
+    tuning: watch::Receiver<CarTuning>,
+    timings: Timings,
+    entrants: Vec<Entrant>,
+    events: mpsc::UnboundedSender<LobbyEvent>,
+) -> (Vec<Membership>, LobbyInfo) {
+    let kind = LobbyKind::Custom;
+    let mut lobby = Lobby::new(id, settings, track, tuning.borrow().clone(), timings, kind);
+    let joined = lobby.begin_match(entrants);
+    launch(lobby, joined, tuning, events)
+}
+
+/// Hands a lobby holding its first players to a task of its own.
+fn launch(
+    mut lobby: Lobby,
+    joined: Vec<(CarId, mpsc::Receiver<Bytes>)>,
+    tuning: watch::Receiver<CarTuning>,
+    events: mpsc::UnboundedSender<LobbyEvent>,
+) -> (Vec<Membership>, LobbyInfo) {
+    lobby.changed = false;
+    let id = lobby.id;
+    let (state_sender, state) = watch::channel(lobby.encoded_state());
     let (commands, receiver) = mpsc::channel(COMMAND_BUFFER);
     let handle = LobbyHandle { id, commands };
-    let membership = handle.membership(Joined {
-        car,
-        settings: lobby.settings.clone(),
-        snapshots,
-        state,
-    });
+    let memberships = joined
+        .into_iter()
+        .map(|(car, snapshots)| {
+            let mut state = state.clone();
+            state.mark_changed();
+            handle.membership(Joined {
+                car,
+                settings: lobby.settings.clone(),
+                snapshots,
+                state,
+            })
+        })
+        .collect();
     let info = lobby.info(Instant::now());
 
     info!(lobby = %id, name = %lobby.settings.name, track = %lobby.settings.track, "lobby opened");
     tokio::spawn(lobby.run(receiver, tuning, state_sender, events));
-    (membership, info)
+    (memberships, info)
 }
 
 /// The lobby state and rules, apart from the task and its timing, so tests can step it tick by
@@ -262,6 +331,26 @@ pub struct Lobby {
     next_car: u16,
     /// Whether the lobby state or its listing changed since they were last published.
     changed: bool,
+    /// How many ticks a lobby opened by quick play waits for a second player.
+    solo_after: Option<u32>,
+    /// When it stops waiting.
+    solo_tick: Option<u32>,
+    /// What makes this a ranked match, if it is one.
+    ranked: Option<RankedMatch>,
+    /// What the race just did to the ratings, for the task to tell the directory.
+    outcome: Option<Vec<Placed>>,
+}
+
+/// The players of a ranked match, whether or not they are still in it.
+struct RankedMatch {
+    roster: Vec<Rostered>,
+    /// Those who left before finishing, in the order they left.
+    forfeited: Vec<PlayerId>,
+}
+
+struct Rostered {
+    entrant: Entrant,
+    car: CarId,
 }
 
 enum Phase {
@@ -270,6 +359,7 @@ enum Phase {
     Results {
         results: Vec<RaceResult>,
         end_tick: u32,
+        ratings: Vec<RatingChange>,
     },
 }
 
@@ -314,7 +404,9 @@ impl Lobby {
         track: Arc<LoadedTrack>,
         tuning: CarTuning,
         timings: Timings,
+        kind: LobbyKind,
     ) -> Self {
+        let solo_after = (kind == LobbyKind::QuickPlay).then(|| ticks(timings.quick_solo));
         Self {
             id,
             settings,
@@ -326,7 +418,30 @@ impl Lobby {
             members: Vec::new(),
             next_car: 0,
             changed: true,
+            solo_after,
+            solo_tick: solo_after,
+            ranked: None,
+            outcome: None,
         }
+    }
+
+    /// Makes this a ranked match between `entrants`, and lines them up on the grid.
+    fn begin_match(&mut self, entrants: Vec<Entrant>) -> Vec<(CarId, mpsc::Receiver<Bytes>)> {
+        let mut joined = Vec::with_capacity(entrants.len());
+        let mut roster = Vec::with_capacity(entrants.len());
+        for entrant in entrants {
+            let (car, snapshots) = self
+                .add_member(entrant.player.clone())
+                .expect("a match has room for its players");
+            roster.push(Rostered { entrant, car });
+            joined.push((car, snapshots));
+        }
+        self.ranked = Some(RankedMatch {
+            roster,
+            forfeited: Vec::new(),
+        });
+        self.start_race();
+        joined
     }
 
     async fn run(
@@ -354,10 +469,14 @@ impl Lobby {
                     // The lobby holds no handle to itself, but members always do until they leave.
                     let Some(command) = command else { break };
                     self.handle(command, &state);
-                    if self.members.is_empty() {
-                        break;
-                    }
                 }
+            }
+            if let Some(placed) = self.outcome.take() {
+                let _ = events.send(LobbyEvent::MatchFinished(placed));
+            }
+            // Everyone has left, or a ranked match has shown its results.
+            if self.members.is_empty() {
+                break;
             }
             if std::mem::take(&mut self.changed) {
                 state.send_replace(self.encoded_state());
@@ -400,6 +519,14 @@ impl Lobby {
     }
 
     fn join(&mut self, player: Player) -> Result<(CarId, mpsc::Receiver<Bytes>), JoinError> {
+        // A ranked match is between the players the matchmaker put in it.
+        if self.ranked.is_some() {
+            return Err(JoinError::LobbyFull);
+        }
+        self.add_member(player)
+    }
+
+    fn add_member(&mut self, player: Player) -> Result<(CarId, mpsc::Receiver<Bytes>), JoinError> {
         if self.members.len() >= usize::from(self.settings.max_players) {
             return Err(JoinError::LobbyFull);
         }
@@ -474,6 +601,18 @@ impl Lobby {
             car = %car, "player left the lobby"
         );
         self.changed = true;
+
+        // Leaving a ranked race comes last, however it was left: a lost connection counts too,
+        // or disconnecting would be the way out of a race going badly.
+        let in_play = matches!(self.phase, Phase::Racing(_))
+            && !matches!(member.status, PlayerStatus::Finished { .. });
+        if in_play && let Some(ranked) = &mut self.ranked {
+            ranked.forfeited.push(member.player.id);
+        }
+        // With nobody left to finish it, the race is settled now or never.
+        if self.members.is_empty() && self.ranked.is_some() {
+            self.end_race();
+        }
     }
 
     fn allocate_car_id(&mut self) -> CarId {
@@ -531,29 +670,40 @@ impl Lobby {
 
     fn update_phase(&mut self) {
         let enough_players = self.members.len() >= usize::from(self.settings.min_players);
+        let waited_enough = self.solo_tick.is_some_and(|tick| self.tick >= tick);
         match &self.phase {
-            Phase::Waiting if enough_players => self.start_race(),
+            Phase::Waiting if enough_players || waited_enough => self.start_race(),
             Phase::Racing(race) => {
                 if self.tick == race.start_tick {
                     // The listing tells joining from spectating apart.
                     self.changed = true;
                 }
-                let still_racing = self
+                let racers = self
                     .members
                     .iter()
-                    .any(|member| member.status == PlayerStatus::Racing);
+                    .filter(|member| member.status == PlayerStatus::Racing)
+                    .count();
                 let timed_out = race
                     .first_finish_tick
                     .is_some_and(|first| self.tick >= first + ticks(self.timings.finish_timeout));
-                if !still_racing || timed_out {
+                // Everyone else has walked out of a ranked race: the last one standing has won it,
+                // and need not drive three laps alone to be told so.
+                let walkover = self.ranked.is_some() && racers <= 1 && race.finishers.is_empty();
+                if racers == 0 || timed_out || walkover {
                     self.end_race();
                 }
+            }
+            // A ranked match is one race: once its results have shown, it is over.
+            Phase::Results { end_tick, .. } if self.tick >= *end_tick && self.ranked.is_some() => {
+                self.members.clear();
+                self.changed = true;
             }
             Phase::Results { end_tick, .. } if self.tick >= *end_tick => {
                 if enough_players {
                     self.start_race();
                 } else {
                     self.hand_cars_back();
+                    self.solo_tick = self.solo_after.map(|after| self.tick + after);
                     self.set_phase(Phase::Waiting);
                 }
             }
@@ -579,8 +729,13 @@ impl Lobby {
             lobby = %self.id, players = self.members.len(), laps = self.settings.laps,
             "race started"
         );
+        let grid = if self.ranked.is_some() {
+            self.timings.ranked_grid
+        } else {
+            self.timings.grid
+        };
         self.set_phase(Phase::Racing(Race {
-            start_tick: self.tick + ticks(self.timings.grid),
+            start_tick: self.tick + ticks(grid),
             finishers: Vec::new(),
             first_finish_tick: None,
             leader_lap: 0,
@@ -613,6 +768,7 @@ impl Lobby {
             time_ms: None,
         }));
         info!(lobby = %self.id, ?results, "race finished");
+        let ratings = self.settle_ratings(&results);
 
         // Everyone who did not cross the line drives freely again; those who did keep watching
         // their car drive itself, through the results and until the next race lines up. A solo
@@ -635,7 +791,63 @@ impl Lobby {
         self.set_phase(Phase::Results {
             results,
             end_tick: self.tick + ticks(self.timings.results),
+            ratings,
         });
+    }
+
+    /// In a ranked match, works out what the race did to every rating, for the players to see and
+    /// the directory to record: those listed in `results` in that order, then whoever left, the
+    /// last to leave ahead of the first.
+    fn settle_ratings(&mut self, results: &[RaceResult]) -> Vec<RatingChange> {
+        let Some(ranked) = &self.ranked else {
+            return Vec::new();
+        };
+        let by_car = |car: CarId| ranked.roster.iter().find(|rostered| rostered.car == car);
+        let by_player = |id: PlayerId| {
+            ranked
+                .roster
+                .iter()
+                .find(|rostered| rostered.entrant.player.id == id)
+        };
+        let order: Vec<&Rostered> = results
+            .iter()
+            .filter_map(|result| by_car(result.car))
+            .chain(
+                ranked
+                    .forfeited
+                    .iter()
+                    .rev()
+                    .filter_map(|id| by_player(*id)),
+            )
+            .collect();
+        let standings: Vec<(i32, u32)> = order
+            .iter()
+            .map(|rostered| (rostered.entrant.rating, rostered.entrant.games))
+            .collect();
+        let changes = rating_changes(&standings);
+
+        self.outcome = Some(
+            order
+                .iter()
+                .zip(&changes)
+                .enumerate()
+                .map(|(place, (rostered, change))| Placed {
+                    id: rostered.entrant.player.id,
+                    nickname: rostered.entrant.player.nickname.clone(),
+                    change: *change,
+                    won: place == 0,
+                })
+                .collect(),
+        );
+        order
+            .iter()
+            .zip(&changes)
+            .map(|(rostered, change)| RatingChange {
+                car: rostered.car,
+                before: rostered.entrant.rating,
+                after: (rostered.entrant.rating + change).max(0),
+            })
+            .collect()
     }
 
     /// Gives the players who finished the last race their car back, once there is nothing left
@@ -794,15 +1006,23 @@ impl Lobby {
     fn state(&self) -> LobbyState {
         LobbyState {
             phase: match &self.phase {
-                Phase::Waiting => LobbyPhase::Waiting,
+                Phase::Waiting => LobbyPhase::Waiting {
+                    solo_tick: self.solo_tick,
+                },
                 Phase::Racing(race) => LobbyPhase::Racing {
                     start_tick: race.start_tick,
                 },
-                Phase::Results { results, end_tick } => LobbyPhase::Results {
+                Phase::Results {
+                    results,
+                    end_tick,
+                    ratings,
+                } => LobbyPhase::Results {
                     results: results.clone(),
                     end_tick: *end_tick,
+                    ratings: ratings.clone(),
                 },
             },
+            ranked: self.ranked.is_some(),
             players: self
                 .members
                 .iter()
@@ -811,6 +1031,13 @@ impl Lobby {
                     nickname: member.player.nickname.clone(),
                     status: member.status,
                     start: member.start.grade(),
+                    rating: self.ranked.as_ref().and_then(|ranked| {
+                        ranked
+                            .roster
+                            .iter()
+                            .find(|rostered| rostered.car == member.car_id)
+                            .map(|rostered| rostered.entrant.rating)
+                    }),
                 })
                 .collect(),
             tuning: self.tuning.clone(),
@@ -843,6 +1070,7 @@ impl Lobby {
                     until: deadline(*end_tick),
                 },
             },
+            ranked: self.ranked.is_some(),
         }
     }
 }
@@ -880,12 +1108,22 @@ mod tests {
             grid: Duration::from_millis(500),
             finish_timeout: Duration::from_secs(2),
             results: Duration::from_millis(500),
+            quick_solo: Duration::from_secs(1),
+            ranked_grid: Duration::from_millis(500),
+            gather: Duration::from_millis(100),
         }
     }
 
     fn new_lobby(settings: LobbySettings, timings: Timings) -> Lobby {
         let (track, tuning) = skyway();
-        Lobby::new(LobbyId(0), settings, track, tuning, timings)
+        Lobby::new(
+            LobbyId(0),
+            settings,
+            track,
+            tuning,
+            timings,
+            LobbyKind::Custom,
+        )
     }
 
     fn player(number: u8) -> Player {
@@ -898,6 +1136,18 @@ mod tests {
     fn join(lobby: &mut Lobby, number: u8) -> CarId {
         // The snapshot receiver is dropped: the lobby ignores closed channels.
         lobby.join(player(number)).unwrap().0
+    }
+
+    impl Member {
+        /// The rating the lobby shows for this player.
+        fn rating_shown(&self, lobby: &Lobby) -> Option<i32> {
+            lobby
+                .state()
+                .players
+                .iter()
+                .find(|player| player.car == self.car_id)
+                .and_then(|player| player.rating)
+        }
     }
 
     fn member(lobby: &Lobby, car: CarId) -> &Member {
@@ -932,7 +1182,7 @@ mod tests {
         let mut lobby = new_lobby(settings(3, 2, 8), Timings::default());
         let first = join(&mut lobby, 1);
         lobby.tick();
-        assert!(matches!(lobby.state().phase, LobbyPhase::Waiting));
+        assert!(matches!(lobby.state().phase, LobbyPhase::Waiting { .. }));
 
         let second = join(&mut lobby, 2);
         lobby.tick();
@@ -1199,6 +1449,220 @@ mod tests {
         lobby.tick();
         assert!(matches!(lobby.phase, Phase::Results { .. }));
         assert_eq!(member(&lobby, spectator).status, PlayerStatus::Driving);
+    }
+
+    fn entrant(number: u8, rating: i32) -> Entrant {
+        Entrant {
+            player: player(number),
+            rating,
+            games: 10,
+        }
+    }
+
+    /// A ranked match of one lap, between players numbered from 1, all rated the same.
+    fn ranked_match(players: u8) -> (Lobby, Vec<CarId>) {
+        let mut lobby = new_lobby(settings(1, players, players), quick_timings());
+        let entrants = (1..=players).map(|number| entrant(number, 1000)).collect();
+        let cars = lobby
+            .begin_match(entrants)
+            .into_iter()
+            .map(|(car, _)| car)
+            .collect();
+        (lobby, cars)
+    }
+
+    fn rating_of(lobby: &Lobby, car: CarId) -> (i32, i32) {
+        let LobbyPhase::Results { ratings, .. } = lobby.state().phase else {
+            panic!("expected the results");
+        };
+        let change = ratings
+            .iter()
+            .find(|change| change.car == car)
+            .expect("a rating change for this car");
+        (change.before, change.after)
+    }
+
+    #[test]
+    fn nobody_joins_a_ranked_match_and_a_custom_lobby_is_not_one() {
+        let (mut lobby, _) = ranked_match(2);
+        assert!(lobby.state().ranked);
+        assert!(matches!(lobby.join(player(9)), Err(JoinError::LobbyFull)));
+
+        let custom = new_lobby(settings(3, 2, 8), quick_timings());
+        assert!(!custom.state().ranked);
+    }
+
+    /// The race runs on the grid at once, the winner gains what the loser gives up, the directory
+    /// is told, and the match ends once the results have shown.
+    #[test]
+    fn a_ranked_race_moves_the_ratings_and_ends_the_match() {
+        let (mut lobby, cars) = ranked_match(2);
+        assert_eq!(lobby.members[0].rating_shown(&lobby), Some(1000));
+        tick_until(&mut lobby, 150.0, |lobby| {
+            autopilot_inputs(lobby);
+            matches!(lobby.phase, Phase::Results { .. })
+        });
+
+        let placed = lobby.outcome.take().expect("the directory is told");
+        assert_eq!(placed.len(), 2);
+        assert!(placed[0].won && !placed[1].won);
+        assert_eq!(placed[0].change, 12);
+        assert_eq!(placed[1].change, -12);
+        let winner = cars
+            .iter()
+            .copied()
+            .find(|car| rating_of(&lobby, *car).1 > 1000)
+            .expect("someone won");
+        assert_eq!(rating_of(&lobby, winner), (1000, 1012));
+
+        tick_until(&mut lobby, 2.0, |lobby| lobby.members.is_empty());
+    }
+
+    /// Walking out of a race comes last, after those still in it, and the last to leave ranks
+    /// ahead of the first.
+    #[test]
+    fn leaving_a_ranked_race_comes_last() {
+        let (mut lobby, cars) = ranked_match(4);
+        lobby.leave(cars[0]);
+        lobby.leave(cars[1]);
+        tick_until(&mut lobby, 150.0, |lobby| {
+            autopilot_inputs(lobby);
+            matches!(lobby.phase, Phase::Results { .. })
+        });
+        let placed = lobby.outcome.take().unwrap();
+        assert_eq!(placed.len(), 4);
+        assert_eq!(placed[2].id, player(2).id);
+        assert_eq!(placed[3].id, player(1).id);
+        assert!(placed[3].change < placed[2].change);
+        assert!(placed[2].change < 0);
+        // Those who left are not in the results the others read.
+        let LobbyPhase::Results { results, .. } = lobby.state().phase else {
+            panic!("expected the results");
+        };
+        assert_eq!(results.len(), 2);
+    }
+
+    /// With only one player left the race is theirs, without three laps alone to prove it.
+    #[test]
+    fn the_last_player_standing_wins_a_ranked_race_at_once() {
+        let (mut lobby, cars) = ranked_match(2);
+        lobby.leave(cars[0]);
+        lobby.tick();
+        assert!(matches!(lobby.phase, Phase::Results { .. }));
+        let placed = lobby.outcome.take().unwrap();
+        assert_eq!(placed[0].id, player(2).id);
+        assert!(placed[0].won);
+        assert_eq!(placed[1].id, player(1).id);
+    }
+
+    /// Everyone walking out still counts: the rating is settled, and the lobby goes.
+    #[test]
+    fn a_ranked_race_everyone_left_is_still_settled() {
+        let (mut lobby, cars) = ranked_match(2);
+        lobby.leave(cars[0]);
+        lobby.leave(cars[1]);
+        assert!(lobby.members.is_empty());
+        let placed = lobby.outcome.take().expect("settled");
+        assert_eq!(placed[0].id, player(2).id);
+    }
+
+    /// Having crossed the line, leaving costs nothing.
+    #[test]
+    fn leaving_after_finishing_keeps_the_place() {
+        let (mut lobby, cars) = ranked_match(2);
+        tick_until(&mut lobby, 150.0, |lobby| {
+            autopilot_inputs(lobby);
+            lobby
+                .members
+                .iter()
+                .any(|member| matches!(member.status, PlayerStatus::Finished { .. }))
+        });
+        let finisher = lobby
+            .members
+            .iter()
+            .find(|member| matches!(member.status, PlayerStatus::Finished { .. }))
+            .map(|member| (member.car_id, member.player.id))
+            .unwrap();
+        lobby.leave(finisher.0);
+        tick_until(&mut lobby, 150.0, |lobby| {
+            autopilot_inputs(lobby);
+            matches!(lobby.phase, Phase::Results { .. })
+        });
+        let placed = lobby.outcome.take().unwrap();
+        assert_eq!(placed[0].id, finisher.1);
+        assert!(placed[0].won);
+        let _ = cars;
+    }
+
+    fn quick_lobby() -> Lobby {
+        let (track, tuning) = skyway();
+        Lobby::new(
+            LobbyId(0),
+            settings(1, 2, 8),
+            track,
+            tuning,
+            quick_timings(),
+            LobbyKind::QuickPlay,
+        )
+    }
+
+    /// A lobby opened by quick play gives a second player time to arrive, then races anyway.
+    #[test]
+    fn a_quick_play_lobby_does_not_wait_forever() {
+        let mut lobby = quick_lobby();
+        join(&mut lobby, 1);
+        let solo_tick = ticks(quick_timings().quick_solo);
+        assert_eq!(
+            lobby.state().phase,
+            LobbyPhase::Waiting {
+                solo_tick: Some(solo_tick)
+            }
+        );
+        for _ in 0..solo_tick - 1 {
+            lobby.tick();
+            assert!(matches!(lobby.phase, Phase::Waiting));
+        }
+        lobby.tick();
+        assert!(matches!(lobby.phase, Phase::Racing(_)));
+    }
+
+    #[test]
+    fn a_second_player_starts_a_quick_play_lobby_at_once() {
+        let mut lobby = quick_lobby();
+        join(&mut lobby, 1);
+        lobby.tick();
+        assert!(matches!(lobby.phase, Phase::Waiting));
+        join(&mut lobby, 2);
+        lobby.tick();
+        assert!(matches!(lobby.phase, Phase::Racing(_)));
+    }
+
+    /// Alone after a race, the player gets the same wait again rather than waiting forever.
+    #[test]
+    fn a_quick_play_lobby_waits_again_after_a_race() {
+        let mut lobby = quick_lobby();
+        join(&mut lobby, 1);
+        tick_until(&mut lobby, 150.0, |lobby| {
+            autopilot_inputs(lobby);
+            matches!(lobby.phase, Phase::Results { .. })
+        });
+        tick_until(&mut lobby, 2.0, |lobby| {
+            matches!(lobby.phase, Phase::Waiting)
+        });
+        tick_until(&mut lobby, 2.0, |lobby| {
+            matches!(lobby.phase, Phase::Racing(_))
+        });
+    }
+
+    #[test]
+    fn a_custom_lobby_waits_for_its_players() {
+        let mut lobby = new_lobby(settings(1, 2, 8), quick_timings());
+        join(&mut lobby, 1);
+        assert_eq!(lobby.state().phase, LobbyPhase::Waiting { solo_tick: None });
+        for _ in 0..600 {
+            lobby.tick();
+        }
+        assert!(matches!(lobby.phase, Phase::Waiting));
     }
 
     #[test]

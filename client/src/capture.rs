@@ -59,7 +59,7 @@ impl Plugin for CapturePlugin {
     fn build(&self, app: &mut App) {
         let ready = PipelinesReady::default();
         let script = app.world().resource::<Script>();
-        let target = if script.lobby.is_some() {
+        let target = if script.lobby.is_some() || script.quick_play || script.ranked {
             Target::Lobby
         } else if script.nickname.is_some() {
             Target::Lobbies

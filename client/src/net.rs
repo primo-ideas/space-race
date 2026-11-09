@@ -16,6 +16,7 @@ use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use futures_util::{SinkExt, StreamExt};
 use space_race_protocol::auth;
+use space_race_protocol::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
 use space_race_protocol::{
     self as protocol, CarId, ClientMessage, JoinError, LobbyId, LobbySettings, LobbyState,
     LobbySummary, OnlinePlayer, PROTOCOL_VERSION, RejectReason, ServerMessage, Snapshot, TrackInfo,
@@ -47,6 +48,14 @@ pub enum NetEvent {
     },
     JoinFailed(JoinError),
     Lobby(LobbyState),
+    /// The lobby closed around the player, as a ranked match does after its results.
+    LobbyEnded,
+    /// Where the player stands on the ladder.
+    Profile(RankedProfile),
+    /// The best players.
+    Leaderboard(Vec<LeaderboardEntry>),
+    /// Where the ranked queue stands while the player is in it, `None` once they are out.
+    Queue(Option<QueueStatus>),
     Snapshot {
         snapshot: Snapshot,
         /// When the session received it, so frame timing does not add jitter.
@@ -255,6 +264,10 @@ async fn run_session(
                     }
                     ServerMessage::JoinFailed(error) => NetEvent::JoinFailed(error),
                     ServerMessage::Lobby(state) => NetEvent::Lobby(state),
+                    ServerMessage::LobbyEnded => NetEvent::LobbyEnded,
+                    ServerMessage::Profile(profile) => NetEvent::Profile(profile),
+                    ServerMessage::Leaderboard(board) => NetEvent::Leaderboard(board),
+                    ServerMessage::Queue(status) => NetEvent::Queue(status),
                     ServerMessage::Snapshot(snapshot) => NetEvent::Snapshot {
                         snapshot,
                         received: Instant::now(),
@@ -391,6 +404,10 @@ fn log_event(event: &NetEvent) {
         NetEvent::Lobbies(_)
         | NetEvent::Players(_)
         | NetEvent::Lobby(_)
+        | NetEvent::LobbyEnded
+        | NetEvent::Profile(_)
+        | NetEvent::Leaderboard(_)
+        | NetEvent::Queue(_)
         | NetEvent::Snapshot { .. }
         | NetEvent::Pong { .. } => {}
     }

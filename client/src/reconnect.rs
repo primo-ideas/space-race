@@ -16,9 +16,9 @@
 //! player come back before the server has noticed they had gone (see docs/lobbies.md).
 
 use bevy::prelude::*;
-use space_race_protocol::{ClientMessage, LobbyId};
+use space_race_protocol::{ClientMessage, LobbyId, LobbyPhase};
 
-use crate::lobby::{CurrentLobby, LobbyList, LobbyUpdate, Notice};
+use crate::lobby::{CurrentLobby, Ladder, LobbyList, LobbyUpdate, Notice};
 use crate::net::{Connection, Network};
 
 /// Seconds between the connection being lost and the first try, then between each try and the
@@ -49,6 +49,10 @@ struct Attempt {
     nickname: String,
     /// The lobby to go back into once connected.
     lobby: Option<LobbyId>,
+    /// They were in the ranked queue, and go back in it.
+    queued: bool,
+    /// The connection went in the middle of a ranked race, which counts as coming last.
+    forfeited: bool,
     /// How many tries have been made.
     tries: usize,
     /// When the next try is made, in real seconds since startup.
@@ -82,6 +86,7 @@ fn delay(tries: usize) -> f64 {
 fn notice_loss(
     connection: Res<Connection>,
     current: Res<CurrentLobby>,
+    ladder: Res<Ladder>,
     time: Res<Time<Real>>,
     mut reconnect: ResMut<Reconnect>,
 ) {
@@ -97,10 +102,25 @@ fn notice_loss(
             let Some(nickname) = reconnect.online_as.clone() else {
                 return;
             };
-            let lobby = current.0.as_ref().map(|membership| membership.lobby);
+            // A ranked match is not one to come back to: nobody else may join it, and whoever
+            // walks out of its race has come last.
+            let ranked_state = current
+                .0
+                .as_ref()
+                .and_then(|membership| membership.state.as_ref())
+                .filter(|state| state.ranked);
+            let forfeited =
+                ranked_state.is_some_and(|state| matches!(state.phase, LobbyPhase::Racing { .. }));
+            let lobby = current
+                .0
+                .as_ref()
+                .filter(|_| ranked_state.is_none())
+                .map(|membership| membership.lobby);
             reconnect.attempt = Some(Attempt {
                 nickname,
                 lobby,
+                queued: ladder.queue.is_some(),
+                forfeited,
                 tries: 0,
                 next_at: now + delay(0),
                 welcomed: false,
@@ -176,6 +196,15 @@ fn go_back_to_the_lobby(
         ),
         Rejoin::Nothing => {}
     }
+    if attempt.queued {
+        network.send(ClientMessage::QueueRanked);
+    }
+    if attempt.forfeited {
+        notice.show(
+            "Connection lost in a ranked race: it counts as coming last.",
+            time.elapsed_secs_f64(),
+        );
+    }
     reconnect.attempt = None;
 }
 
@@ -201,10 +230,12 @@ fn rejoin(lobby: Option<LobbyId>, list: &LobbyList) -> Rejoin {
 
 #[cfg(test)]
 mod tests {
-    use space_race_protocol::{CarId, LobbySettings, LobbyStatus, LobbySummary, RejectReason};
+    use space_race_protocol::{
+        CarId, LobbySettings, LobbyState, LobbyStatus, LobbySummary, RejectReason,
+    };
 
     use super::*;
-    use crate::lobby::Membership;
+    use crate::lobby::{Membership, Queueing};
 
     #[test]
     fn tries_come_quickly_then_less_often() {
@@ -228,9 +259,39 @@ mod tests {
         app.add_plugins(MinimalPlugins)
             .init_resource::<Connection>()
             .init_resource::<CurrentLobby>()
+            .init_resource::<Ladder>()
             .init_resource::<Reconnect>()
             .add_systems(Update, notice_loss);
         app
+    }
+
+    /// A ranked race is not gone back to, and losing the connection in it costs the race; the
+    /// queue is gone back into.
+    #[test]
+    fn a_ranked_race_is_forfeited_and_the_queue_kept() {
+        let mut app = app();
+        set(&mut app, online());
+        let tuning = ron::from_str(include_str!("../../server/data/car.ron")).unwrap();
+        app.world_mut().resource_mut::<CurrentLobby>().0 = Some(Membership {
+            lobby: LobbyId(7),
+            car: CarId(1),
+            settings: settings(),
+            state: Some(LobbyState {
+                phase: LobbyPhase::Racing { start_tick: 0 },
+                ranked: true,
+                players: Vec::new(),
+                tuning,
+            }),
+        });
+        app.world_mut().resource_mut::<Ladder>().queue = Some(Queueing {
+            players: 2,
+            since: 0.0,
+        });
+        set(&mut app, lost(true));
+        let attempt = attempt(&app).expect("a reconnection");
+        assert_eq!(attempt.lobby, None);
+        assert!(attempt.forfeited);
+        assert!(attempt.queued);
     }
 
     fn set(app: &mut App, connection: Connection) {

@@ -7,10 +7,12 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use axum::extract::ws::{Message, WebSocket};
 use space_race_protocol::auth::{self, PublicKey};
+use space_race_protocol::ranked::QueueStatus;
 use space_race_protocol::{
     self as protocol, ClientMessage, PROTOCOL_VERSION, RejectReason, ServerMessage,
     is_valid_nickname,
 };
+use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::info;
 
@@ -129,16 +131,63 @@ async fn connected(
     if let Err(error) = send(socket, &welcome).await {
         return error.to_string();
     }
+    if let Err(error) = send_profile(socket, directory, player).await {
+        return error.to_string();
+    }
 
     let mut lobbies = directory.lobbies();
     let mut players = directory.online_players();
+    let mut leaderboard = directory.leaderboard();
+    let mut queue_size = directory.queue_size();
     lobbies.mark_changed();
     players.mark_changed();
+    leaderboard.mark_changed();
+    // Holds the player's place in the ranked queue: dropping it gives the place up.
+    let mut queued: Option<oneshot::Receiver<Membership>> = None;
     loop {
         let entered = tokio::select! {
             // The sender lives in the list of connected players, so it only goes, unsent, with
             // this connection: either way there is nothing left to do.
             _ = &mut *replaced => return close_replaced(socket).await,
+            matched = async { queued.as_mut().expect("guarded by is_some").await },
+                if queued.is_some() =>
+            {
+                queued = None;
+                if let Err(error) = send(socket, &ServerMessage::Queue(None)).await {
+                    return error.to_string();
+                }
+                match matched {
+                    Ok(membership) => Ok(membership),
+                    // The directory dropped the place: the server is stopping.
+                    Err(_) => continue,
+                }
+            }
+            changed = queue_size.changed(), if queued.is_some() => {
+                if changed.is_err() {
+                    return "the server is stopping".into();
+                }
+                let players = *queue_size.borrow_and_update();
+                let status = ServerMessage::Queue(Some(QueueStatus { players }));
+                if let Err(error) = send(socket, &status).await {
+                    return error.to_string();
+                }
+                continue;
+            }
+            changed = leaderboard.changed() => {
+                if changed.is_err() {
+                    return "the server is stopping".into();
+                }
+                let board = leaderboard.borrow_and_update().as_ref().clone();
+                if let Err(error) = send(socket, &ServerMessage::Leaderboard(board)).await {
+                    return error.to_string();
+                }
+                // Theirs may be what moved it: a player who walked out of a race is back here
+                // before the race has been settled.
+                if let Err(error) = send_profile(socket, directory, player).await {
+                    return error.to_string();
+                }
+                continue;
+            }
             changed = lobbies.changed() => {
                 if changed.is_err() {
                     return "the server is stopping".into();
@@ -173,6 +222,23 @@ async fn connected(
                 Ok(Some(ClientMessage::JoinLobby(lobby))) => {
                     directory.join(lobby, player.clone()).await
                 }
+                Ok(Some(ClientMessage::QuickPlay)) => {
+                    directory.quick_play(player.clone()).await
+                }
+                Ok(Some(ClientMessage::QueueRanked)) => {
+                    queued = Some(directory.enqueue(player.clone()).await);
+                    // Says so at once, and the size as soon as the directory has counted them in.
+                    queue_size.mark_changed();
+                    continue;
+                }
+                Ok(Some(ClientMessage::LeaveQueue)) => {
+                    queued = None;
+                    directory.dequeue(player.id).await;
+                    if let Err(error) = send(socket, &ServerMessage::Queue(None)).await {
+                        return error.to_string();
+                    }
+                    continue;
+                }
                 // The round trip is the client's to time: answered before anything else.
                 Ok(Some(ClientMessage::Ping(number))) => {
                     if let Err(error) = send(socket, &ServerMessage::Pong(number)).await {
@@ -190,15 +256,33 @@ async fn connected(
 
         match entered {
             Ok(membership) => {
+                // Entering a lobby is leaving the queue.
+                if queued.take().is_some() {
+                    directory.dequeue(player.id).await;
+                    if let Err(error) = send(socket, &ServerMessage::Queue(None)).await {
+                        return error.to_string();
+                    }
+                }
                 online.entered_lobby(membership.lobby.id());
-                if let Some(reason) = play(socket, membership, replaced).await {
+                match play(socket, membership, replaced).await {
                     // The guard takes the player off the list of connected players.
-                    return reason;
+                    Ending::Lost(reason) => return reason,
+                    Ending::Left => {}
+                    Ending::LobbyClosed => {
+                        if let Err(error) = send(socket, &ServerMessage::LobbyEnded).await {
+                            return error.to_string();
+                        }
+                    }
                 }
                 online.browsing();
+                // A match they just finished may have moved their rating.
+                if let Err(error) = send_profile(socket, directory, player).await {
+                    return error.to_string();
+                }
                 // Back to browsing: both lists may have changed meanwhile, send them again.
                 lobbies.mark_changed();
                 players.mark_changed();
+                leaderboard.mark_changed();
             }
             Err(error) => {
                 info!(player = %player.id, ?error, "entering a lobby failed");
@@ -210,13 +294,30 @@ async fn connected(
     }
 }
 
-/// Relays between the player and their lobby. Returns `None` when the player leaves the lobby,
-/// or why the connection ended.
-async fn play(
+/// Sends the player where they stand on the ladder, unless the server is stopping.
+async fn send_profile(
     socket: &mut WebSocket,
-    membership: Membership,
-    replaced: &mut Replaced,
-) -> Option<String> {
+    directory: &Directory,
+    player: &Player,
+) -> Result<()> {
+    match directory.profile(player.id).await {
+        Some(profile) => send(socket, &ServerMessage::Profile(profile)).await,
+        None => Ok(()),
+    }
+}
+
+/// How a player's time in a lobby ended.
+enum Ending {
+    /// They left, and browse lobbies again.
+    Left,
+    /// The lobby closed around them, as a ranked match does: they browse lobbies again.
+    LobbyClosed,
+    /// The connection ended, and why.
+    Lost(String),
+}
+
+/// Relays between the player and their lobby, until they leave it or the connection ends.
+async fn play(socket: &mut WebSocket, membership: Membership, replaced: &mut Replaced) -> Ending {
     let Membership {
         lobby,
         car,
@@ -231,7 +332,7 @@ async fn play(
     };
     if let Err(error) = send(socket, &joined).await {
         lobby.leave(car).await;
-        return Some(error.to_string());
+        return Ending::Lost(error.to_string());
     }
 
     let ending = loop {
@@ -241,15 +342,15 @@ async fn play(
             _ = &mut *replaced => {
                 // Out of the lobby first, so the car does not linger while the client is told.
                 lobby.leave(car).await;
-                return Some(close_replaced(socket).await);
+                return Ending::Lost(close_replaced(socket).await);
             }
             changed = state.changed() => {
                 if changed.is_err() {
-                    break Some("the lobby closed".into());
+                    break Ending::LobbyClosed;
                 }
                 let bytes = state.borrow_and_update().clone();
                 if let Err(error) = socket.send(Message::Binary(bytes)).await {
-                    break Some(error.to_string());
+                    break Ending::Lost(error.to_string());
                 }
             }
             message = receive(socket) => match message {
@@ -258,20 +359,22 @@ async fn play(
                 }
                 Ok(Some(ClientMessage::Ping(number))) => {
                     if let Err(error) = send(socket, &ServerMessage::Pong(number)).await {
-                        break Some(error.to_string());
+                        break Ending::Lost(error.to_string());
                     }
                 }
-                Ok(Some(ClientMessage::LeaveLobby)) => break None,
-                Ok(Some(_)) => break Some("unexpected message".into()),
-                Ok(None) => break Some("connection closed".into()),
-                Err(error) => break Some(error.to_string()),
+                Ok(Some(ClientMessage::LeaveLobby)) => break Ending::Left,
+                // Sent before the client knew it was in a match: it was in the queue a moment ago.
+                Ok(Some(ClientMessage::LeaveQueue | ClientMessage::QueueRanked)) => {}
+                Ok(Some(_)) => break Ending::Lost("unexpected message".into()),
+                Ok(None) => break Ending::Lost("connection closed".into()),
+                Err(error) => break Ending::Lost(error.to_string()),
             },
             snapshot = snapshots.recv() => {
                 let Some(bytes) = snapshot else {
-                    break Some("the lobby closed".into());
+                    break Ending::LobbyClosed;
                 };
                 if let Err(error) = socket.send(Message::Binary(bytes)).await {
-                    break Some(error.to_string());
+                    break Ending::Lost(error.to_string());
                 }
             }
         }
