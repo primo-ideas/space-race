@@ -125,7 +125,10 @@ fn show(
                         TextColor(theme::TEXT_DIM),
                     ));
                 }
+                // The player's own line stands out, in the color their name has everywhere else.
+                let own_place = ladder.profile.and_then(|profile| profile.place);
                 for entry in &ladder.leaderboard {
+                    let own = own_place == Some(entry.place);
                     card.spawn(Node {
                         align_items: AlignItems::Center,
                         column_gap: px(10),
@@ -144,7 +147,7 @@ fn show(
                         row.spawn((
                             Text::new(entry.nickname.clone()),
                             fonts.text(15.0, 600),
-                            TextColor(theme::TEXT),
+                            TextColor(if own { theme::OWN } else { theme::TEXT }),
                             Node {
                                 flex_grow: 1.0,
                                 flex_basis: px(0),

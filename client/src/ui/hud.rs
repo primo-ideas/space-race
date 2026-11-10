@@ -1,10 +1,11 @@
 //! Everything drawn over the race: the lobby's phase, the start lights and how well the player
-//! started, the lap and time, the standings, the speed, the drift and boost gauge, the results, the other players' names above their cars, and the dialog to
-//! leave the lobby.
+//! started, the lap and time, the standings, the speed, the drift and boost gauge, the results,
+//! the other players' names above their cars, and the dialog to leave the lobby.
 //!
 //! Each frame builds a [`HudModel`], what the HUD should say, from the lobby state and the race as
 //! displayed; a single pass then writes it into the text entities. The start lights and race times
-//! follow the displayed server tick, so the lights turn green when the cars on screen start moving.
+//! follow the player's own timeline while their car is predicted, ahead of the server, so the
+//! lights turn green on the tick their car can go; and the displayed server tick otherwise.
 
 use std::collections::{HashMap, HashSet};
 
@@ -366,16 +367,21 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                                     ..default()
                                 },
                             ));
-                            line.spawn((
+                            // A long name is cut off rather than wrapped onto a second line, by
+                            // the box around it: a node clips its children, not its own text.
+                            line.spawn(Node {
+                                flex_grow: 1.0,
+                                flex_basis: px(0),
+                                min_width: px(0),
+                                overflow: Overflow::clip(),
+                                ..default()
+                            })
+                            .with_child((
                                 Slot::StandingName(row),
                                 Text::default(),
                                 fonts.text(15.5, 600),
                                 TextColor(theme::TEXT),
-                                Node {
-                                    flex_grow: 1.0,
-                                    overflow: Overflow::clip(),
-                                    ..default()
-                                },
+                                TextLayout::no_wrap(),
                             ));
                             line.spawn((
                                 Slot::StandingInfo(row),
@@ -618,15 +624,19 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                                         ..default()
                                     },
                                 ));
-                                line.spawn((
+                                line.spawn(Node {
+                                    flex_grow: 1.0,
+                                    flex_basis: px(0),
+                                    min_width: px(0),
+                                    overflow: Overflow::clip(),
+                                    ..default()
+                                })
+                                .with_child((
                                     Slot::ResultName(row),
                                     Text::default(),
                                     fonts.text(18.0, 600),
                                     TextColor(theme::TEXT),
-                                    Node {
-                                        flex_grow: 1.0,
-                                        ..default()
-                                    },
+                                    TextLayout::no_wrap(),
                                 ));
                                 line.spawn((
                                     Slot::ResultTime(row),

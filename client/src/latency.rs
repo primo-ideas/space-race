@@ -100,6 +100,10 @@ struct Pending {
     placed: u32,
     /// The first snapshot that included it: its tick, and when it arrived.
     included: Option<(u32, Instant)>,
+    /// Whether it has been timed to the screen. A predicted input is on screen a lead before the
+    /// server has it, and waits here for the snapshot that times it to the server: dropped as
+    /// soon as it was shown, it was never timed there at all.
+    shown: bool,
 }
 
 impl Latency {
@@ -113,6 +117,7 @@ impl Latency {
             sent,
             placed,
             included: None,
+            shown: false,
         });
     }
 
@@ -166,6 +171,18 @@ impl Latency {
                 self.to_server.push(millis(received, pending.sent));
             }
         }
+        self.forget_timed();
+    }
+
+    /// Drops the inputs timed both to the server and to the screen, oldest first.
+    fn forget_timed(&mut self) {
+        while self
+            .inputs
+            .front()
+            .is_some_and(|pending| pending.shown && pending.included.is_some())
+        {
+            self.inputs.pop_front();
+        }
     }
 
     /// The race is displayed at `tick`, and the player's predicted car at `own_tick` if it is
@@ -173,19 +190,20 @@ impl Latency {
     /// placed on, or, without a prediction, once the displayed moment reaches the first snapshot
     /// that included it.
     fn displayed(&mut self, tick: f64, own_tick: Option<f64>, now: Instant) {
-        while let Some(pending) = self.inputs.front() {
+        for pending in self.inputs.iter_mut().filter(|pending| !pending.shown) {
             let shown = match (own_tick, pending.included) {
                 (Some(own_tick), _) => own_tick >= f64::from(pending.placed),
                 (None, Some((included, _))) => tick >= f64::from(included),
                 (None, None) => false,
             };
+            // In the order they were sent: one not on screen yet holds back those after it.
             if !shown {
                 break;
             }
-            let waited = millis(now, pending.sent);
-            self.to_screen.push(waited);
-            self.inputs.pop_front();
+            pending.shown = true;
+            self.to_screen.push(millis(now, pending.sent));
         }
+        self.forget_timed();
         if let Some(newest) = self.newest_tick {
             self.buffer
                 .push((f64::from(newest) - tick) * f64::from(TICK_SECONDS) * 1000.0);
@@ -396,6 +414,14 @@ mod tests {
         assert_eq!(latency.to_screen.mean(), None);
         latency.displayed(10.0, Some(50.0), after(start, 20));
         assert_eq!(latency.to_screen.mean(), Some(20.0));
+        // Still waiting for the server, which has not seen it yet: timed there when it has, and
+        // only then forgotten, and never timed to the screen twice.
+        assert_eq!(latency.to_server.mean(), None);
+        latency.displayed(10.5, Some(51.0), after(start, 30));
+        latency.snapshot(48, Some(1), after(start, 45));
+        assert_eq!(latency.to_server.mean(), Some(45.0));
+        assert_eq!(latency.to_screen.max(), Some(20.0));
+        assert!(latency.inputs.is_empty());
     }
 
     /// One snapshot can include several inputs, if they changed faster than the server ticks.

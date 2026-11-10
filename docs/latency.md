@@ -123,7 +123,9 @@ port, which adds the tunnel to the ping. A drifting lap of the skyway: **ping 22
 screen did not grow with the ping, which is what prediction is for. The input → server column was
 empty all race long: an input leaves the queue once it is on screen, which with prediction is
 before the snapshot including it arrives, so it is only ever timed when that snapshot happens to
-come first, and then it is a slow one. A fault of the measurement, not of the game.
+come first, and then it is a slow one. A fault of the measurement, not of the game, put right in
+v0.1.20: an input now stays in the queue until it has been timed both to the screen and to the
+server.
 
 ## What could come next
 

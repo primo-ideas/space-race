@@ -41,10 +41,19 @@ slow enough (about 15 ms) to take the edge off. Changing them means changing the
 client reads, the way the car tuning does.
 
 `sim::race::start_lights` says how many lights are lit at a moment of the countdown, and the HUD and
-the sound both read it, so what the player hears is what they see: both follow the race as
-displayed, 50 ms behind the server, not the moment a packet arrived. A player who joins the grid
+the sound both read it, on the same clock, so what the player hears is what they see: the player's
+own timeline while their car is predicted, ahead of the server, and the race as displayed, 50 ms
+behind it, for a spectator. Until v0.1.20 the sound followed the displayed race while the lights
+followed the prediction, and the start was heard a lead and three ticks after it was seen, about
+85 ms locally and 180 ms at a ping of 100 ms, against a window of 50 ms for a perfect start. A player who joins the grid
 late, or whose frame skipped a light, hears only the light that just came on, never a burst of
 missed ones.
+
+## A match found
+
+Two notes rising a fifth (G4 then D5 sounding together, 0.7 s, soft) as the player lands in a
+ranked match: they were waiting in the queue, and may be looking away from the screen
+(`announce_match`).
 
 ## No engine, for now
 

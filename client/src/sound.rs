@@ -3,8 +3,9 @@
 //! game, weighs nothing, and suits a game made of plain shapes.
 //!
 //! The start lights are the first sounds: a short blip as each amber light comes on, and a longer,
-//! fuller note as the green one starts the race. They follow the lights, which follow the race as
-//! displayed, so what the player hears and what they see agree.
+//! fuller note as the green one starts the race. They follow the lights, which follow the player's
+//! own timeline while their car is predicted, so what the player hears and what they see agree.
+//! A ranked match being found has a sound too: the player was waiting, and may be looking away.
 
 use std::f32::consts::TAU;
 use std::num::NonZero;
@@ -39,11 +40,12 @@ impl Plugin for SoundPlugin {
         app.insert_resource(GlobalVolume::new(Volume::Linear(self.volume)))
             .add_audio_source::<Tone>()
             .init_resource::<LitLights>()
+            .init_resource::<MatchAnnounced>()
             .add_systems(Startup, add_sounds)
             .add_systems(OnEnter(Screen::Lobby), forget_lights)
             .add_systems(
                 Update,
-                play_start_lights
+                (announce_match, play_start_lights)
                     .after(RaceUpdate)
                     .run_if(in_state(Screen::Lobby)),
             );
@@ -131,6 +133,8 @@ struct Sounds {
     light: Handle<Tone>,
     /// The green one: the race is on.
     start: Handle<Tone>,
+    /// A ranked match was found.
+    found: Handle<Tone>,
 }
 
 fn add_sounds(mut commands: Commands, mut tones: ResMut<Assets<Tone>>) {
@@ -149,15 +153,50 @@ fn add_sounds(mut commands: Commands, mut tones: ResMut<Assets<Tone>>) {
         attack: 0.018,
         decay: 3.2,
     });
-    commands.insert_resource(Sounds { light, start });
+    // Two notes rising a fifth, soft: it calls the player back without startling them.
+    let found = tones.add(Tone {
+        partials: vec![(392.0, 1.0), (587.33, 0.7), (784.0, 0.12)],
+        seconds: 0.7,
+        attack: 0.02,
+        decay: 5.0,
+    });
+    commands.insert_resource(Sounds {
+        light,
+        start,
+        found,
+    });
 }
 
 /// The start lights heard so far, so each one is heard once.
 #[derive(Resource, Default)]
 struct LitLights(u32);
 
-fn forget_lights(mut lit: ResMut<LitLights>) {
+fn forget_lights(mut lit: ResMut<LitLights>, mut announced: ResMut<MatchAnnounced>) {
     lit.0 = 0;
+    announced.0 = false;
+}
+
+/// Whether the match the player is in has been announced.
+#[derive(Resource, Default)]
+struct MatchAnnounced(bool);
+
+/// Plays a sound as the player lands in a ranked match: they were waiting in the queue, and may
+/// not be looking at the screen.
+fn announce_match(
+    mut commands: Commands,
+    current: Res<CurrentLobby>,
+    sounds: Res<Sounds>,
+    mut announced: ResMut<MatchAnnounced>,
+) {
+    let ranked = current
+        .0
+        .as_ref()
+        .and_then(|membership| membership.state.as_ref())
+        .is_some_and(|state| state.ranked);
+    if ranked && !announced.0 {
+        announced.0 = true;
+        commands.spawn((AudioPlayer(sounds.found.clone()), PlaybackSettings::DESPAWN));
+    }
 }
 
 fn play_start_lights(
@@ -172,7 +211,9 @@ fn play_start_lights(
         .as_ref()
         .and_then(|membership| membership.state.as_ref())
         .map(|state| &state.phase);
-    let lit = match (phase, view.tick) {
+    // On the player's own timeline while their car is predicted, as the lights are drawn: on the
+    // displayed race, the sound of the start came a lead and three ticks after its light.
+    let lit = match (phase, view.own_tick.or(view.tick)) {
         (Some(LobbyPhase::Racing { start_tick }), Some(tick)) => {
             let until_start = (f64::from(*start_tick) - tick) / f64::from(TICK_RATE);
             race::start_lights(until_start as f32).0
