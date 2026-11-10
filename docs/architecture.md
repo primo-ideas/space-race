@@ -146,6 +146,7 @@ The client module layout follows the path of the data:
 | `lobby` | The server's tracks, the lobby list and the lobby the player is in. |
 | `track` | Builds the lobby's track with the shared code, and its meshes. |
 | `race` | Snapshot buffer, interpolation, car entities, `RaceView` (the cars and the followed one). |
+| `car_model` | What a car looks like: its hull, lights, flames and the light under it, in two liveries. |
 | `weight` | The cars' bodies on their springs, and how the followed car is pushed, for the camera. |
 | `drift_meter` | The drift charge drawn on the road around the back of the player's car, as Rocket Racing draws it. |
 | `controls` | Gamepad, keyboard, touch or autopilot input (accelerate, drift, steer), sent on change and numbered. |
@@ -190,6 +191,28 @@ by mistake.
 
 **Cars** are drawn with their body turned into a drift (`Car::body_heading`), an angle the
 simulation does not drive along (see [Simulation](simulation.md#drift)).
+
+Since v0.1.21 a car is a racing hovercraft in the spirit of F-Zero's machines rather than three
+boxes (`client/src/car_model.rs`): a long wedge of a hull drawn out to a pointed nose, a cockpit
+bubble on its back, two engine pods slung beside it on a rear wing, each wearing a fin, a splitter
+under the nose and a white stripe down the middle. It is built from the same flat-shaded,
+vertex-colored triangles as the circuit, from cross-sections of eight points lofted along the car,
+about 4.5 m long and 2.8 m wide, a little more than the simulation's 2.4 m collision circle, and
+its underside clears the road by a quarter of a meter: nothing holds it up. Its livery says whose
+it is: the player's own orange, lined with orange neon, every other blue, lined with magenta. Three
+meshes per livery and three materials, shared by every car:
+
+- **the hull**, lit, roughness 0.42, casting the car's shadow;
+- **the lights**, unlit and brighter than white so the bloom haloes them: the thruster nozzles,
+  white hot, and the neon lines along the hull's flanks and the pods' tops;
+- **the light under the car** and **the flames**, unlit and added to what is behind them. The light
+  under the car hangs from the car rather than its body, so it stays on the road while the body
+  sways. The flames, a pyramid per nozzle fading from blue to nothing at its tip, are stretched
+  every frame to the car's speed, from 0.3 m at rest to 0.9 m at top speed, 0.85 m longer on a
+  boost, flickering by 8 % to each car's own beat (`light_thrusters`).
+
+The whole car is under 800 triangles, checked by a test, as is its size against the collision
+circle, the clearance under it, and the lights being the only part bright enough to bloom.
 
 **Weight.** The car drives heavy (see [Simulation](simulation.md#weight)), and since v0.1.15 it
 looks it. A car entity is placed on the road, and its body, a child of it, rides on springs over

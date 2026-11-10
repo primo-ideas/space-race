@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::f32::consts::{PI, TAU};
 
+use bevy::light::NotShadowCaster;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use space_race_protocol::{CarId, CarSnapshot, Snapshot};
@@ -15,6 +16,7 @@ use space_race_sim::TICK_SECONDS;
 use space_race_sim::car::Car;
 use space_race_sim::track::Surface;
 
+use crate::car_model::{self, Livery};
 use crate::lobby::CurrentLobby;
 use crate::net::NetEvent;
 use crate::prediction::{Prediction, predict};
@@ -46,6 +48,12 @@ impl Plugin for RacePlugin {
                 (receive_snapshots, predict, choose_spectated, display_cars)
                     .chain()
                     .in_set(RaceUpdate)
+                    .run_if(in_state(Screen::Lobby)),
+            )
+            .add_systems(
+                Update,
+                light_thrusters
+                    .after(RaceUpdate)
                     .run_if(in_state(Screen::Lobby)),
             );
     }
@@ -108,13 +116,23 @@ pub struct CarVisual(pub CarId);
 
 #[derive(Resource)]
 struct CarAssets {
-    body: Handle<Mesh>,
-    cabin: Handle<Mesh>,
-    nose: Handle<Mesh>,
-    own_color: Handle<StandardMaterial>,
-    other_color: Handle<StandardMaterial>,
-    cabin_color: Handle<StandardMaterial>,
-    nose_color: Handle<StandardMaterial>,
+    own: LiveryAssets,
+    other: LiveryAssets,
+    hull_flames: Handle<Mesh>,
+    pod_flames: Handle<Mesh>,
+    /// Lit, colored by the meshes' own vertex colors.
+    hull_material: Handle<StandardMaterial>,
+    /// Unlit: the neon and the thrusters shine by themselves.
+    lights_material: Handle<StandardMaterial>,
+    /// Unlit and added to whatever is behind: the flames and the light under the car.
+    added_material: Handle<StandardMaterial>,
+}
+
+/// The meshes painted in one livery.
+struct LiveryAssets {
+    hull: Handle<Mesh>,
+    lights: Handle<Mesh>,
+    under_glow: Handle<Mesh>,
 }
 
 fn create_car_assets(
@@ -122,15 +140,33 @@ fn create_car_assets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Cars are modeled along `+x`, the direction of a zero heading.
+    let mut livery = |livery: &Livery| LiveryAssets {
+        hull: meshes.add(car_model::hull_geometry(livery).into_mesh()),
+        lights: meshes.add(car_model::lights_geometry(livery).into_mesh()),
+        under_glow: meshes.add(car_model::under_glow_geometry(livery).into_mesh()),
+    };
+    let own = livery(&Livery::OWN);
+    let other = livery(&Livery::OTHER);
     commands.insert_resource(CarAssets {
-        body: meshes.add(Cuboid::new(3.6, 0.5, 1.8)),
-        cabin: meshes.add(Cuboid::new(1.5, 0.45, 1.5)),
-        nose: meshes.add(Cuboid::new(0.3, 0.12, 1.4)),
-        own_color: materials.add(Color::srgb(0.95, 0.35, 0.1)),
-        other_color: materials.add(Color::srgb(0.2, 0.45, 0.9)),
-        cabin_color: materials.add(Color::srgb(0.12, 0.12, 0.15)),
-        nose_color: materials.add(Color::srgb(1.0, 0.9, 0.2)),
+        own,
+        other,
+        hull_flames: meshes.add(car_model::hull_flames_geometry().into_mesh()),
+        pod_flames: meshes.add(car_model::pod_flames_geometry().into_mesh()),
+        hull_material: materials.add(StandardMaterial {
+            perceptual_roughness: 0.42,
+            reflectance: 0.6,
+            ..default()
+        }),
+        lights_material: materials.add(StandardMaterial {
+            unlit: true,
+            ..default()
+        }),
+        added_material: materials.add(StandardMaterial {
+            unlit: true,
+            alpha_mode: AlphaMode::Add,
+            cull_mode: None,
+            ..default()
+        }),
     });
 }
 
@@ -268,41 +304,82 @@ fn display_cars(
         if displayed.contains(id) {
             continue;
         }
-        let body_color = if Some(*id) == own_id {
-            assets.own_color.clone()
+        let livery = if Some(*id) == own_id {
+            &assets.own
         } else {
-            assets.other_color.clone()
+            &assets.other
+        };
+        let flames = |mesh: &Handle<Mesh>, origin: Vec3| {
+            (
+                Thrusters(*id),
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(assets.added_material.clone()),
+                Transform::from_translation(origin),
+                NotShadowCaster,
+            )
         };
         commands.spawn((
             CarVisual(*id),
             Sway::default(),
             car_transform(car, surface(car)),
             Visibility::default(),
-            children![(
-                CarBody,
-                Transform::default(),
-                Visibility::default(),
-                children![
-                    (
-                        Mesh3d(assets.body.clone()),
-                        MeshMaterial3d(body_color),
-                        Transform::from_xyz(0.0, 0.45, 0.0),
-                    ),
-                    (
-                        Mesh3d(assets.cabin.clone()),
-                        MeshMaterial3d(assets.cabin_color.clone()),
-                        Transform::from_xyz(-0.4, 0.92, 0.0),
-                    ),
-                    (
-                        Mesh3d(assets.nose.clone()),
-                        MeshMaterial3d(assets.nose_color.clone()),
-                        Transform::from_xyz(1.7, 0.76, 0.0),
-                    ),
-                ],
-            )],
+            children![
+                (
+                    CarBody,
+                    Transform::default(),
+                    Visibility::default(),
+                    children![
+                        (
+                            Mesh3d(livery.hull.clone()),
+                            MeshMaterial3d(assets.hull_material.clone()),
+                        ),
+                        (
+                            Mesh3d(livery.lights.clone()),
+                            MeshMaterial3d(assets.lights_material.clone()),
+                            NotShadowCaster,
+                        ),
+                        flames(&assets.hull_flames, car_model::hull_flames_origin()),
+                        flames(&assets.pod_flames, car_model::pod_flames_origin()),
+                    ],
+                ),
+                // On the road rather than on the body: the light stays where the road is while
+                // the body sways over it.
+                (
+                    Mesh3d(livery.under_glow.clone()),
+                    MeshMaterial3d(assets.added_material.clone()),
+                    NotShadowCaster,
+                ),
+            ],
         ));
     }
     view.cars = cars;
+}
+
+/// A car's thruster flames, which stretch with its speed and roar out on a boost.
+#[derive(Component)]
+struct Thrusters(CarId);
+
+/// How fast a car goes, for its flames, as a share of this speed: a car at top speed burns at full.
+const FLAME_FULL_SPEED: f32 = 40.0;
+
+/// Stretches every car's flames to its speed, a boost throwing them far out, and makes them
+/// flicker, each car to its own beat.
+fn light_thrusters(
+    view: Res<RaceView>,
+    time: Res<Time>,
+    mut flames: Query<(&Thrusters, &mut Transform)>,
+) {
+    let now = time.elapsed_secs();
+    for (thrusters, mut transform) in &mut flames {
+        let Some(car) = view.cars.iter().find(|car| car.id == thrusters.0) else {
+            continue;
+        };
+        let speed = car.car.velocity.length() / FLAME_FULL_SPEED;
+        let beat = f32::from(thrusters.0.0) * 1.7;
+        let flicker = (now * 31.0 + beat).sin() * 0.6 + (now * 53.0 + beat * 2.3).sin() * 0.4;
+        let length = car_model::flame_length(speed, car.car.boost > 0.0, flicker);
+        transform.scale = Vec3::new(length, 1.0, 1.0);
+    }
 }
 
 /// Seconds from app startup to `instant`. Snapshot arrival times and the current frame time both go

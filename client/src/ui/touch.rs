@@ -78,6 +78,8 @@ const HIT_BUZZ_LONGEST: f32 = 45.0;
 const HIT_BUZZ_FROM: f32 = 1.5;
 /// Scraping along a wall is a hit on every frame: one buzz at most this often, in seconds.
 const HIT_BUZZ_EVERY: f64 = 0.3;
+/// A boost firing, in milliseconds: longer than the drift's tick, softer than a hit.
+const BOOST_BUZZ: u32 = 30;
 
 /// The buttons that pick which car a spectator watches: the size of the steering buttons, under
 /// the same thumbs.
@@ -740,12 +742,23 @@ fn buzz_on_hits(
     view: Res<RaceView>,
     time: Res<Time<Real>>,
     mut last: Local<f64>,
+    mut boosting: Local<bool>,
 ) {
+    let Some(car) = view.own_car else {
+        *boosting = false;
+        return;
+    };
+    // A boost firing, as it fires: the thumbs feel the car leap.
+    if car.boost > 0.0 && !*boosting {
+        buzz(BOOST_BUZZ);
+    }
+    *boosting = car.boost > 0.0;
+
     let Some(push) = push.0 else {
         return;
     };
     let now = time.elapsed_secs_f64();
-    if view.own_car.is_none() || now - *last < HIT_BUZZ_EVERY {
+    if now - *last < HIT_BUZZ_EVERY {
         return;
     }
     if let Some(milliseconds) = hit_buzz(push.impact) {

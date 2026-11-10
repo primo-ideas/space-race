@@ -1,4 +1,5 @@
 mod camera;
+mod car_model;
 #[cfg(not(target_arch = "wasm32"))]
 mod capture;
 mod city;

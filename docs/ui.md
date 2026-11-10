@@ -224,7 +224,7 @@ it. Two thumbs on the steering: the one put down last steers, as the last key pr
 knocks the phone for 4 ms per m/s, from 12 to 45 ms, at most every 0.3 s so that scraping along a
 wall is not one long buzz. It is measured as the camera's shake is, from the speed the car lost
 at once beyond anything driving does (see [Architecture](architecture.md#displaying-the-race)).
-iOS lets no page vibrate.
+A boost firing buzzes for 30 ms, softer than a hit. iOS lets no page vibrate.
 
 **A spectator picks the car to watch** with two round buttons where the thumbs rest, the left
 one watching the car ahead and the right one the car behind, as left and right do on a keyboard.

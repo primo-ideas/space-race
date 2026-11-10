@@ -275,6 +275,33 @@ Inputs are quantized (booleans to accelerate and to drift, an `i8` for steering)
 the simulation. They are a few bytes on the wire, and both sides simulate from the same integers
 instead of floats that could differ in their last bits.
 
+### Steering from each device
+
+The simulation takes one number for the steering, from full left to full right, and three kinds
+of hands give it. The client shapes each before it becomes an input (`client/src/controls.rs`,
+v0.1.21), so the car underneath is the same for everyone and only what the hands can say differs:
+
+- **A stick** gets a dead zone of 0.1, so a worn stick resting a little off center does not steer
+  the car into a slow drift across the road, and full lock at 0.94, which a stick pushed at an
+  angle, its thumb also rising, never quite reaches at its rim. Between the two it is in
+  proportion, as before: the handling with a gamepad was judged right, and only its ends change.
+- **Keys and the D-pad** say left or right and nothing between, so every tap was a full turn of
+  the wheel, and at top speed a key held for a moment broke the car into a drift. They now ease in:
+  half lock on the press, then 2.5 more per second, full lock 0.2 s later, in steps of a tick so a
+  held key sends no more inputs than the server has ticks. A tap is a correction and a held key a
+  turn; holding it still breaks into a drift, a little later. Releasing goes straight to the
+  center, the car's own `steering_rate` easing it back. With both directions held, the last one
+  pressed steers, as on a touchscreen, rather than the two cancelling out.
+- **Thumbs on a screen** say how hard by where they rest (see [Interface](ui.md#the-controls-over-the-race)).
+
+The arrow keys and Space work as W, A, D and Shift do, for whoever's hand falls there. The devices
+still add up: whichever is used drives.
+
+Each device also says what happened, for eyes that are on the road: a gamepad rumbles on a wall hit,
+harder and longer the more speed it took (from a quarter to full strength, 85 to 160 ms, at most
+every 0.3 s), with a light tick of its high motor when the car breaks into a drift, and a short
+roll of both motors when a boost fires; a phone's vibration motor does the same on Android.
+
 ### Slopes
 
 The road is a height field over the plane (see [Tracks](tracks.md#relief)): the car still moves in
