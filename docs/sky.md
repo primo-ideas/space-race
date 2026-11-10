@@ -2,7 +2,7 @@
 
 Over the circuit, a starry night: stars all round, a band of galaxy across them, clouds of colored
 light, planets and moons, and a few shapes of neon turning slowly far out in space. It was the
-user's request, "un ciel nuit étoilé avec des astres colorés, des formes", made while the skyway
+user's request, "a starry night sky with colorful celestial bodies, shapes", made while the skyway
 was being dressed as a city at night (see [Tracks](tracks.md#the-skyways-city)). The code is
 `client/src/sky.rs`.
 

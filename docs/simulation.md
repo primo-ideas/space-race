@@ -50,7 +50,7 @@ and loses some speed doing so. **Drift** builds on that slide.
 
 ### Weight
 
-The car is heavy since v0.1.14, at the user's request ("ajoute de la lourdeur dans le gameplay"),
+The car is heavy since v0.1.14, at the user's request ("add some heaviness to the gameplay"),
 in all four of the ways they were offered: momentum, weight in the turns, a heavier wheel, and
 weight that shows. The first three are the simulation's, and every one of them is a number in
 `car.ron`; the last is the client's, the body on springs and the camera that feels them (see

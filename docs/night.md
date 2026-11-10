@@ -4,7 +4,7 @@ The circuits race through a city at night: the road and its walls lit in neon, t
 windowed with light, a starry sky over them (see [Sky](sky.md)). This page is about what makes that
 night more than a black background: the glow of the neon, the haze that gives the city depth, the
 light the walls throw on the road, what holds the road up, and what moves around it. It was the
-user's request, "embellis le niveau qu'on a, vas-y franchement", made once the skyway had been
+user's request, "make the level we have prettier, go all out", made once the skyway had been
 judged excellent.
 
 Everything here is worked out by the client from what the track file already says. None of it is

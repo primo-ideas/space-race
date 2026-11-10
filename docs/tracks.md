@@ -298,8 +298,8 @@ surface in sight.
 
 ### The skyway's city
 
-The skyway runs through a city at night, at the user's request "Remplis skyway de décors, ajoute
-des types de décors, que ce soit bien chargé, qu'on voit pas trop loin la suite du circuit". The
+The skyway runs through a city at night, at the user's request "Fill skyway with scenery, add
+kinds of scenery, make it really packed, so you can't see the circuit too far ahead". The
 point is the last part: the lap folds back on itself like a comb, and bare, the road showed the
 driver most of the lap at once, across the gaps between its legs and down from its high parts. Now
 the gaps are districts, their towers rising 35 to 50 m over the road beside them; the hairpins wrap
