@@ -268,8 +268,10 @@ instead, the machines of the time being too slow to run even an optimized Bevy u
 game; on the current one, the dev profile plays at well over a hundred frames per second and
 rebuilds our own code in seconds. CI builds the same profile with `CARGO_PROFILE_DEV_DEBUG=0`,
 since it only needs to know the code compiles and debug info is expensive to produce and cache.
-Release is built by the deployment alone, which is why it builds before anything is replaced: a
-release-only compilation error would not be caught anywhere else.
+Release is built by the deployment alone, the server in release itself and the web client in the
+`web` profile that inherits from it and is built for size (see [Web build](web.md#size)), which
+is why it builds before anything is replaced: a release-only compilation error would not be
+caught anywhere else.
 
 ## Feature unification
 

@@ -133,7 +133,8 @@ is, which leaves the virtual host certbot wrote untouched:
 
 `upgrade=websocket` lets `mod_proxy_http` carry the WebSocket by itself (Apache 2.4.47 and
 later), so no other module is needed. Ubuntu's own configuration already compresses
-`application/wasm`: the 52 MB module goes over the wire as 14.5 MB. Checked through Apache both
+`application/wasm`: the 52 MB module of the time went over the wire as 14.5 MB (it is 23.9 MB since v0.1.26, see
+[Web build](web.md#size)). Checked through Apache both
 ways, the browser over `wss://` and the native client over plain `ws://` through an SSH tunnel to
 the machine's port 80.
 

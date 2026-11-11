@@ -38,14 +38,15 @@ is why the deployment is gated and serialized rather than merely automatic.
 
 The first runs the same tests as `test-server.yml`, restoring that workflow's cache without ever
 writing to it. Nothing goes online on a red test. The second cross-compiles the server to
-`x86_64-unknown-linux-musl`, builds the client for the browser in release, runs `wasm-bindgen` at
+`x86_64-unknown-linux-musl`, builds the client for the browser in the `web` profile, runs `wasm-bindgen` at
 the version the lock file names and `wasm-opt` over the result, then uploads the lot and runs
 `deploy/install.sh` on the machine over SSH. It ends by fetching the page back, checking the
 module is served as `application/wasm` and that `/star-racer/ws` is not a 404, so a deployment that
 cannot be played does not pass for a good one.
 
 Between them, those two jobs are a stronger check than the four: they are the only place the
-**release** profile is built, and the release module is the one players download.
+**release** profile and the `web` profile that inherits from it are built, and the `web` module is
+the one players download.
 
 It caches the Cargo registry and deliberately **not** `target`. A release build of Bevy for wasm
 leaves a target directory of several gigabytes, and the whole repository shares one 10 GB cache:
