@@ -136,7 +136,7 @@ RedirectMatch permanent "^/space-race(/.*)?$" "/star-racer/"
 On 2026-11-11 the machine followed the renaming to Star Racer: the `star-racer` user, home, web
 directory and unit were made by hand in the same layout, the `space-race` service stopped and
 disabled, its conf swapped for the one above, and v0.1.26 installed with `install.sh`. The old
-user, home, unit file and web directory were left on the machine, unused.
+user, home, unit file and web directory were removed the same day, at the maintainer's word.
 
 ### star-racer.xyz
 
