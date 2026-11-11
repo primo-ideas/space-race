@@ -129,7 +129,40 @@ is, which leaves the virtual host certbot wrote untouched:
 	Require all granted
 	AddType application/wasm .wasm
 </Directory>
+# The game was Space Race until 2026-11-11: its old address leads to the new one.
+RedirectMatch permanent "^/space-race(/.*)?$" "/star-racer/"
 ```
+
+On 2026-11-11 the machine followed the renaming to Star Racer: the `star-racer` user, home, web
+directory and unit were made by hand in the same layout, the `space-race` service stopped and
+disabled, its conf swapped for the one above, and v0.1.26 installed with `install.sh`. The old
+user, home, unit file and web directory were left on the machine, unused.
+
+### star-racer.xyz
+
+The domain `star-racer.xyz` points at the same machine and serves the game at its root, from the
+same directory, so the page reaches its server at `/ws`
+([it finds it from its own address](#the-web-client-finds-its-own-server)):
+
+```text
+/etc/apache2/sites-available/002-plain-star-racer.conf   enabled with a2ensite
+```
+
+```apache
+<VirtualHost *:80>
+	ServerName star-racer.xyz
+	DocumentRoot /var/www/html/star-racer
+	<Location "/ws">
+		ProxyPass "http://127.0.0.1:8081/ws" upgrade=websocket
+	</Location>
+</VirtualHost>
+```
+
+That is plain HTTP only, and **not playable yet**: the page always connects over `wss://`, and
+the machine has no certificate for that name. The certificate is the maintainer's to request
+(`certbot --apache -d star-racer.xyz`, which writes the TLS virtual host from this one); nothing
+else is needed. A deployment needs no change: both names serve the one directory `install.sh`
+replaces.
 
 `upgrade=websocket` lets `mod_proxy_http` carry the WebSocket by itself (Apache 2.4.47 and
 later), so no other module is needed. Ubuntu's own configuration already compresses
