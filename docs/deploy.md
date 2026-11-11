@@ -158,10 +158,10 @@ same directory, so the page reaches its server at `/ws`
 </VirtualHost>
 ```
 
-That is plain HTTP only, and **not playable yet**: the page always connects over `wss://`, and
-the machine has no certificate for that name. The certificate is the maintainer's to request
-(`certbot --apache -d star-racer.xyz`, which writes the TLS virtual host from this one); nothing
-else is needed. A deployment needs no change: both names serve the one directory `install.sh`
+The page always connects over `wss://`, so the name needed a certificate of its own, which is the
+maintainer's: they requested it the same day (`certbot --apache -d star-racer.xyz`, which writes
+the TLS virtual host from this one and redirects plain HTTP to it). Since then
+<https://star-racer.xyz/> serves the game and `wss://star-racer.xyz/ws` reaches its server. A deployment needs no change: both names serve the one directory `install.sh`
 replaces.
 
 `upgrade=websocket` lets `mod_proxy_http` carry the WebSocket by itself (Apache 2.4.47 and
