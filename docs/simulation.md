@@ -92,7 +92,10 @@ corner by as far as its travel lags its nose; this one does not.
 
 - **Starting.** Above `drift_min_speed`, a press of the drift button with the stick turned at
   least a fifth of the way throws the car into a drift toward the stick, on the tick it is pressed.
-  A press is a press: a button held down since before starts nothing. Turning hard enough starts
+  A press is a press: a button held down since before starts nothing. It is remembered for
+  `drift_press_buffer`, 0.15 s: a thumb often lands on the button a moment before the stick has
+  left the center, or before the car is fast enough, and that press used to start nothing, with
+  nothing to say why. Turning hard enough starts
   one too, without the button: while the car grips, `Car::slip` is the real angle between its nose
   and its travel, and its reaching `drift_entry_angle` breaks the car away toward the side it came
   round. With the shipped tuning, full lock at speed puts the nose about 12 degrees off the travel
@@ -140,16 +143,26 @@ corner by as far as its travel lags its nose; this one does not.
   below `drift_min_speed` ends it and pays out too.
 - **Boost.** Ending the drift converts the charge beyond `drift_min_charge` into
   `drift_boost_rate` seconds of boost per second, up to `drift_max_boost`: with the shipped tuning,
-  the full second of boost takes two to three seconds of drift. A boost raises the top speed to
-  `boost_top_speed`, a fifth above `top_speed` as in the recording, and pushes at
-  `boost_acceleration`, in full up to `top_speed` and fading out above it, even without the
-  accelerator. After it, the car keeps its momentum: what is left above `top_speed` fades at
-  `overspeed_drag` (see [Accelerating](#accelerating-no-brake)).
-- **Losing it.** A drift that touches a wall ends at once and pays nothing. The body settles back
-  into line on its own, and the button, still held, starts nothing until it is pressed again.
+  the full 1.2 s of boost takes two to three and a half seconds of drift. A boost raises the top
+  speed to `boost_top_speed` and pushes at `boost_acceleration`, in full up to `top_speed` and
+  fading out above it, even without the accelerator. After it, the car keeps its momentum: what
+  is left above `top_speed` fades at `overspeed_drag` (see
+  [Accelerating](#accelerating-no-brake)). The boost was raised on 2026-11-11 at the user's
+  request ("Increase the boost out of a drift"): to 52 m/s from 48, three tenths above `top_speed`
+  where the recording's fifth had been kept, pushing at 45 m/s² instead of 35, for up to 1.2 s
+  instead of 1, and charged a quarter faster. What a full boost adds over top speed went from 8
+  to 12 m/s, and the skyway's drifting lap from 45.9 to 44.4 s before any turbo. At 54 m/s the
+  autopilot was still clean from live state but spent a second against the walls when six ticks
+  late, so 52 is where it stopped.
+- **Losing it.** A drift that hits a wall ends at once and pays nothing. The body settles back
+  into line on its own, and the button, still held, starts nothing until it is pressed again. A
+  graze is forgiven: meeting the wall at less than `drift_wall_tolerance`, 3 m/s into it, keeps
+  the drift, though it charges nothing on the ticks it touches. The tail of a car swung 55 degrees
+  across the road brushes a wall often, and losing two seconds of charge to it was a punishment
+  out of proportion.
 
 The car state carries all of it (`slip`, `body`, `drift`, `drift_charge`, `drift_held`,
-`drift_button`, `boost`), so the simulation stays one deterministic step, and the client predicts
+`drift_button`, `drift_press`, `boost`), so the simulation stays one deterministic step, and the client predicts
 a drift exactly as it predicts the rest.
 
 The tuning stays on the server, so the snapshots carry two gauges the server works out for the HUD:
@@ -158,6 +171,36 @@ the boost that ending the drift now would give, and the boost left, both as shar
 as Rocket Racing does, an arc of green segments on the road around the back of the player's car,
 lit from the middle outward as the charge builds and gone when the car is not drifting. The arc
 follows the travel rather than the body, so it stays under the car and square to the camera.
+
+### Turbo
+
+Drifting fills a second thing, as in Rocket Racing: the **turbo meter**, three charges
+(`TURBO_CHARGES`), which a press of the turbo button spends one at a time (2026-11-11, the user's
+request "Add a turbo bar").
+
+- **Filling.** Every second of drift charge fills `turbo_fill` charges, 0.2 with the shipped
+  tuning: a charge of turbo for five seconds of charge, which a drift at full lock builds in 3.3 s
+  and one barely steered in 10. It fills as the drift goes, not when it ends, so the meter is seen
+  to move, and a drift lost to a wall keeps what it had filled. The skyway's ten drifts fill a
+  little over two charges a lap.
+- **Firing.** A press with at least one whole charge spends it on `turbo_seconds` of boost, 2 s,
+  toward `turbo_top_speed`, 60 m/s, half as much again as `top_speed`, pushing at
+  `turbo_acceleration`, 55 m/s², in full up to `top_speed` and fading out toward its own top speed
+  as a boost's does. A press is a press: holding the button fires once. A press while a charge is
+  firing does nothing and spends nothing, and so does one with less than a whole charge.
+- **With a boost.** The turbo is the stronger of the two and takes over while it fires; a drift's
+  boost running under it runs out unused. Drifting through a turbo is allowed, and fills the
+  meter again.
+- **After it.** The car keeps its momentum as after any boost, the excess over `top_speed` fading
+  at `overspeed_drag`.
+
+The meter starts every race empty, the cars being put back on the grid. It is carried in the car
+(`turbo`, `turbo_boost`, `turbo_button`), so the client predicts a turbo as it predicts a drift,
+and a snapshot adds the gauge of what is left of the charge being fired. The HUD draws the meter
+as three bars over the speed (see [Interface](ui.md)).
+
+To be judged by the user: how quickly it fills, what a charge is worth, and whether a wall should
+cost some of it.
 
 #### How the drift got here
 
@@ -233,7 +276,9 @@ models of their time.
 
 | Track | Without the button | With it |
 | --- | --- | --- |
-| **skyway** (34 m, relief from 3 to 47 m) | 52.6 s | **45.9 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 52.6 s | **41.5 s** |
+| skyway, the same without firing the turbo | 52.6 s | 44.4 s |
+| skyway, before the bigger boost and the turbo (v0.1.22) | 52.6 s | 45.9 s |
 | skyway, before the car had weight (v0.1.13) | 49.9 s | 45.9 s |
 | skyway, with the drift of 2026-09-20 | 49.9 s | 46.9 s |
 | esplanade (28 m, bottlenecks of 13 to 15 m), no longer shipped | 41.5 s | 39.2 s |
@@ -243,9 +288,9 @@ models of their time.
 
 The hippodrome was the thin margin, and it should have been: its turns were 38 m sweepers taken
 nearly flat, where tightening the line buys little and the drag costs real speed. The skyway is the
-opposite, slaloms and bowls with hardly a straight, and drifting is worth 6.7 s a lap on it, 13%,
-the most of any circuit so far: ten drifts, 24 s of the 46 spent sliding, and a boost out of every
-one. Without the button, the autopilot never turns hard enough on it to break away. The car's
+opposite, slaloms and bowls with hardly a straight, and drifting is worth 11.1 s a lap on it, 21%,
+the most of any circuit so far: ten drifts, 22 s of the 41.5 spent sliding, a boost out of every
+one, and two charges of turbo fired on the way, worth 2.9 s between them. Without the button, the autopilot never turns hard enough on it to break away. The car's
 weight (v0.1.14) widened the gap from 3.9 s: the gripping lap lost 2.7 s, to the slower start, the
 heavier wheel and the looser grip, while the drifting lap lost nothing, its boosts now lingering
 where they used to be gone in two seconds.
@@ -263,16 +308,16 @@ smoothly instead of hitting a ceiling. Letting go of the button coasts to a stop
 Above `top_speed`, the car keeps its **momentum**: whatever put it there, a boost or a dive, the
 excess fades by `overspeed_drag`, a share of itself every second, a lot of it quickly and the last
 of it slowly, as air would hold back a heavy car. With the shipped 0.5, a boost that took the car to
-48 m/s leaves it at 45 a second after it ends and 42 three seconds after, where it used to be back
-at 40 within two seconds. Coasting still applies on top of it when the accelerator is let go.
+52 m/s leaves it at 47 a second after it ends and 43 three seconds after, where before the car had
+weight it was back at 40 within two seconds. Coasting still applies on top of it when the accelerator is let go.
 
 Pressing the accelerator right at the start of a race gives up to `start_boost` seconds of boost,
 graded from S to E (see [Lobbies](lobbies.md#the-start)).
 
 ### Inputs
 
-Inputs are quantized (booleans to accelerate and to drift, an `i8` for steering) before they reach
-the simulation. They are a few bytes on the wire, and both sides simulate from the same integers
+Inputs are quantized (booleans to accelerate, to drift and to fire the turbo, an `i8` for
+steering) before they reach the simulation. They are a few bytes on the wire, and both sides simulate from the same integers
 instead of floats that could differ in their last bits.
 
 ### Steering from each device
@@ -297,10 +342,15 @@ v0.1.21), so the car underneath is the same for everyone and only what the hands
 The arrow keys and Space work as W, A, D and Shift do, for whoever's hand falls there. The devices
 still add up: whichever is used drives.
 
+The turbo is E or the down arrow on a keyboard, never Control, which with W held closes a
+browser's tab; A, the bottom face button, or the left bumper on a gamepad, the bumper being for a
+thumb busy holding X through a drift; and the left branch of the cross on a touchscreen.
+
 Each device also says what happened, for eyes that are on the road: a gamepad rumbles on a wall hit,
 harder and longer the more speed it took (from a quarter to full strength, 85 to 160 ms, at most
-every 0.3 s), with a light tick of its high motor when the car breaks into a drift, and a short
-roll of both motors when a boost fires; a phone's vibration motor does the same on Android.
+every 0.3 s), with a light tick of its high motor when the car breaks into a drift, a short
+roll of both motors when a boost fires, and a hard kick of both, a third of a second, for the
+turbo; a phone's vibration motor does the same on Android.
 
 ### Slopes
 
@@ -333,7 +383,9 @@ The road is bounded by walls at half the width from the centerline — the width
 car, which a bottleneck pinches in (see [Tracks](tracks.md#bottlenecks)). The car collides as a
 circle of `collision_radius`: if it overlaps a wall it is pushed back along the direction from the
 centerline, the speed going into the wall is removed (a `wall_bounce` share of it comes back), and
-scraping along the wall slows the car down (`wall_friction`). Where the road is pinching in, that
+scraping along the wall slows the car down (`wall_friction`), for as long as it leans on it: a
+car running along a wall without going into it, by less than a centimeter a second, only brushes
+it and loses nothing. Where the road is pinching in, that
 push is the bottleneck squeezing a car that hugs the wall toward the middle of the road.
 
 The hit itself rubs too: it takes speed along the wall, `wall_impact_friction` m/s for every m/s it
@@ -341,6 +393,19 @@ takes into it, as friction does in an impact. A graze costs little and a blow at
 at 40 m/s and 15 degrees, the stick left alone, the shipped car falls to 32 m/s, where it used to
 keep 38, and being slow to get back up to speed, it is still more than a meter per second down
 four seconds later.
+
+The wall also **deflects** a car that grips (2026-11-11): on every tick it runs into the wall,
+its nose comes round toward where the hit sent it, along the wall and a little off it with the
+bounce, at `wall_alignment`, 60 per second, nearly all the way in three ticks. Without it the
+nose stayed pointed into the wall, the grip kept driving the car back into it, and every tick was
+another hit, each rubbing off a fortieth of the car's speed, until the player steered away: left
+alone after a hit at 7 degrees and 35 m/s, the test car was down to 15 m/s two seconds later,
+and is now at 30. A shallow hit cost more than a square one. The picture does not jump with the
+car: the body (`Car::body`) is left pointing where it did and swings back into line in its own
+time, the way it takes over the slide when a drift starts. Only the way the car was already going: one
+that hits head on, or stands against the wall, is left to turn away by itself. A hit hard enough
+to break the car into a drift, from about 9 degrees at speed, already followed the wall, a
+drift's heading being its travel; this is for the shallow hits and the slow ones.
 
 Cars do not collide with each other yet.
 
@@ -372,7 +437,13 @@ laps measure what the button is worth.
 Both decide from the road ahead rather than from their own steering: the drifting style taps the
 button, with the stick into the turn, when the road turns by more than 0.25 rad over the next
 16 m. A press is a press, so a tap that came too early to start anything is let go of and made
-again. `LapReport` counts drifts, the longest one, and ticks spent drifting and boosting.
+again. `LapReport` counts drifts, the longest one, ticks spent drifting and boosting, and charges
+of turbo fired.
+
+The drifting style also fires the turbo its drifts fill: with a whole charge, out of a drift and
+of any boost, where the centerline turns by less than 0.3 rad at every one of four points over
+the next 60 m. On the skyway that is two charges a lap, and it ends the lap with part of a third
+it found no room to fire.
 
 In a drift the stick sets the curve the travel follows, as it sets the nose's rotation while the
 car grips, on a radius of the same kind, so the one pursuit drives both: full lock for 0.25 rad
@@ -392,7 +463,9 @@ around 18. The esplanade, with its bottlenecks, left late information less room:
 its gripping lap stayed clean (40.8 s), but the drifting one scraped into every bottleneck, 19 ticks
 against the walls in a lap. A drift decided on old information runs wider, and a bottleneck is
 where that shows. The skyway, 34 m wide and never pinched, is clean six ticks late in both styles:
-52.8 s gripping, 46.1 s drifting. Weight makes late information costlier: with the wheel slowed as
+52.8 s gripping, 46.1 s drifting. Since the bigger boost and the turbo, the drifting lap six ticks
+late is 45.1 s with 35 ticks against the walls, three charges of turbo fired at 60 m/s on old
+information; the gripping one is still clean, and from live state the drifting one is too. Weight makes late information costlier: with the wheel slowed as
 well as the rotation (`steering_rate` 10 or 8 rather than 14), the drifting autopilot six ticks
 late swung from wall to wall through the slaloms, 160 ticks against them in a lap.
 
@@ -422,7 +495,14 @@ A player would have felt the same delay without being able to name it.
   longer it is held; straightening ends it and pays out, unless the button is held; the button
   held with the stick against the drift carries it over to the other side with its charge; a
   boost pushes hard even at top speed; a short drift gives nothing; one into a wall is lost, the
-  body settles back and the held button starts nothing.
+  body settles back and the held button starts nothing; a press made a tenth of a second before
+  the stick turns still starts a drift and one made 0.4 s before does not; a graze keeps the
+  drift and charges nothing, a hit loses it.
+- Turbo: nothing to fire on an empty meter; four seconds of drift at full lock fill more than one
+  charge, and the meter stops at three; a press spends one charge, a held button no more, and the
+  car goes faster than any boost takes it, up to the turbo's top speed and no further.
+- Walls: a wall turns the nose of a car that hits it at a shallow angle along itself, which keeps
+  it more than 3 m/s faster two seconds later than a car left with its nose in.
 - Start: grades follow the distance to the start either way, from the press that counts (held
   through the start, pressed again late, or never pressed).
 - Autopilot: a full lap of an oval without touching the walls, from live state and with 3, 6 and 9

@@ -47,7 +47,9 @@ ranked match. Each screen's entities despawn when it is left.
   second: three amber that pop as they light, then the start itself, green, blazing larger with a
   ring bursting out of it, each with its own sound, see [Sound](sound.md)), the start grade (S to E) for three seconds
   after it, the lap and race time, the standings or the player list, the speed with the drift or
-  boost gauge over it and the drift charge as an arc of green segments on the road around the back
+  boost gauge over it, the turbo meter over that (three bars, one per charge, a full one bright
+  magenta and the one filling dim, its name lit once there is a charge to fire, and a TURBO BOOST
+  gauge running down while one fires) and the drift charge as an arc of green segments on the road around the back
   of the car (see [Simulation](simulation.md#drift)), the results between races, the other players' names above their cars, a
   confirmation before leaving, and, on F3, the latency figures (see [Latency](latency.md)).
   Spectators see whom they watch and switch cars with left and right.
@@ -184,8 +186,8 @@ changes beyond sizes:
   phone's own lists do (`scroll_on_drag`): whichever ancestor of what the finger touched scrolls
   vertically moves by the finger's travel, divided by the interface's scale. A finger that slid
   more than 12 pixels on its way was scrolling, and lifting it taps nothing (`TouchTravel`).
-- **The race HUD moves out of the thumbs' way.** The speed and its gauge leave the bottom left
-  corner for under the lobby's name; the frame rate leaves the bottom right for the bottom edge,
+- **The race HUD moves out of the thumbs' way.** The speed, its gauge and the turbo meter leave
+  the bottom left corner for under the lobby's name; the frame rate leaves the bottom right for the bottom edge,
   between the two thumbs; the standings move down to make room for a **LEAVE** button, which a
   screen with no Escape key and no Start button needs.
 - **No key hints anywhere.** `hint_row` hides itself on a touchscreen, and the HUD does not ask
@@ -210,9 +212,12 @@ In the bottom right is a **cross**: touching it anywhere accelerates -- there is
 throttle is simply wherever the thumb lands -- and sliding from its hub onto a branch calls that
 branch's function without letting go of the throttle. **Drift is the first branch, straight up**:
 the shortest slide for a thumb on the hub, and on Android a 14 ms tick of the vibration motor
-says the thumb got there, so the eyes can stay on the road. The other three are drawn as the empty
-slots they are, and light up grey rather than neon when a thumb finds them, so it is plain that
-they are there and that they are waiting for the turbo and whatever comes after it.
+says the thumb got there, so the eyes can stay on the road. **The turbo is the second branch, to
+the left**, toward the middle of the screen, where a right thumb folds more easily than it
+stretches toward the edge: arriving on it is the press, which fires a charge if the meter holds
+one, and the phone kicks for 70 ms as it fires. The other two are drawn as the empty slots they
+are, and light up grey rather than neon when a thumb finds them, so it is plain that they are
+there and waiting for whatever comes next.
 
 **Neither thumb has to find its control again.** Anywhere in the bottom of the left half steers,
 up to 70 units above the buttons, as hard as the place it rests at; anywhere in the bottom of the

@@ -377,7 +377,7 @@ fn light_thrusters(
         let speed = car.car.velocity.length() / FLAME_FULL_SPEED;
         let beat = f32::from(thrusters.0.0) * 1.7;
         let flicker = (now * 31.0 + beat).sin() * 0.6 + (now * 53.0 + beat * 2.3).sin() * 0.4;
-        let length = car_model::flame_length(speed, car.car.boost > 0.0, flicker);
+        let length = car_model::flame_length(speed, car.car.is_boosting(), flicker);
         transform.scale = Vec3::new(length, 1.0, 1.0);
     }
 }
@@ -472,6 +472,7 @@ impl SnapshotBuffer {
                             progress: lerp(previous.progress, target.progress),
                             drift_gauge: lerp(previous.drift_gauge, target.drift_gauge),
                             boost_gauge: lerp(previous.boost_gauge, target.boost_gauge),
+                            turbo_gauge: lerp(previous.turbo_gauge, target.turbo_gauge),
                             input_seq: target.input_seq,
                         }
                     }
@@ -502,6 +503,8 @@ pub(crate) fn interpolate(from: &Car, to: &Car, t: f32) -> Car {
         drift_charge: lerp(from.drift_charge, to.drift_charge),
         drift_held: lerp(from.drift_held, to.drift_held),
         boost: lerp(from.boost, to.boost),
+        turbo: lerp(from.turbo, to.turbo),
+        turbo_boost: lerp(from.turbo_boost, to.turbo_boost),
         ..*to
     }
 }
@@ -526,6 +529,7 @@ mod tests {
                 progress: 0.0,
                 drift_gauge: 0.0,
                 boost_gauge: 0.0,
+                turbo_gauge: 0.0,
                 input_seq: 0,
             }],
         }

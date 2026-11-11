@@ -79,20 +79,38 @@
     // stays held: a drift costs nothing, tightening it does, harder and harder.
     drift_button_drag: 1.5,
     drift_button_drag_ramp: 0.5,
+    // Seconds a press of the drift button is remembered: pressed a moment before the stick is
+    // turned, it still starts the drift.
+    drift_press_buffer: 0.15,
+    // The hardest a drifting car can meet a wall and keep its drift, in m/s into the wall. A graze
+    // is forgiven, and charges nothing while it lasts; a hit loses the drift and what it built up.
+    drift_wall_tolerance: 3.0,
     // Charge before any boost (s), seconds of boost per second of charge beyond it, and the
     // longest boost (s). The charge grows from half to one and a half times real time, tighter drifts
-    // faster, so a full charge takes two to three seconds of drift.
+    // faster, so a full charge takes two to three and a half seconds of drift.
     drift_min_charge: 0.3,
-    drift_boost_rate: 0.4,
-    drift_max_boost: 1.0,
-    // Boost: top speed (m/s, 48 = 173 km/h, a fifth above top_speed) and acceleration (m/s²), in
-    // full up to top_speed and fading out above it. After it, the car keeps its momentum: the speed
-    // above top_speed fades at overspeed_drag.
-    boost_top_speed: 48.0,
-    boost_acceleration: 35.0,
+    drift_boost_rate: 0.5,
+    drift_max_boost: 1.2,
+    // Boost: top speed (m/s, 52 = 187 km/h, three tenths above top_speed) and acceleration (m/s²),
+    // in full up to top_speed and fading out above it. After it, the car keeps its momentum: the
+    // speed above top_speed fades at overspeed_drag.
+    boost_top_speed: 52.0,
+    boost_acceleration: 45.0,
     // Boost for a perfect start (s), pressing the accelerator right at the start. Grades from S to
     // E give from all of it to none.
     start_boost: 1.5,
+
+    // Turbo: a meter of three charges that drifting fills, a charge spent at a press of the turbo
+    // button on a boost stronger and longer than a drift's.
+    // Charges filled per second of drift charge: at 0.2, a charge for every five seconds of
+    // charge, which a tight drift builds in a little over three.
+    turbo_fill: 0.2,
+    // What a charge gives: seconds of boost, its top speed (m/s, 60 = 216 km/h, half as much again
+    // as top_speed) and its acceleration (m/s²), fading out toward that top speed as a boost's
+    // does.
+    turbo_seconds: 2.0,
+    turbo_top_speed: 60.0,
+    turbo_acceleration: 55.0,
 
     // Walls. The bounce is the share of the impact speed that comes back, from 0 to 1. The impact
     // friction is the speed along the wall a hit takes, per m/s it takes into it: a graze costs
@@ -101,4 +119,9 @@
     wall_bounce: 0.1,
     wall_impact_friction: 0.5,
     wall_friction: 2.5,
+    // Per second: how quickly a wall turns a car that runs into it along itself, so the car comes
+    // away from it instead of grinding on with its nose in. High, so it is done in a few ticks,
+    // each of which is another hit; the body swings round after it in its own time. 0 leaves the
+    // car pointing where it did.
+    wall_alignment: 60.0,
 )

@@ -15,7 +15,10 @@
 //! what ends the drift, but it never carries the car off its line. Nothing has to be held and the
 //! drift costs no speed; holding the button tightens the curve, at a cost that grows the longer it
 //! is held. Bringing the body back into line ends the drift and pays out what it built up as a
-//! boost, unless the button is held. Touching a wall loses it.
+//! boost, unless the button is held. Hitting a wall loses it; grazing one does not.
+//!
+//! Drifting also fills the **turbo** meter, which holds up to [`TURBO_CHARGES`] charges. A press of
+//! the turbo button spends one on a boost stronger and longer than a drift's.
 
 use std::f32::consts::{PI, TAU};
 
@@ -65,7 +68,19 @@ pub struct Car {
     pub drift_button: bool,
     /// Seconds of boost left.
     pub boost: f32,
+    /// Seconds a press of the drift button is still remembered for: a press made a moment before
+    /// the stick is turned, or before the car is fast enough, still starts its drift.
+    pub drift_press: f32,
+    /// The turbo meter, in charges, from 0 to [`TURBO_CHARGES`]. Drifting fills it.
+    pub turbo: f32,
+    /// Seconds left of the turbo being fired.
+    pub turbo_boost: f32,
+    /// Whether the turbo button was down on the last tick, so a press is told apart from a hold.
+    pub turbo_button: bool,
 }
+
+/// How many charges the turbo meter holds.
+pub const TURBO_CHARGES: f32 = 3.0;
 
 /// A press of the drift button starts nothing unless the stick points at least this far to one
 /// side: a drift needs a side.
@@ -75,6 +90,9 @@ const DRIFT_PRESS_STICK: f32 = 0.2;
 /// the other side, charge and all: how a drift is chained through an S.
 const DRIFT_SWITCH_STICK: f32 = 0.5;
 
+/// A car going into a wall slower than this, in m/s, is running along it rather than into it.
+const WALL_BRUSH: f32 = 0.01;
+
 /// What a player presses, quantized: compact on the wire, and the same number on every machine.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Encode, Decode)]
 pub struct CarInput {
@@ -83,6 +101,8 @@ pub struct CarInput {
     pub drift: bool,
     /// From -127 (full left) to 127 (full right).
     pub steer: i8,
+    /// Pressed to fire a charge of the turbo.
+    pub turbo: bool,
 }
 
 impl CarInput {
@@ -92,11 +112,16 @@ impl CarInput {
             accelerate,
             drift: false,
             steer: (steer.clamp(-1.0, 1.0) * 127.0).round() as i8,
+            turbo: false,
         }
     }
 
     pub fn with_drift(self, drift: bool) -> Self {
         Self { drift, ..self }
+    }
+
+    pub fn with_turbo(self, turbo: bool) -> Self {
+        Self { turbo, ..self }
     }
 
     /// In `[-1, 1]`, right positive. A peer may send -128, which counts as full left.
@@ -193,6 +218,12 @@ pub struct CarTuning {
     /// How much more holding the button drags for every second it is held, in m/s² per second: a
     /// drift tightened for long brakes harder and harder, so the button has to be let go of.
     pub drift_button_drag_ramp: f32,
+    /// Seconds a press of the drift button is remembered for. A thumb often lands on the button a
+    /// moment before the stick has left the center; without this, that press started nothing.
+    pub drift_press_buffer: f32,
+    /// The hardest a drifting car can meet a wall and keep its drift, in m/s into the wall: a
+    /// graze is forgiven, though it charges nothing while it lasts; a hit loses the drift.
+    pub drift_wall_tolerance: f32,
     /// Charge a drift needs before it gives any boost, in seconds.
     pub drift_min_charge: f32,
     /// Seconds of boost per second of charge beyond the minimum.
@@ -208,6 +239,16 @@ pub struct CarTuning {
     /// Seconds of boost for a perfect start: pressing the accelerator right at the start. Lesser
     /// starts get a share of it (see [`StartGrade`](super::race::StartGrade)).
     pub start_boost: f32,
+    /// Charges of turbo a second of drift charge fills: at 0.2, a charge of turbo for every five
+    /// seconds of charge, which the tightest drifts build in a little over three.
+    pub turbo_fill: f32,
+    /// Seconds a charge of turbo boosts for.
+    pub turbo_seconds: f32,
+    /// Top speed while the turbo fires, in m/s. Above `top_speed`.
+    pub turbo_top_speed: f32,
+    /// Acceleration while the turbo fires, in m/s², fading out toward `turbo_top_speed` the way a
+    /// boost's does.
+    pub turbo_acceleration: f32,
 
     /// Radius of the circle the car collides as, in meters.
     pub collision_radius: f32,
@@ -219,6 +260,11 @@ pub struct CarTuning {
     pub wall_impact_friction: f32,
     /// How quickly scraping along a wall slows the car, per second.
     pub wall_friction: f32,
+    /// How quickly a wall turns a car that runs into it along itself, per second: the wall
+    /// deflects the car, which comes away from it instead of grinding on with its nose in. High,
+    /// so it is done in a few ticks, each of which is another hit; the body swings round after
+    /// it in its own time. Zero leaves the car pointing where it did.
+    pub wall_alignment: f32,
 }
 
 impl CarTuning {
@@ -243,6 +289,9 @@ impl CarTuning {
             ("drift_steering_response", self.drift_steering_response),
             ("boost_top_speed", self.boost_top_speed),
             ("boost_acceleration", self.boost_acceleration),
+            ("turbo_seconds", self.turbo_seconds),
+            ("turbo_top_speed", self.turbo_top_speed),
+            ("turbo_acceleration", self.turbo_acceleration),
             ("collision_radius", self.collision_radius),
         ];
         let non_negative = [
@@ -260,6 +309,10 @@ impl CarTuning {
             ("start_boost", self.start_boost),
             ("wall_impact_friction", self.wall_impact_friction),
             ("wall_friction", self.wall_friction),
+            ("wall_alignment", self.wall_alignment),
+            ("drift_press_buffer", self.drift_press_buffer),
+            ("drift_wall_tolerance", self.drift_wall_tolerance),
+            ("turbo_fill", self.turbo_fill),
         ];
         for (name, value) in positive {
             if !(value.is_finite() && value > 0.0) {
@@ -298,6 +351,12 @@ impl CarTuning {
             return Err(format!(
                 "boost_top_speed must be above top_speed, not {}",
                 self.boost_top_speed
+            ));
+        }
+        if self.turbo_top_speed <= self.top_speed {
+            return Err(format!(
+                "turbo_top_speed must be above top_speed, not {}",
+                self.turbo_top_speed
             ));
         }
         if !(0.0..=1.0).contains(&self.wall_bounce) {
@@ -353,9 +412,16 @@ impl Car {
             .clamp(0.0, tuning.drift_max_boost)
     }
 
+    /// Whether a boost is pushing the car, a drift's, a start's or the turbo's.
+    pub fn is_boosting(&self) -> bool {
+        self.boost > 0.0 || self.turbo_boost > 0.0
+    }
+
     /// Advances the car by one tick.
     pub fn step(&mut self, input: CarInput, tuning: &CarTuning, track: &Track) {
         let dt = TICK_SECONDS;
+        let (charge, turbo) = (self.drift_charge, self.turbo);
+        self.fire_turbo(input, tuning, dt);
         // The steering moves on the very tick the stick does, and eases in as it gets there.
         self.steering += (input.steer() - self.steering) * (1.0 - decay(tuning.steering_rate, dt));
         self.update_drift(input, tuning, dt);
@@ -375,15 +441,23 @@ impl Car {
         }
         self.position += self.velocity * dt;
 
-        let hit_wall = self.collide_with_walls(tuning, track, dt);
-        if hit_wall && self.is_drifting() {
-            // A drift into a wall is lost, and pays nothing. The body settles back into line on
-            // its own, as after any drift.
-            self.drift = 0;
-            self.drift_charge = 0.0;
-            self.drift_held = 0.0;
-        }
+        let hit = self.collide_with_walls(tuning, track, dt);
         let moving = self.velocity.length_squared() > 1e-6;
+        if let Some(impact) = hit
+            && self.is_drifting()
+        {
+            if impact > tuning.drift_wall_tolerance {
+                // A drift into a wall is lost, and pays nothing. The body settles back into line
+                // on its own, as after any drift.
+                self.drift = 0;
+                self.drift_charge = 0.0;
+                self.drift_held = 0.0;
+            } else {
+                // A graze is forgiven, but a drift along a wall builds nothing up.
+                self.drift_charge = self.drift_charge.min(charge);
+                self.turbo = self.turbo.min(turbo);
+            }
+        }
         if self.is_drifting() && moving {
             // A drift steers the travel itself, walls included.
             self.heading = self.velocity.to_angle();
@@ -397,6 +471,18 @@ impl Car {
         };
         self.swing(tuning, dt);
         self.drift_button = input.drift;
+        self.turbo_button = input.turbo;
+    }
+
+    /// A press of the turbo button spends a charge of the meter, if there is a whole one, on
+    /// `turbo_seconds` of the strongest boost there is. A press while one is firing does nothing.
+    fn fire_turbo(&mut self, input: CarInput, tuning: &CarTuning, dt: f32) {
+        self.turbo_boost = (self.turbo_boost - dt).max(0.0);
+        let pressed = input.turbo && !self.turbo_button;
+        if pressed && self.turbo >= 1.0 && self.turbo_boost <= 0.0 {
+            self.turbo -= 1.0;
+            self.turbo_boost = tuning.turbo_seconds;
+        }
     }
 
     /// Swings the body toward its angle. Its speed changes by no more than
@@ -428,9 +514,18 @@ impl Car {
     /// it over to the other side, charge and all.
     fn update_drift(&mut self, input: CarInput, tuning: &CarTuning, dt: f32) {
         self.boost = (self.boost - dt).max(0.0);
+        // A press is remembered for a moment, so one made just before the stick is turned still
+        // starts its drift.
+        let pressed = input.drift && !self.drift_button;
+        self.drift_press = if pressed {
+            tuning.drift_press_buffer
+        } else {
+            (self.drift_press - dt).max(0.0)
+        };
 
         let speed = self.velocity.length();
         if self.is_drifting() {
+            self.drift_press = 0.0;
             // Decided on the stick itself, which says what the player means before the steering
             // has followed it.
             if input.drift && input.steer() * f32::from(self.drift) < -DRIFT_SWITCH_STICK {
@@ -443,7 +538,10 @@ impl Car {
             } else {
                 // Tighter drifts build up faster: from half to one and a half times real time.
                 // Steering out of the drift charges at the slow end, never backwards.
-                self.drift_charge += dt * (0.5 + self.drift_stick().max(0.0));
+                let gained = dt * (0.5 + self.drift_stick().max(0.0));
+                self.drift_charge += gained;
+                // Drifting is what fills the turbo.
+                self.turbo = (self.turbo + gained * tuning.turbo_fill).min(TURBO_CHARGES);
                 self.drift_held = if input.drift {
                     self.drift_held + dt
                 } else {
@@ -451,7 +549,7 @@ impl Car {
                 };
             }
         } else if speed >= tuning.drift_min_speed {
-            let pressed = input.drift && !self.drift_button;
+            let pressed = pressed || self.drift_press > 0.0;
             let side = if pressed && input.steer().abs() >= DRIFT_PRESS_STICK {
                 // Steering right is a drift to the right, side 1.
                 input.steer().signum() as i8
@@ -473,6 +571,7 @@ impl Car {
         self.drift = side;
         self.drift_charge = 0.0;
         self.drift_held = 0.0;
+        self.drift_press = 0.0;
         if self.velocity.length_squared() > 1e-6 {
             self.body += self.slip;
             self.heading = self.velocity.to_angle();
@@ -593,12 +692,19 @@ impl Car {
         tuning: &CarTuning,
         dt: f32,
     ) -> f32 {
-        let forward_speed = if self.boost > 0.0 {
-            // Full push up to top speed, fading out toward the boost top speed.
-            let fade = ((tuning.boost_top_speed - speed)
-                / (tuning.boost_top_speed - tuning.top_speed))
-                .clamp(0.0, 1.0);
-            forward_speed + tuning.boost_acceleration * fade * dt
+        // The turbo is the stronger of the two, and takes over from a boost while it fires.
+        let boost = if self.turbo_boost > 0.0 {
+            Some((tuning.turbo_top_speed, tuning.turbo_acceleration))
+        } else if self.boost > 0.0 {
+            Some((tuning.boost_top_speed, tuning.boost_acceleration))
+        } else {
+            None
+        };
+        let forward_speed = if let Some((boost_top_speed, acceleration)) = boost {
+            // Full push up to top speed, fading out toward the boost's own top speed.
+            let fade =
+                ((boost_top_speed - speed) / (boost_top_speed - tuning.top_speed)).clamp(0.0, 1.0);
+            forward_speed + acceleration * fade * dt
         } else if input.accelerate && speed < tuning.top_speed {
             let fade = 1.0 - speed / tuning.top_speed;
             forward_speed + tuning.acceleration * fade * dt
@@ -624,16 +730,17 @@ impl Car {
         }
     }
 
-    /// Pushes the car back onto the road. Returns whether it touched a wall.
+    /// Pushes the car back onto the road. Returns how fast it was going into the wall it ran into,
+    /// in m/s, and nothing when it touched none or only ran along one.
     ///
     /// The walls are read where the car is, not from the track as a whole: through a bottleneck
     /// they stand closer in, and the road itself squeezes the car toward the centerline.
-    fn collide_with_walls(&mut self, tuning: &CarTuning, track: &Track, dt: f32) -> bool {
+    fn collide_with_walls(&mut self, tuning: &CarTuning, track: &Track, dt: f32) -> Option<f32> {
         let projection = track.project(self.position);
         let limit = track.half_width_at(projection.distance) - tuning.collision_radius;
         let overlap = projection.lateral.abs() - limit;
         if overlap <= 0.0 {
-            return false;
+            return None;
         }
 
         let outward = (self.position - projection.closest).normalize_or_zero();
@@ -648,9 +755,29 @@ impl Car {
             let along_wall = self.velocity - outward * self.velocity.dot(outward);
             self.velocity -= along_wall.clamp_length_max(tuning.wall_impact_friction * impact);
         }
+        // A car running along the wall without pushing into it only brushes it, and loses nothing:
+        // the wall rubs a car that leans on it.
+        if into_wall <= WALL_BRUSH {
+            return None;
+        }
         let along_wall = self.velocity - outward * self.velocity.dot(outward);
         self.velocity -= along_wall * (1.0 - decay(tuning.wall_friction, dt));
-        true
+        if !self.is_drifting() && along_wall.length_squared() > 1.0 {
+            // The wall deflects a gripping car: its nose comes round to where the hit sent it,
+            // along the wall and a little off it with the bounce, so it comes away instead of
+            // grinding on with its nose in. Only the way it was already going along the wall: a
+            // car that hits head on, or stands against the wall, is left to steer away by itself.
+            let along = wrap_angle(self.velocity.to_angle() - self.heading);
+            if along.abs() < PI / 2.0 {
+                // The body keeps pointing where it did and swings back into line in its own
+                // time, as it does when a drift starts: the car turns at once, the picture
+                // does not jump.
+                let turn = along * (1.0 - decay(tuning.wall_alignment, dt));
+                self.heading = wrap_angle(self.heading + turn);
+                self.body -= turn;
+            }
+        }
+        Some(into_wall)
     }
 }
 
@@ -751,6 +878,7 @@ mod tests {
         accelerate: true,
         drift: false,
         steer: 0,
+        turbo: false,
     };
 
     fn drifting(steer: f32) -> CarInput {
@@ -826,9 +954,9 @@ mod tests {
             steer: 127,
             ..ACCELERATE
         };
-        // Four seconds: while its nose still points into the wall, the car pushes against it, and
-        // the friction of that push holds it back.
-        run(&mut car, right, 4.0, &track);
+        // Three seconds: while its nose still points into the wall, the car pushes against it,
+        // and the friction of that push holds it back, until the wall turns it along itself.
+        run(&mut car, right, 3.0, &track);
         assert!(car.heading < 1.0, "{}", car.heading);
         assert!(car.forward_speed() > 5.0, "{}", car.forward_speed());
     }
@@ -1357,6 +1485,134 @@ mod tests {
         assert_eq!(car.boost, 0.0);
         // The body settles back into line on its own.
         assert!(car.body.abs() < 0.05, "{}", car.body);
+    }
+
+    /// A press made a moment before the stick is turned still starts its drift; one made long
+    /// before does not.
+    #[test]
+    fn a_press_just_before_the_stick_turns_still_starts_a_drift() {
+        let track = Track::build(&open_track()).unwrap();
+        for (wait, starts) in [(0.1, true), (0.4, false)] {
+            let mut car = at_top_speed(&track);
+            // A tap of two ticks with the stick still centered.
+            run(&mut car, drifting(0.0), 2.0 / TICK_RATE as f32, &track);
+            assert!(!car.is_drifting());
+            run(&mut car, ACCELERATE, wait - 2.0 / TICK_RATE as f32, &track);
+            car.step(CarInput::new(true, 0.6), &tuning(), &track);
+            assert_eq!(car.is_drifting(), starts, "{wait} s after the press");
+        }
+    }
+
+    /// A car set drifting along the left wall of a long straight, `into_wall` m/s into it.
+    fn drifting_into_the_wall(track: &Track, into_wall: f32) -> Car {
+        let mut car = Car::new(
+            Vec2::new(100.0, track.half_width() - tuning().collision_radius - 0.01),
+            0.0,
+        );
+        car.velocity = Vec2::new(30.0, into_wall);
+        car.heading = car.velocity.to_angle();
+        car.drift = -1;
+        car.drift_charge = 1.0;
+        car.steering = -1.0;
+        car
+    }
+
+    /// A drift survives a graze of the wall, building nothing up while it touches; a real hit
+    /// loses it.
+    #[test]
+    fn a_drift_survives_a_graze_and_is_lost_to_a_hit() {
+        let track = long_track();
+        let mut grazing = drifting_into_the_wall(&track, 1.5);
+        let turbo = grazing.turbo;
+        grazing.step(CarInput::new(true, -1.0), &tuning(), &track);
+        assert!(grazing.is_drifting());
+        assert_eq!(grazing.drift_charge, 1.0);
+        assert_eq!(grazing.turbo, turbo);
+
+        let mut hitting = drifting_into_the_wall(&track, 8.0);
+        hitting.step(CarInput::new(true, -1.0), &tuning(), &track);
+        assert!(!hitting.is_drifting());
+        assert_eq!(hitting.boost, 0.0);
+    }
+
+    /// A wall turns the nose of a gripping car that runs into it along itself, so the car comes
+    /// away from it: without that, it grinds along with its nose in and loses far more speed.
+    #[test]
+    fn a_wall_deflects_the_car_along_itself() {
+        let track = long_track();
+        // A hit too shallow to break the car away into a drift, which follows the wall by itself.
+        let shallow = CarTuning {
+            drift_entry_angle: 9.0,
+            ..tuning()
+        };
+        let after_hitting = |tuning: &CarTuning| {
+            let mut car = Car::new(Vec2::new(100.0, 0.0), 7f32.to_radians());
+            car.velocity = car.forward() * 35.0;
+            for _ in 0..ticks(2.0) {
+                car.step(ACCELERATE, tuning, &track);
+            }
+            car
+        };
+        let deflected = after_hitting(&shallow);
+        let stubborn = after_hitting(&CarTuning {
+            wall_alignment: 0.0,
+            ..shallow.clone()
+        });
+        println!(
+            "two seconds after a hit at 7 degrees: {} m/s deflected, {} m/s left alone",
+            deflected.velocity.length(),
+            stubborn.velocity.length()
+        );
+        assert!(deflected.heading.abs() < 1f32.to_radians(), "{deflected:?}");
+        assert!(deflected.body.abs() < 1f32.to_radians(), "{deflected:?}");
+        assert!(stubborn.heading > 6f32.to_radians(), "{stubborn:?}");
+        assert!(deflected.velocity.length() > stubborn.velocity.length() + 10.0);
+
+        // The body does not jump with the car: it is left pointing where it did, and swings back.
+        let mut car = Car::new(Vec2::new(100.0, 0.0), 7f32.to_radians());
+        car.velocity = car.forward() * 35.0;
+        let mut pointing = car.body_heading();
+        while car.body == 0.0 {
+            pointing = car.body_heading();
+            car.step(ACCELERATE, &shallow, &track);
+        }
+        let jumped = wrap_angle(car.body_heading() - pointing).abs();
+        assert!(jumped < 0.5f32.to_radians(), "{jumped}");
+    }
+
+    /// Drifting fills the turbo meter, up to its three charges and no further. A press spends one
+    /// charge on a boost faster than a drift's; a held button spends no more, and an empty meter
+    /// fires nothing.
+    #[test]
+    fn drifting_fills_the_turbo_and_a_press_fires_a_charge() {
+        let track = Track::build(&open_track()).unwrap();
+        let mut car = at_top_speed(&track);
+        car.step(ACCELERATE.with_turbo(true), &tuning(), &track);
+        assert_eq!(car.turbo_boost, 0.0, "nothing to fire");
+        car.step(ACCELERATE, &tuning(), &track);
+
+        press_into_a_drift(&mut car, 1.0, &track);
+        run(&mut car, CarInput::new(true, 1.0), 4.0, &track);
+        assert!(car.turbo > 1.0 && car.turbo < 2.0, "{}", car.turbo);
+        run(&mut car, CarInput::new(true, 1.0), 20.0, &track);
+        assert_eq!(car.turbo, TURBO_CHARGES);
+
+        // Out of the drift, and its boost left to run out.
+        run(&mut car, ACCELERATE, 6.0, &track);
+        assert!(!car.is_boosting());
+        let turbo = ACCELERATE.with_turbo(true);
+        car.step(turbo, &tuning(), &track);
+        assert_eq!(car.turbo, TURBO_CHARGES - 1.0);
+        assert!(car.turbo_boost > 0.0);
+        run(&mut car, turbo, 1.5, &track);
+        assert_eq!(car.turbo, TURBO_CHARGES - 1.0, "held, it fires once");
+        let speed = car.velocity.length();
+        assert!(
+            speed > tuning().boost_top_speed && speed <= tuning().turbo_top_speed,
+            "{speed}"
+        );
+        run(&mut car, turbo, 1.0, &track);
+        assert!(!car.is_boosting());
     }
 
     #[test]

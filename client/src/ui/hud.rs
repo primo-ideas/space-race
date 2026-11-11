@@ -1,6 +1,7 @@
 //! Everything drawn over the race: the lobby's phase, the start lights and how well the player
-//! started, the lap and time, the standings, the speed, the drift and boost gauge, the results,
-//! the other players' names above their cars, and the dialog to leave the lobby.
+//! started, the lap and time, the standings, the speed, the drift and boost gauge, the turbo
+//! meter, the results, the other players' names above their cars, and the dialog to leave the
+//! lobby.
 //!
 //! Each frame builds a [`HudModel`], what the HUD should say, from the lobby state and the race as
 //! displayed; a single pass then writes it into the text entities. The start lights and race times
@@ -87,6 +88,7 @@ enum Slot {
     StartLabel,
     Speed,
     GaugeLabel,
+    TurboLabel,
     StandingsTitle,
     StandingPosition(usize),
     StandingName(usize),
@@ -110,12 +112,21 @@ struct StartLight(u32);
 #[derive(Component)]
 struct StartRing;
 
-/// The filled part of the drift and boost gauge.
+/// The filled part of a bar.
 #[derive(Component)]
-struct GaugeFill;
+enum Fill {
+    /// The drift, boost and turbo gauge.
+    Gauge,
+    /// One charge of the turbo meter, counted from the left.
+    Turbo(usize),
+}
 
-/// Width of the drift and boost gauge, in pixels.
+/// Width of the drift and boost gauge, and of the turbo meter, in pixels.
 const GAUGE_WIDTH: f32 = 220.0;
+/// Between two charges of the turbo meter, in pixels.
+const TURBO_GAP: f32 = 5.0;
+/// How many charges the turbo meter shows.
+const TURBO_CHARGES: usize = space_race_sim::car::TURBO_CHARGES as usize;
 
 /// A part of the HUD shown only at times.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash)]
@@ -124,6 +135,7 @@ enum Block {
     StartGrade,
     Speed,
     Gauge,
+    Turbo,
     Standings,
     StandingRow(usize),
     Results,
@@ -142,8 +154,10 @@ struct HudModel {
     shown: HashSet<Block>,
     /// How many start lights are lit, and seconds since the last of them lit up.
     lights: (u32, f32),
-    /// How full the drift or boost gauge is, from 0 to 1, and its color.
+    /// How full the drift, boost or turbo gauge is, from 0 to 1, and its color.
     gauge: (f32, Color),
+    /// The turbo meter, in charges, and whether a charge is being fired.
+    turbo: (f32, bool),
 }
 
 impl HudModel {
@@ -424,7 +438,7 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                         BackgroundColor(theme::NEON_FAINT),
                     ))
                     .with_child((
-                        GaugeFill,
+                        Fill::Gauge,
                         Node {
                             width: percent(0),
                             height: percent(100),
@@ -433,6 +447,59 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                         },
                         BackgroundColor(theme::NEON),
                     ));
+            });
+
+            // Over the gauge on a desk, under it on a phone: the turbo meter, one bar per charge,
+            // there for as long as there is a car to drive.
+            let mut turbo = Node {
+                position_type: PositionType::Absolute,
+                left: px(pick(30.0, 27.0)),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(6),
+                ..default()
+            };
+            if touchscreen.0 {
+                turbo.top = px(156);
+            } else {
+                turbo.bottom = px(146);
+            }
+            root.spawn((Block::Turbo, turbo)).with_children(|turbo| {
+                turbo.spawn((
+                    text(Slot::TurboLabel, fonts.caption(15.0), theme::MAGENTA),
+                    theme::CAPTION_SPACING,
+                ));
+                turbo
+                    .spawn(Node {
+                        width: px(GAUGE_WIDTH),
+                        height: px(8),
+                        column_gap: px(TURBO_GAP),
+                        ..default()
+                    })
+                    .with_children(|charges| {
+                        for charge in 0..TURBO_CHARGES {
+                            charges
+                                .spawn((
+                                    Node {
+                                        flex_grow: 1.0,
+                                        flex_basis: px(0),
+                                        height: percent(100),
+                                        border_radius: BorderRadius::MAX,
+                                        ..default()
+                                    },
+                                    BackgroundColor(theme::MAGENTA.with_alpha(0.1)),
+                                ))
+                                .with_child((
+                                    Fill::Turbo(charge),
+                                    Node {
+                                        width: percent(0),
+                                        height: percent(100),
+                                        border_radius: BorderRadius::MAX,
+                                        ..default()
+                                    },
+                                    BackgroundColor(theme::MAGENTA),
+                                ));
+                        }
+                    });
             });
 
             // Bottom left on a desk, top left under a thumb: the speed.
@@ -487,6 +554,7 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                         hint(&fonts, "W", "R", "Accelerate"),
                         hint(&fonts, "A D", "L-stick", "Steer"),
                         hint(&fonts, "Shift", "X", "Drift"),
+                        hint(&fonts, "E", "A", "Turbo"),
                         hint(&fonts, "Esc", "Start", "Leave"),
                     ],
                 ));
@@ -686,11 +754,11 @@ fn update_hud(
             &mut BoxShadow,
             &mut UiTransform,
         ),
-        Without<GaugeFill>,
+        Without<Fill>,
     >,
     mut rings: Query<(&mut UiTransform, &mut BorderColor), (With<StartRing>, Without<StartLight>)>,
     mut blocks: Query<(&Block, &mut Node)>,
-    mut gauge_fills: Query<(&mut Node, &mut BackgroundColor), (With<GaugeFill>, Without<Block>)>,
+    mut fills: Query<(&Fill, &mut Node, &mut BackgroundColor), Without<Block>>,
 ) {
     let Some(membership) = &current.0 else {
         return;
@@ -779,8 +847,11 @@ fn update_hud(
         }
         border.set_if_neq(BorderColor::all(theme::GREEN.with_alpha(1.0 - burst)));
     }
-    let (fill, fill_color) = model.gauge;
-    for (mut node, mut color) in &mut gauge_fills {
+    for (fill, mut node, mut color) in &mut fills {
+        let (fill, fill_color) = match fill {
+            Fill::Gauge => model.gauge,
+            Fill::Turbo(charge) => turbo_charge(model.turbo.0, *charge),
+        };
         let width = percent(fill.clamp(0.0, 1.0) * 100.0);
         if node.width != width {
             node.width = width;
@@ -799,6 +870,19 @@ fn update_hud(
             node.display = display;
         }
     }
+}
+
+/// How full the bar of one charge of the turbo meter is, the meter holding `turbo` charges, and
+/// its color: a whole charge is lit, one still filling is dim, so what can be fired is read at a
+/// glance.
+fn turbo_charge(turbo: f32, charge: usize) -> (f32, Color) {
+    let fill = (turbo - charge as f32).clamp(0.0, 1.0);
+    let color = if fill >= 1.0 {
+        theme::MAGENTA
+    } else {
+        theme::MAGENTA.with_alpha(0.45)
+    };
+    (fill, color)
 }
 
 fn build_model(
@@ -840,10 +924,26 @@ fn build_model(
             });
         }
         if let Some(snapshot) = view.own_snapshot {
+            let firing = snapshot.car.turbo_boost > 0.0;
+            model.shown.insert(Block::Turbo);
+            model.turbo = (snapshot.car.turbo, firing);
+            // Lit once there is a charge to fire, and white while one fires.
+            let label = if firing {
+                theme::TEXT
+            } else if snapshot.car.turbo >= 1.0 {
+                theme::MAGENTA
+            } else {
+                theme::TEXT_FAINT
+            };
+            model.text(Slot::TurboLabel, "TURBO", label);
             if snapshot.car.is_drifting() {
                 model.shown.insert(Block::Gauge);
                 model.text(Slot::GaugeLabel, "DRIFT", theme::GREEN);
                 model.gauge = (snapshot.drift_gauge, theme::GREEN);
+            } else if firing {
+                model.shown.insert(Block::Gauge);
+                model.text(Slot::GaugeLabel, "TURBO BOOST", theme::MAGENTA);
+                model.gauge = (snapshot.turbo_gauge, theme::MAGENTA);
             } else if snapshot.car.boost > 0.0 {
                 model.shown.insert(Block::Gauge);
                 model.text(Slot::GaugeLabel, "BOOST", theme::AMBER);

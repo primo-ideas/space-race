@@ -34,6 +34,13 @@ const DRIFT_PRESS_STEER: f32 = 0.5;
 /// through the inside of a hairpin.
 const DRIFT_LOOK_AHEAD_TIME: f32 = 0.3;
 
+/// The drifting autopilot fires its turbo where the centerline turns by less than
+/// [`TURBO_STRAIGHT`] radians all along the next stretch, looked at every
+/// [`TURBO_LOOK_AHEAD_STEP`] meters.
+const TURBO_LOOK_AHEAD_STEP: f32 = 15.0;
+const TURBO_LOOK_AHEAD_STEPS: usize = 4;
+const TURBO_STRAIGHT: f32 = 0.3;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Style {
     /// Never touches the drift button. It still drifts when it turns hard enough to break away,
@@ -42,7 +49,7 @@ pub enum Style {
     Grip,
     /// Taps the drift button into the turns, and holds it only where the stick alone cannot turn
     /// tightly enough, since holding costs speed. Straightening out of the turn ends the drift,
-    /// which pays its boost.
+    /// which pays its boost. It fires the turbo its drifts fill where the road runs straight.
     Drift,
 }
 
@@ -73,7 +80,24 @@ pub fn drive_in_style(style: Style, car: &Car, track: &Track) -> CarInput {
     if style == Style::Grip {
         return drive(car, track);
     }
+    drift_through_turns(car, track).with_turbo(fires_turbo(car, track))
+}
 
+/// Whether to press the turbo button now: with a charge to spend, out of a drift, and with the
+/// road ahead straight enough to take the speed. A press, not a hold, like the drift's.
+fn fires_turbo(car: &Car, track: &Track) -> bool {
+    if car.turbo < 1.0 || car.turbo_button || car.is_boosting() || car.is_drifting() {
+        return false;
+    }
+    let here = track.project(car.position).distance;
+    let now = track.point_at(here).direction;
+    (1..=TURBO_LOOK_AHEAD_STEPS).all(|step| {
+        let ahead = track.point_at(here + step as f32 * TURBO_LOOK_AHEAD_STEP);
+        now.angle_to(ahead.direction).abs() < TURBO_STRAIGHT
+    })
+}
+
+fn drift_through_turns(car: &Car, track: &Track) -> CarInput {
     if car.is_drifting() {
         let steer = pursue(car, track, DRIFT_LOOK_AHEAD_TIME);
         // Into the drift is toward its side, which is the sign of `drift` for the stick.
@@ -114,6 +138,8 @@ pub struct LapReport {
     pub longest_drift: f32,
     pub drift_ticks: u32,
     pub boost_ticks: u32,
+    /// Charges of turbo fired.
+    pub turbos: u32,
     pub top_speed: f32,
 }
 
@@ -139,13 +165,16 @@ pub fn drive_lap(
         longest_drift: 0.0,
         drift_ticks: 0,
         boost_ticks: 0,
+        turbos: 0,
         top_speed: 0.0,
     };
     let mut drift_start = None;
 
     for tick in 1..=(time_limit * TICK_RATE as f32) as u32 {
         let input = drive_in_style(style, &seen[0], track);
+        let firing = car.turbo_boost > 0.0;
         car.step(input, tuning, track);
+        report.turbos += u32::from(car.turbo_boost > 0.0 && !firing);
         seen.pop_front();
         seen.push_back(car);
         let projection = track.project(car.position);
@@ -170,7 +199,7 @@ pub fn drive_lap(
             }
             _ => {}
         }
-        report.boost_ticks += u32::from(car.boost > 0.0);
+        report.boost_ticks += u32::from(car.is_boosting());
         report.top_speed = report.top_speed.max(car.velocity.length());
         if progress >= track.length() {
             report.lap_time = Some(tick as f32 * TICK_SECONDS);

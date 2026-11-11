@@ -18,7 +18,7 @@ pub mod auth;
 pub mod ranked;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -337,6 +337,9 @@ pub struct CarSnapshot {
     pub drift_gauge: f32,
     /// Boost left, as a share of the longest boost a drift can give.
     pub boost_gauge: f32,
+    /// What is left of the turbo being fired, as a share of what a charge gives. The meter itself
+    /// is in the car, counted in charges.
+    pub turbo_gauge: f32,
     /// The last of the driver's inputs in effect when this snapshot was taken, by its
     /// [`ClientMessage::Input::seq`]: the state above already includes it. On the player's own
     /// car, it tells them which of their inputs the server has acted on, which is how the client
@@ -361,6 +364,11 @@ impl CarSnapshot {
             progress,
             drift_gauge: share(car.pending_boost(tuning)),
             boost_gauge: share(car.boost),
+            turbo_gauge: if tuning.turbo_seconds > 0.0 {
+                (car.turbo_boost / tuning.turbo_seconds).clamp(0.0, 1.0)
+            } else {
+                0.0
+            },
             input_seq,
         }
     }
@@ -513,15 +521,20 @@ mod tests {
                     drift_held: 0.75,
                     drift_button: true,
                     boost: 0.5,
+                    drift_press: 0.1,
+                    turbo: 1.75,
+                    turbo_boost: 1.2,
+                    turbo_button: true,
                 },
                 progress: 812.5,
                 drift_gauge: 0.4,
                 boost_gauge: 0.3,
+                turbo_gauge: 0.6,
                 input_seq: 41,
             }],
         });
         let input = ClientMessage::Input {
-            input: CarInput::new(true, -0.5).with_drift(true),
+            input: CarInput::new(true, -0.5).with_drift(true).with_turbo(true),
             tick: 1231,
             seq: 42,
         };

@@ -3,7 +3,8 @@
 //! There is no brake: the game is full speed all the time.
 //!
 //! Gamepad: the right bumper (R, above the trigger) accelerates, the left stick or D-pad steers, X
-//! (the left face button) drifts. Keyboard: W accelerates, A and D steer, Shift drifts. Keys are
+//! (the left face button) drifts, A (the bottom one) or the left bumper fires the turbo. Keyboard:
+//! W accelerates, A and D steer, Shift drifts, E fires the turbo. Keys are
 //! read by their position on the keyboard, not by the letter printed on them, so other layouts get
 //! the same physical keys. On a touchscreen, two thumbs on the controls drawn over the race do all
 //! three (see `ui/touch.rs`).
@@ -21,8 +22,9 @@
 //!   tap was a full turn of the wheel. With both directions held, the last one pressed steers.
 //! - **Thumbs on a screen** already say how hard, by where they rest (see `ui/touch.rs`).
 //!
-//! The arrow keys and Space do what W, A, D and Shift do. A gamepad rumbles when its car hits a
-//! wall, breaks into a drift or fires a boost, as a phone vibrates (see `ui/touch.rs`).
+//! The arrow keys and Space do what W, A, D and Shift do, and the down arrow what E does. A gamepad
+//! rumbles when its car hits a wall, breaks into a drift or fires a boost, harder for the turbo, as
+//! a phone vibrates (see `ui/touch.rs`).
 
 use std::time::Duration;
 
@@ -150,6 +152,9 @@ fn player_input(
         keyboard.any_pressed([KeyCode::KeyW, KeyCode::ArrowUp]) || touch.accelerating();
     let mut drift = keyboard.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::Space])
         || touch.drifting();
+    // Never Control: with W held, it would close a browser tab.
+    let mut turbo =
+        keyboard.any_pressed([KeyCode::KeyE, KeyCode::ArrowDown]) || touch.firing_turbo();
     let mut steer: f32 = touch.steer();
 
     let mut left = keyboard.any_pressed(LEFT_KEYS);
@@ -164,6 +169,8 @@ fn player_input(
     for gamepad in gamepads {
         accelerate |= gamepad.pressed(GamepadButton::RightTrigger);
         drift |= gamepad.pressed(GamepadButton::West);
+        // The bottom face button, or the left bumper for a thumb busy holding a drift.
+        turbo |= gamepad.any_pressed([GamepadButton::South, GamepadButton::LeftTrigger]);
         steer += stick_steering(gamepad.left_stick().x);
         left |= gamepad.pressed(GamepadButton::DPadLeft);
         right |= gamepad.pressed(GamepadButton::DPadRight);
@@ -175,7 +182,9 @@ fn player_input(
     }
     steer += digital.steer(left, right, pressed, seconds);
 
-    CarInput::new(accelerate, steer).with_drift(drift)
+    CarInput::new(accelerate, steer)
+        .with_drift(drift)
+        .with_turbo(turbo)
 }
 
 const LEFT_KEYS: [KeyCode; 2] = [KeyCode::KeyA, KeyCode::ArrowLeft];
@@ -249,6 +258,7 @@ struct Rumbled {
     hit: f64,
     drifting: bool,
     boosting: bool,
+    turbo: bool,
 }
 
 /// Rumbles every gamepad when the player's car hits a wall, harder the harder the hit, breaks into
@@ -288,11 +298,15 @@ fn rumble(
     if car.is_drifting() && !rumbled.drifting {
         send(0.0, 0.3, 50);
     }
-    if car.boost > 0.0 && !rumbled.boosting {
+    if car.turbo_boost > 0.0 && !rumbled.turbo {
+        // The turbo kicks: both motors, hard, for longer than any boost.
+        send(0.8, 1.0, 320);
+    } else if car.boost > 0.0 && !rumbled.boosting {
         send(0.35, 0.6, 180);
     }
     rumbled.drifting = car.is_drifting();
     rumbled.boosting = car.boost > 0.0;
+    rumbled.turbo = car.turbo_boost > 0.0;
 }
 
 /// How hard, from 0 to 1, and how long, in milliseconds, a hit that took `impact` m/s from the car

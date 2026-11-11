@@ -9,8 +9,8 @@
 //! gamepad. The right one holds the cross. Touching the cross anywhere accelerates -- the game has
 //! no brake, so the throttle is simply wherever the thumb lands -- and sliding from its hub onto a
 //! branch calls that branch's function without ever letting go of the throttle. Drift is the
-//! first branch, straight up; the other three are drawn as the empty slots they are, waiting for
-//! the turbo and whatever follows it.
+//! first branch, straight up, and the turbo the second, toward the middle of the screen, where the
+//! thumb folds to; the other two are drawn as the empty slots they are, waiting for what follows.
 //!
 //! Neither thumb has to find its control again once it is down: anywhere in the bottom of the
 //! left half steers, and anywhere in the bottom of the right half accelerates, so a thumb that
@@ -80,6 +80,8 @@ const HIT_BUZZ_FROM: f32 = 1.5;
 const HIT_BUZZ_EVERY: f64 = 0.3;
 /// A boost firing, in milliseconds: longer than the drift's tick, softer than a hit.
 const BOOST_BUZZ: u32 = 30;
+/// The turbo firing: the longest of them, a kick.
+const TURBO_BUZZ: u32 = 70;
 
 /// The buttons that pick which car a spectator watches: the size of the steering buttons, under
 /// the same thumbs.
@@ -252,6 +254,12 @@ impl TouchControls {
     pub fn drifting(self) -> bool {
         self.branch == Some(Branch::DRIFT)
     }
+
+    /// The thumb is on the turbo branch. Arriving there is the press: the simulation fires a
+    /// charge on a press, not while the branch is held.
+    pub fn firing_turbo(self) -> bool {
+        self.branch == Some(Branch::TURBO)
+    }
 }
 
 /// How hard a thumb resting `offset` from the middle of the gap between the buttons steers, and
@@ -272,15 +280,21 @@ enum Branch {
 }
 
 impl Branch {
-    /// Drift is the first branch, straight up: the shortest slide for a thumb holding the hub,
-    /// and the only function the game has to put on the cross so far.
+    /// Drift is the first branch, straight up: the shortest slide for a thumb holding the hub.
     const DRIFT: Self = Self::Up;
+    /// The turbo is the second, toward the middle of the screen: a right thumb folds that way
+    /// more easily than it stretches toward the edge.
+    const TURBO: Self = Self::Left;
 
     const ALL: [Self; 4] = [Self::Up, Self::Left, Self::Right, Self::Down];
 
     /// What the branch does, or nothing, which is drawn as nothing.
     fn label(self) -> &'static str {
-        if self == Self::DRIFT { "DRIFT" } else { "" }
+        match self {
+            Self::DRIFT => "DRIFT",
+            Self::TURBO => "TURBO",
+            _ => "",
+        }
     }
 
     /// Where the branch lies inside the square the cross is drawn in, whose side is `2 * REACH`.
@@ -350,7 +364,7 @@ impl Pad {
     /// Whether the pad does anything at all. An empty branch still answers a thumb that finds
     /// it, so it is plain that it is there and that it is waiting for a function.
     fn works(self) -> bool {
-        !matches!(self, Self::Branch(branch) if branch != Branch::DRIFT)
+        !matches!(self, Self::Branch(branch) if branch != Branch::DRIFT && branch != Branch::TURBO)
     }
 
     /// Background, border and text, as it should look now, held this far.
@@ -742,17 +756,20 @@ fn buzz_on_hits(
     view: Res<RaceView>,
     time: Res<Time<Real>>,
     mut last: Local<f64>,
-    mut boosting: Local<bool>,
+    mut boosting: Local<(bool, bool)>,
 ) {
     let Some(car) = view.own_car else {
-        *boosting = false;
+        *boosting = (false, false);
         return;
     };
-    // A boost firing, as it fires: the thumbs feel the car leap.
-    if car.boost > 0.0 && !*boosting {
+    // A boost firing, as it fires: the thumbs feel the car leap, and kick on the turbo.
+    let (boost, turbo) = (car.boost > 0.0, car.turbo_boost > 0.0);
+    if turbo && !boosting.1 {
+        buzz(TURBO_BUZZ);
+    } else if boost && !boosting.0 {
         buzz(BOOST_BUZZ);
     }
-    *boosting = car.boost > 0.0;
+    *boosting = (boost, turbo);
 
     let Some(push) = push.0 else {
         return;
@@ -830,21 +847,26 @@ mod tests {
         );
     }
 
-    /// Sliding up from the hub drifts; the other three branches are found and do nothing yet,
-    /// and a thumb off the cross is on no branch at all.
+    /// Sliding up from the hub drifts and sliding left fires the turbo; the other two branches
+    /// are found and do nothing yet, and a thumb off the cross is on no branch at all.
     #[test]
-    fn sliding_up_from_the_hub_drifts() {
+    fn sliding_up_from_the_hub_drifts_and_left_fires_the_turbo() {
         let hub = hub();
-        assert!(!read([hub]).drifting());
-        assert!(read([hub + Vec2::new(0.0, -REACH + 6.0)]).drifting());
+        assert!(!read([hub]).drifting() && !read([hub]).firing_turbo());
+        let up = read([hub + Vec2::new(0.0, -REACH + 6.0)]);
+        assert!(up.drifting() && !up.firing_turbo());
+        let left = read([hub + Vec2::new(-REACH + 6.0, 0.0)]);
+        assert!(left.firing_turbo() && !left.drifting() && left.accelerating());
         for slid in [
             Vec2::new(0.0, REACH - 6.0),
-            Vec2::new(-REACH + 6.0, 0.0),
             Vec2::new(REACH - 6.0, 0.0),
             Vec2::new(-REACH - 60.0, -REACH),
         ] {
             let controls = read([hub + slid]);
-            assert!(controls.accelerating() && !controls.drifting(), "{slid}");
+            assert!(
+                controls.accelerating() && !controls.drifting() && !controls.firing_turbo(),
+                "{slid}"
+            );
         }
     }
 

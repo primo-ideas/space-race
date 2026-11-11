@@ -37,10 +37,11 @@ Pick a nickname (or keep the one offered), then create a lobby or join one. A lo
 | Accelerate | R (right bumper) | W |
 | Steer | Left stick or D-pad | A / D |
 | Drift (tap), tighten it (hold) | X | Shift |
+| Turbo | A or L (left bumper) | E |
 | Leave the lobby | Start | Escape |
 | Menus | D-pad or left stick, A, B | arrows, Enter, Escape |
 
-There is no brake: the game is full speed all the time. **Tap the drift button with the stick turned and you are drifting**, as in Rocket Racing -- turning hard enough breaks the car away too. The body swings far across the road while the car keeps its line and its speed, and the stick steers the curve. Straighten the stick and the body comes back into line: the drift ends and pays a boost, the longer the drift the bigger it is. Holding the drift button tightens the turn further and slows you more, the longer the more; held as you straighten it keeps the drift alive, and held with the stick against the drift it swings the car over to the other side without losing the charge. The green arc around the back of the car shows the charge building up. Press accelerate right as the race starts for a start boost, graded from S to E.
+There is no brake: the game is full speed all the time. **Tap the drift button with the stick turned and you are drifting**, as in Rocket Racing -- turning hard enough breaks the car away too. The body swings far across the road while the car keeps its line and its speed, and the stick steers the curve. Straighten the stick and the body comes back into line: the drift ends and pays a boost, the longer the drift the bigger it is. Holding the drift button tightens the turn further and slows you more, the longer the more; held as you straighten it keeps the drift alive, and held with the stick against the drift it swings the car over to the other side without losing the charge. The green arc around the back of the car shows the charge building up. **Drifting also fills the turbo meter**, three charges shown over the speed: once one is full, the turbo button spends it on a boost stronger and longer than any drift pays. Press accelerate right as the race starts for a start boost, graded from S to E.
 
 The car handling is tuned in `server/data/car.ron`. The server reloads it within a second of every save, so you can keep driving while adjusting it.
 
