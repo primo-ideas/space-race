@@ -14,8 +14,8 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
-use space_race_sim::car::CarTuning;
-use space_race_sim::track::{Track, TrackDescription};
+use star_racer_sim::car::CarTuning;
+use star_racer_sim::track::{Track, TrackDescription};
 use tokio::sync::watch;
 use tracing::{info, warn};
 
@@ -157,8 +157,8 @@ fn read_ron<T: DeserializeOwned>(path: &Path) -> Result<T> {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::autopilot::{self, Style};
-    use space_race_sim::track::scenery::Prop;
+    use star_racer_sim::autopilot::{self, Style};
+    use star_racer_sim::track::scenery::Prop;
 
     use super::*;
 

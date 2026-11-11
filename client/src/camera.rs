@@ -18,9 +18,9 @@ use bevy::light::{CascadeShadowConfigBuilder, GlobalAmbientLight};
 use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter};
 use bevy::prelude::*;
-use space_race_protocol::PlayerStatus;
-use space_race_sim::car::Car;
-use space_race_sim::track::Track;
+use star_racer_protocol::PlayerStatus;
+use star_racer_sim::car::Car;
+use star_racer_sim::track::Track;
 
 use crate::lobby::CurrentLobby;
 use crate::race::{RaceUpdate, RaceView, shortest_angle};
@@ -547,7 +547,7 @@ fn travel_heading(car: &Car) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Elevation, Segment, TrackDescription};
+    use star_racer_sim::track::{Elevation, Segment, TrackDescription};
 
     use crate::track::Roof;
 

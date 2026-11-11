@@ -28,8 +28,8 @@ use std::time::Duration;
 
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
-use space_race_protocol::ClientMessage;
-use space_race_sim::TICK_SECONDS;
+use star_racer_protocol::ClientMessage;
+use star_racer_sim::TICK_SECONDS;
 
 use crate::lobby::CurrentLobby;
 use crate::net::{Connection, NetEvent, Network};

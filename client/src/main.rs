@@ -45,7 +45,7 @@ fn main() {
     let settings = settings::read();
 
     let mut window = Window {
-        title: "Space Race".into(),
+        title: "Star Racer".into(),
         // On the web, fill the page. No effect on native.
         fit_canvas_to_parent: true,
         ..default()

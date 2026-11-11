@@ -4,7 +4,7 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use space_race_sim::track::{Track, TrackPoint};
+use star_racer_sim::track::{Track, TrackPoint};
 
 /// Twice the size it is usually displayed at, so it stays sharp on large screens.
 const WIDTH: u32 = 400;
@@ -152,7 +152,7 @@ fn distance_to_segment(point: Vec2, a: Vec2, b: Vec2) -> (f32, f32) {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Narrows, Segment, TrackDescription};
+    use star_racer_sim::track::{Narrows, Segment, TrackDescription};
 
     use super::*;
 

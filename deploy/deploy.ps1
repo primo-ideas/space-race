@@ -1,6 +1,6 @@
-# Builds Space Race and puts it online, in one run: the game server for Linux, the web client for
+# Builds Star Racer and puts it online, in one run: the game server for Linux, the web client for
 # the browser, then the upload and the install. The machine must already be set up by
-# the maintainer's setup-server.sh -- the space-race user, the service, the Apache wiring. This only
+# the maintainer's setup-server.sh -- the star-racer user, the service, the Apache wiring. This only
 # replaces the build. See docs/deploy.md.
 #
 # The "Deploy" GitHub workflow does the same thing on a push to main, from a runner, and that is
@@ -17,7 +17,7 @@ param(
     [string]$Key = "$HOME\.ssh\id_ed25519",
     # Only used to fetch the page back at the end: where the game is served is the machine's
     # Apache configuration to decide, not this script's.
-    [string]$WebPath = '/space-race',
+    [string]$WebPath = '/star-racer',
     [switch]$SkipBuild,
     # Uploads the archive and stops there, without unpacking or installing it: for a run meant
     # only to carry the build over, the install being done by hand afterwards.
@@ -86,10 +86,11 @@ if (-not $SkipBuild) {
     # Both builds name a single crate, which is what the project otherwise avoids: each one has a
     # target of its own, with a cache of its own, so neither disturbs the native build.
     Invoke-Checked 'building the game server for Linux' {
-        cargo build --locked --release -p space-race-server --target x86_64-unknown-linux-musl
+        cargo build --locked --release -p star-racer-server --target x86_64-unknown-linux-musl
     }
     Invoke-Checked 'building the web client' {
-        cargo build --locked --release -p space-race-client --target wasm32-unknown-unknown
+        # The `web` profile: built for size, since the module is downloaded before the first frame.
+        cargo build --locked --profile web -p star-racer-client --target wasm32-unknown-unknown
     }
 }
 
@@ -99,19 +100,24 @@ if (Test-Path $stage) {
 }
 New-Item -ItemType Directory -Path $stage, "$stage/web" | Out-Null
 Copy-Item 'deploy/install.sh' $stage
-Copy-Item 'target/x86_64-unknown-linux-musl/release/space-race-server' $stage
+Copy-Item 'target/x86_64-unknown-linux-musl/release/star-racer-server' $stage
 Copy-Item 'server/data' "$stage/data" -Recurse
 Copy-Item 'client/web/*' "$stage/web"
 
 Invoke-Checked 'generating the JavaScript bindings' {
-    wasm-bindgen --target web --no-typescript --out-dir "$stage/web" --out-name space-race-client `
-        target/wasm32-unknown-unknown/release/space-race-client.wasm
+    wasm-bindgen --target web --no-typescript --out-dir "$stage/web" --out-name star-racer-client `
+        target/wasm32-unknown-unknown/web/star-racer-client.wasm
 }
-# Halves the module. Not having it is no reason to stop, but the download is twice as long.
-$module = "$stage/web/space-race-client_bg.wasm"
+# Shrinks the module further. Not having it is no reason to stop, but the download is longer.
+$module = "$stage/web/star-racer-client_bg.wasm"
 if (Test-Tool 'wasm-opt') {
     $before = (Get-Item $module).Length / 1MB
-    Invoke-Checked 'shrinking the module' { wasm-opt -Os $module -o "$module.opt" }
+    # The profile strips the section that says which WebAssembly features the module uses, so
+    # they are named here: the ones Rust turns on for this target. Without them wasm-opt refuses
+    # the module's own instructions.
+    $features = '--enable-bulk-memory', '--enable-sign-ext', '--enable-nontrapping-float-to-int',
+        '--enable-mutable-globals', '--enable-reference-types', '--enable-multivalue'
+    Invoke-Checked 'shrinking the module' { wasm-opt -Oz @features $module -o "$module.opt" }
     Move-Item "$module.opt" $module -Force
     $after = (Get-Item $module).Length / 1MB
     Write-Host ("    {0:n1} MB, down from {1:n1} MB" -f $after, $before)
@@ -122,27 +128,27 @@ else {
 
 Invoke-Checked 'packing' { tar -czf $archive -C $stage . }
 Invoke-Checked "uploading to $Server" {
-    scp -i $Key -o BatchMode=yes $archive "${Server}:/tmp/space-race-deploy.tar.gz"
+    scp -i $Key -o BatchMode=yes $archive "${Server}:/tmp/star-racer-deploy.tar.gz"
 }
 if ($UploadOnly) {
     Write-Host '==> uploaded, not installed' -ForegroundColor Cyan
-    Write-Host "    /tmp/space-race-deploy.tar.gz is on ${Server}: unpack it and run install.sh from inside it"
+    Write-Host "    /tmp/star-racer-deploy.tar.gz is on ${Server}: unpack it and run install.sh from inside it"
     return
 }
 
 # A here-string has the line endings of this file, which is CRLF wherever Git checks it out for
 # Windows. The remote shell would take every `\r` as part of the line: `set -e\r` is refused, so
-# nothing stops on error, `cd` lands in a directory named `space-race-deploy\r`, `install.sh\r` does
+# nothing stops on error, `cd` lands in a directory named `star-racer-deploy\r`, `install.sh\r` does
 # not exist, and the last `rm -f` succeeds -- a deployment that installed nothing and reported
 # success. So the script goes over with plain newlines, whatever this file has.
 $install = @'
 set -e
-rm -rf /tmp/space-race-deploy
-mkdir -p /tmp/space-race-deploy
-tar -xzf /tmp/space-race-deploy.tar.gz -C /tmp/space-race-deploy
-cd /tmp/space-race-deploy
+rm -rf /tmp/star-racer-deploy
+mkdir -p /tmp/star-racer-deploy
+tar -xzf /tmp/star-racer-deploy.tar.gz -C /tmp/star-racer-deploy
+cd /tmp/star-racer-deploy
 sh install.sh
-rm -rf /tmp/space-race-deploy /tmp/space-race-deploy.tar.gz
+rm -rf /tmp/star-racer-deploy /tmp/star-racer-deploy.tar.gz
 '@ -replace "`r", ''
 Invoke-Checked 'installing' {
     ssh -i $Key -o BatchMode=yes $Server $install
@@ -153,10 +159,10 @@ $hostName = $Server.Split('@')[-1]
 $url = "https://$hostName$WebPath/"
 Write-Host "==> checking $url" -ForegroundColor Cyan
 $page = Invoke-WebRequest $url -UseBasicParsing
-$served = Invoke-WebRequest "$url`space-race-client_bg.wasm" -Method Head -UseBasicParsing
+$served = Invoke-WebRequest "$url`star-racer-client_bg.wasm" -Method Head -UseBasicParsing
 # A compressed answer carries no length, so the size is only reported when the server gives one.
 $length = $served.Headers['Content-Length'] | Select-Object -First 1
 $size = if ($length) { ', {0:n1} MB' -f ($length / 1MB) } else { '' }
 $type = $served.Headers['Content-Type'] | Select-Object -First 1
 Write-Host "    page $($page.StatusCode), module $($served.StatusCode) ($type$size)"
-Write-Host "Space Race is live at $url" -ForegroundColor Green
+Write-Host "Star Racer is live at $url" -ForegroundColor Green

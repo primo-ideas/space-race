@@ -19,11 +19,11 @@ use std::collections::VecDeque;
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
-use space_race_protocol::{LobbyPhase, MAX_INPUT_LEAD, PlayerStatus};
-use space_race_sim::TICK_SECONDS;
-use space_race_sim::car::{Car, CarInput, CarTuning};
-use space_race_sim::race::{self, StartGrade, StartTiming};
-use space_race_sim::track::Track;
+use star_racer_protocol::{LobbyPhase, MAX_INPUT_LEAD, PlayerStatus};
+use star_racer_sim::TICK_SECONDS;
+use star_racer_sim::car::{Car, CarInput, CarTuning};
+use star_racer_sim::race::{self, StartGrade, StartTiming};
+use star_racer_sim::track::Track;
 
 use crate::latency::Latency;
 use crate::lobby::{CurrentLobby, Membership};
@@ -449,7 +449,7 @@ pub fn predict(
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::TrackDescription;
+    use star_racer_sim::track::TrackDescription;
 
     use super::*;
 

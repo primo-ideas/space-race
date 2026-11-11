@@ -13,9 +13,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use space_race_protocol::ranked::{LeaderboardEntry, RankedProfile};
-use space_race_protocol::{JoinError, LobbyId, LobbySettings, OnlinePlayer, Presence, TrackInfo};
-use space_race_sim::car::CarTuning;
+use star_racer_protocol::ranked::{LeaderboardEntry, RankedProfile};
+use star_racer_protocol::{JoinError, LobbyId, LobbySettings, OnlinePlayer, Presence, TrackInfo};
+use star_racer_sim::car::CarTuning;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{error, info};

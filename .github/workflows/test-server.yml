@@ -32,7 +32,7 @@ jobs:
 
       # These tests never count snapshots or assume timing: a runner is slower than a desktop and
       # a test waits for the state it expects, with a timeout.
-      - run: cargo test --locked -p space-race-server -p space-race-protocol -p space-race-sim -p space-race-logger
+      - run: cargo test --locked -p star-racer-server -p star-racer-protocol -p star-racer-sim -p star-racer-logger
 
       # Saved even when the step above failed: actions/cache writes only on success,
       # and a red build is exactly when the next run should not start from nothing.

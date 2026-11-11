@@ -6,7 +6,7 @@
        canvas fills the screen notch to notch. -->
   <meta name="viewport"
         content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>Space Race</title>
+  <title>Star Racer</title>
   <!-- The site has one icon, at its root, which every page under it shares: the games do not
        each carry a mark of their own. -->
   <link rel="icon" href="/favicon.png">
@@ -18,7 +18,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Space Race">
+  <meta name="apple-mobile-web-app-title" content="Star Racer">
   <meta name="theme-color" content="#000000">
   <style>
     /* The game canvas fills the page (Window::fit_canvas_to_parent). The page is as high as what
@@ -124,13 +124,13 @@
 <body>
   <div id="loading">
     <div class="ring"></div>
-    SPACE RACE
+    STAR RACER
     <span>Loading. The first visit takes a while: the game is getting its graphics ready.</span>
   </div>
-  <div id="turn">TURN YOUR PHONE<span>Space Race is played in landscape.</span></div>
+  <div id="turn">TURN YOUR PHONE<span>Star Racer is played in landscape.</span></div>
   <div id="safe-area"></div>
   <script type="module">
-    import init from "./space-race-client.js";
+    import init from "./star-racer-client.js";
 
     // Sound. A browser lets a page play sound only once someone has touched it, and the game
     // opens its audio context as it starts, before anyone has: the context waits, suspended.

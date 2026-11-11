@@ -1,6 +1,6 @@
 {
-  "name": "Space Race",
-  "short_name": "Space Race",
+  "name": "Star Racer",
+  "short_name": "Star Racer",
   "description": "Online arcade racing, alpha.",
   "start_url": "./",
   "scope": "./",

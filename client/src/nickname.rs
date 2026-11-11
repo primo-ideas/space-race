@@ -4,7 +4,7 @@
 //! An adjective and a noun from the game's world: speed, light and geometry. Every combination is a
 //! valid nickname.
 
-use space_race_protocol::is_valid_nickname;
+use star_racer_protocol::is_valid_nickname;
 
 const ADJECTIVES: &[&str] = &[
     "Neon", "Turbo", "Swift", "Electric", "Silent", "Cosmic", "Rapid", "Lunar", "Solar", "Crimson",

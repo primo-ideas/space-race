@@ -3,7 +3,7 @@
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-use space_race_protocol::ranked::{LeaderboardEntry, Tier};
+use star_racer_protocol::ranked::{LeaderboardEntry, Tier};
 
 use super::navigation::MenuInput;
 use super::theme::{self, Fonts};

@@ -10,7 +10,7 @@
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use space_race_protocol::{
+use star_racer_protocol::{
     LobbySettings, MAX_LAPS, MAX_LOBBY_PLAYERS, is_valid_lobby_name, is_valid_nickname,
 };
 

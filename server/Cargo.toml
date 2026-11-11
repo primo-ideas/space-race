@@ -1,5 +1,5 @@
 [package]
-name = "space-race-server"
+name = "star-racer-server"
 version = "0.1.25"
 edition = "2024"
 license = "Unlicense"
@@ -8,9 +8,9 @@ license = "Unlicense"
 anyhow.workspace = true
 axum = { version = "0.8.9", features = ["ws"] }
 clap = { version = "4.6.7", features = ["derive"] }
-space-race-logger.workspace = true
-space-race-protocol.workspace = true
-space-race-sim.workspace = true
+star-racer-logger.workspace = true
+star-racer-protocol.workspace = true
+star-racer-sim.workspace = true
 ron.workspace = true
 serde.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }

@@ -14,8 +14,8 @@ use bevy::prelude::*;
 use bevy::text::{EditableText, LetterSpacing};
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::Activate;
-use space_race_protocol::ranked::{PLACEMENT_GAMES, Tier};
-use space_race_protocol::{
+use star_racer_protocol::ranked::{PLACEMENT_GAMES, Tier};
+use star_racer_protocol::{
     ClientMessage, MAX_NICKNAME_CHARS, PROTOCOL_VERSION, RejectReason, is_valid_nickname,
 };
 
@@ -272,7 +272,7 @@ fn spawn_login(
         ))
         .with_children(|root| {
             root.spawn((
-                Text::new("SPACE RACE"),
+                Text::new("STAR RACER"),
                 fonts.display(pick(92.0, 48.0)),
                 TextColor(theme::TEXT),
                 TextShadow {
@@ -718,8 +718,8 @@ fn rejection_text(reason: &RejectReason) -> String {
 
 #[cfg(test)]
 mod tests {
-    use space_race_protocol::ranked::RankedProfile;
-    use space_race_protocol::{CarId, RatingChange};
+    use star_racer_protocol::ranked::RankedProfile;
+    use star_racer_protocol::{CarId, RatingChange};
 
     use super::*;
     use crate::lobby::Queueing;

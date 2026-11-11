@@ -24,10 +24,10 @@ use bevy::audio::{AddAudioSource, GlobalVolume, Volume};
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-use space_race_protocol::{LobbyPhase, PlayerStatus};
-use space_race_sim::TICK_RATE;
-use space_race_sim::car::Car;
-use space_race_sim::race;
+use star_racer_protocol::{LobbyPhase, PlayerStatus};
+use star_racer_sim::TICK_RATE;
+use star_racer_sim::car::Car;
+use star_racer_sim::race;
 
 use self::drone::{Controls, Drive, Drone};
 use self::tone::{Noise, Tone};
@@ -402,7 +402,7 @@ fn lap_begun(before: u32, now: u32, laps: u32) -> bool {
 #[derive(Default)]
 struct CarHeard {
     /// Whose car it was: a spectator who changes car hears no event for the change.
-    id: Option<space_race_protocol::CarId>,
+    id: Option<star_racer_protocol::CarId>,
     car: Car,
     hit: f64,
 }

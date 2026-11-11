@@ -1,5 +1,5 @@
 [package]
-name = "space-race-protocol"
+name = "star-racer-protocol"
 version = "0.1.25"
 edition = "2024"
 license = "Unlicense"
@@ -8,7 +8,7 @@ license = "Unlicense"
 bitcode.workspace = true
 # The messages carry the simulation's own types -- a `Car` in every snapshot, a `TrackDescription`
 # in the welcome -- so the wire format depends on the simulation and never the other way round.
-space-race-sim.workspace = true
+star-racer-sim.workspace = true
 ed25519-dalek = "3.0.0"
 getrandom.workspace = true
 

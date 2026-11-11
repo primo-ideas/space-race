@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use space_race_protocol::auth::PublicKey;
-use space_race_protocol::ranked::{LeaderboardEntry, PLACEMENT_GAMES, RankedProfile};
+use star_racer_protocol::auth::PublicKey;
+use star_racer_protocol::ranked::{LeaderboardEntry, PLACEMENT_GAMES, RankedProfile};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
@@ -380,7 +380,7 @@ mod tests {
 
     fn scratch_file(name: &str) -> PathBuf {
         let directory =
-            std::env::temp_dir().join(format!("space-race-ratings-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("star-racer-ratings-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         directory.join("ratings.ron")
     }

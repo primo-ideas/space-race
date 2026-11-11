@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use axum::extract::ws::{Message, WebSocket};
-use space_race_protocol::auth::{self, PublicKey};
-use space_race_protocol::ranked::QueueStatus;
-use space_race_protocol::{
+use star_racer_protocol::auth::{self, PublicKey};
+use star_racer_protocol::ranked::QueueStatus;
+use star_racer_protocol::{
     self as protocol, ClientMessage, PROTOCOL_VERSION, RejectReason, ServerMessage,
     is_valid_nickname,
 };

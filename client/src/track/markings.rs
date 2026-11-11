@@ -10,7 +10,7 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
-use space_race_sim::track::Track;
+use star_racer_sim::track::Track;
 
 use super::{MARKING, MARKING_HEIGHT, NEON_BLUE, WALL_STRIPE, for_each_segment, on_road};
 use crate::geometry::Geometry;
@@ -169,7 +169,7 @@ pub(super) fn wall_light(glow: &mut Geometry, track: &Track) {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Segment, TrackDescription};
+    use star_racer_sim::track::{Segment, TrackDescription};
 
     use super::*;
 

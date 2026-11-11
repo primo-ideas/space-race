@@ -31,9 +31,9 @@ use std::time::Duration;
 use bevy::input::gamepad::{GamepadRumbleIntensity, GamepadRumbleRequest};
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
-use space_race_protocol::{ClientMessage, LobbyPhase};
-use space_race_sim::autopilot;
-use space_race_sim::car::CarInput;
+use star_racer_protocol::{ClientMessage, LobbyPhase};
+use star_racer_sim::autopilot;
+use star_racer_sim::car::CarInput;
 
 use crate::latency::Latency;
 use crate::lobby::CurrentLobby;

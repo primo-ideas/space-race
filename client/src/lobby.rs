@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use space_race_protocol::ranked::{LeaderboardEntry, RankedProfile};
-use space_race_protocol::{
+use star_racer_protocol::ranked::{LeaderboardEntry, RankedProfile};
+use star_racer_protocol::{
     CarId, ClientMessage, JoinError, LobbyId, LobbyPhase, LobbyPlayer, LobbySettings, LobbyState,
     LobbySummary, OnlinePlayer, PlayerStatus, RatingChange,
 };
-use space_race_sim::track::{Track, TrackDescription};
+use star_racer_sim::track::{Track, TrackDescription};
 
 use crate::net::{Connection, NetEvent, Network};
 use crate::race::SnapshotBuffer;

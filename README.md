@@ -1,10 +1,10 @@
-# Space Race
+# Star Racer
 
-[![Build server](https://github.com/primo-ideas/space-race/actions/workflows/build-server.yml/badge.svg)](https://github.com/primo-ideas/space-race/actions/workflows/build-server.yml)
-[![Test server](https://github.com/primo-ideas/space-race/actions/workflows/test-server.yml/badge.svg)](https://github.com/primo-ideas/space-race/actions/workflows/test-server.yml)
-[![Build client (native)](https://github.com/primo-ideas/space-race/actions/workflows/build-client-native.yml/badge.svg)](https://github.com/primo-ideas/space-race/actions/workflows/build-client-native.yml)
-[![Build client (wasm)](https://github.com/primo-ideas/space-race/actions/workflows/build-client-wasm.yml/badge.svg)](https://github.com/primo-ideas/space-race/actions/workflows/build-client-wasm.yml)
-[![Deploy](https://github.com/primo-ideas/space-race/actions/workflows/deploy.yml/badge.svg)](https://github.com/primo-ideas/space-race/actions/workflows/deploy.yml)
+[![Build server](https://github.com/primo-ideas/star-racer/actions/workflows/build-server.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/build-server.yml)
+[![Test server](https://github.com/primo-ideas/star-racer/actions/workflows/test-server.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/test-server.yml)
+[![Build client (native)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-native.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-native.yml)
+[![Build client (wasm)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-wasm.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-wasm.yml)
+[![Deploy](https://github.com/primo-ideas/star-racer/actions/workflows/deploy.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/deploy.yml)
 
 An online multiplayer racing game written in Rust with [Bevy](https://bevy.org).
 The graphics are deliberately geometric.
@@ -16,8 +16,8 @@ The graphics are deliberately geometric.
 
 ```sh
 cargo build --workspace
-target/debug/space-race-server
-target/debug/space-race-client
+target/debug/star-racer-server
+target/debug/star-racer-client
 ```
 
 A debug build is enough to play: the dev profile optimizes every dependency, Bevy included.
@@ -52,7 +52,7 @@ Useful client options (`--help` for all of them): `--nickname` to skip the login
 The client also runs in the browser (WebGL2). With the server running and `cargo install wasm-server-runner` done:
 
 ```sh
-cargo run --release -p space-race-client --target wasm32-unknown-unknown
+cargo run --release -p star-racer-client --target wasm32-unknown-unknown
 ```
 
 then open <http://127.0.0.1:1334>. Settings go in the page address, for example `?nickname=Primo`. Tools, deployment builds and `wasm-opt` are described in [docs/web.md](docs/web.md).

@@ -15,9 +15,9 @@ use anyhow::Result;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
 use futures_util::{SinkExt, StreamExt};
-use space_race_protocol::auth;
-use space_race_protocol::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
-use space_race_protocol::{
+use star_racer_protocol::auth;
+use star_racer_protocol::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
+use star_racer_protocol::{
     self as protocol, CarId, ClientMessage, JoinError, LobbyId, LobbySettings, LobbyState,
     LobbySummary, OnlinePlayer, PROTOCOL_VERSION, RejectReason, ServerMessage, Snapshot, TrackInfo,
 };

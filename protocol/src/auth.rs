@@ -11,7 +11,7 @@ pub type Nonce = [u8; 32];
 pub type SignatureBytes = [u8; 64];
 
 /// Signed along with the nonce, so a signature made for this game is worthless anywhere else.
-const CONTEXT: &[u8] = b"space-race/auth/v1";
+const CONTEXT: &[u8] = b"star-racer/auth/v1";
 
 pub fn new_signing_key() -> SigningKey {
     SigningKey::from_bytes(&random_bytes())

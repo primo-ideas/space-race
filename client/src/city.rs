@@ -16,7 +16,7 @@ use std::f32::consts::TAU;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use space_race_sim::track::Track;
+use star_racer_sim::track::Track;
 
 use crate::dice::Dice;
 use crate::geometry::Geometry;
@@ -538,7 +538,7 @@ fn blink_beacons(
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Elevation, Segment, TrackDescription};
+    use star_racer_sim::track::{Elevation, Segment, TrackDescription};
 
     use super::*;
 

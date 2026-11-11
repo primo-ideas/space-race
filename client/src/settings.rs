@@ -5,8 +5,8 @@
 //! Without a nickname the game opens on the login screen. The other options skip screens, so the
 //! game can reach a lobby and drive with nobody at the keyboard.
 
-use space_race_protocol::{DEFAULT_PORT, WS_PATH};
-use space_race_sim::autopilot::Style;
+use star_racer_protocol::{DEFAULT_PORT, WS_PATH};
+use star_racer_sim::autopilot::Style;
 
 use crate::net::identity::IdentityStore;
 use crate::preferences::{DEFAULT_LAPS, DEFAULT_MIN_PLAYERS};
@@ -73,7 +73,7 @@ fn default_server() -> String {
 
 /// Where the web client connects when the page address says nothing: the same host the page came
 /// from, over TLS, at `<the page's directory>/ws`. The deployed game is served at
-/// `https://…/space-race/` and reaches its server at `wss://…/space-race/ws`, which the reverse
+/// `https://…/star-racer/` and reaches its server at `wss://…/star-racer/ws`, which the reverse
 /// proxy forwards (see `docs/deploy.md`), so a deployed page needs no `?server=` at all.
 ///
 /// A page served from a development server on the local machine is the exception: there is no
@@ -89,8 +89,8 @@ fn server_of_the_page() -> String {
     if host.starts_with("127.0.0.1") || host.starts_with("localhost") || host.is_empty() {
         return default_server();
     }
-    // The page's directory: everything up to its last slash, so `/space-race/index.html` and
-    // `/space-race/` both give `/space-race`.
+    // The page's directory: everything up to its last slash, so `/star-racer/index.html` and
+    // `/star-racer/` both give `/star-racer`.
     let directory = path.rsplit_once('/').map_or("", |(before, _)| before);
     format!("wss://{host}{directory}{WS_PATH}")
 }

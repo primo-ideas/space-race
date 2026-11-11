@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
-use space_race_sim::track::scenery::Prop;
-use space_race_sim::track::{Track, TrackPoint};
+use star_racer_sim::track::scenery::Prop;
+use star_racer_sim::track::{Track, TrackPoint};
 
 use crate::city::{self, Landmarks};
 use crate::geometry::Geometry;

@@ -1,4 +1,4 @@
-# Puts the commit online, at https://primo-ideas.xyz/space-race/.
+# Puts the commit online, at https://primo-ideas.xyz/star-racer/.
 #
 # There was a workflow like this once and it was deleted, because it could not work: the machine
 # had no IPv4 address and GitHub-hosted runners have no IPv6 egress, so a runner could not reach
@@ -27,15 +27,15 @@ env:
   CARGO_TERM_COLOR: always
   # The three names this workflow has of its own. A rename of the game is these three lines.
   HOST: primo-ideas.xyz
-  WEB_PATH: /space-race
-  NAME: space-race
+  WEB_PATH: /star-racer
+  NAME: star-racer
 
 jobs:
   # The same tests the "Test server" workflow runs, restored from its cache and never saving to
   # it: that workflow owns the key. Nothing goes online on a red test.
   test:
     # A fork that pushes to its own main has no key and no business deploying anywhere.
-    if: github.repository == 'primo-ideas/space-race'
+    if: github.repository == 'primo-ideas/star-racer'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -50,7 +50,7 @@ jobs:
           key: test-server-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: test-server-
 
-      - run: cargo test --locked -p space-race-server -p space-race-protocol -p space-race-sim -p space-race-logger
+      - run: cargo test --locked -p star-racer-server -p star-racer-protocol -p star-racer-sim -p star-racer-logger
 
   deploy:
     needs: test
@@ -95,8 +95,9 @@ jobs:
             cargo install wasm-bindgen-cli --version "$version" --locked
           fi
 
-      # Halves the module. Not having it, or its failing, is no reason to stop a deployment -- the
-      # game works either way, the download is just twice as long -- so this never fails the run.
+      # Shrinks the module by a sixth. Not having it, or its failing, is no reason to stop a
+      # deployment -- the game works either way, the download is just longer -- so this never
+      # fails the run.
       - name: Install wasm-opt
         continue-on-error: true
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends binaryen
@@ -105,10 +106,10 @@ jobs:
       # has a cache of its own, so neither disturbs the other
       # (see docs/architecture.md#feature-unification).
       - name: Build the game server for Linux
-        run: cargo build --locked --release -p space-race-server --target x86_64-unknown-linux-musl
+        run: cargo build --locked --release -p star-racer-server --target x86_64-unknown-linux-musl
 
       - name: Build the web client
-        run: cargo build --locked --release -p space-race-client --target wasm32-unknown-unknown
+        run: cargo build --locked --profile web -p star-racer-client --target wasm32-unknown-unknown
 
       # The same contents deploy/deploy.ps1 stages, so a deployment from a runner and one from the
       # maintainer's machine put the same three things on the server. The fonts are not here
@@ -123,10 +124,14 @@ jobs:
           cp client/web/* target/deploy/web/
           wasm-bindgen --target web --no-typescript --out-dir target/deploy/web \
             --out-name "$NAME-client" \
-            "target/wasm32-unknown-unknown/release/$NAME-client.wasm"
+            "target/wasm32-unknown-unknown/web/$NAME-client.wasm"
           module="target/deploy/web/${NAME}-client_bg.wasm"
           before=$(stat -c%s "$module")
-          if command -v wasm-opt >/dev/null && wasm-opt -Os "$module" -o "$module.opt"; then
+          # The `web` profile strips the section naming the WebAssembly features the module
+          # uses, so they are named here: the ones Rust turns on for this target.
+          features="--enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int"
+          features="$features --enable-mutable-globals --enable-reference-types --enable-multivalue"
+          if command -v wasm-opt >/dev/null && wasm-opt -Oz $features "$module" -o "$module.opt"; then
             mv "$module.opt" "$module"
             echo "module $(stat -c%s "$module") bytes, down from $before"
           else
@@ -182,4 +187,4 @@ jobs:
             echo "::error::$WEB_PATH/ws is not proxied to the game server; re-run setup-server.sh on it"
             exit 1
           fi
-          echo "Space Race is live at $url" >> "$GITHUB_STEP_SUMMARY"
+          echo "Star Racer is live at $url" >> "$GITHUB_STEP_SUMMARY"

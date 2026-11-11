@@ -8,7 +8,7 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
-use space_race_sim::track::Surface;
+use star_racer_sim::track::Surface;
 
 use crate::race::{RaceUpdate, RaceView};
 use crate::screen::Screen;

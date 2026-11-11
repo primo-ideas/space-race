@@ -11,14 +11,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use space_race_protocol::auth::{self, SigningKey};
-use space_race_protocol::ranked::{QueueStatus, RankedProfile};
-use space_race_protocol::{
+use star_racer_protocol::auth::{self, SigningKey};
+use star_racer_protocol::ranked::{QueueStatus, RankedProfile};
+use star_racer_protocol::{
     self as protocol, CarId, ClientMessage, JoinError, LobbyId, LobbyPhase, LobbySettings,
     LobbyState, LobbyStatus, LobbySummary, OnlinePlayer, PROTOCOL_VERSION, PlayerStatus, Presence,
     RejectReason, ServerMessage, Snapshot, TrackInfo, WS_PATH,
 };
-use space_race_sim::car::{Car, CarInput};
+use star_racer_sim::car::{Car, CarInput};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::time::timeout;

@@ -1,7 +1,7 @@
 //! The driving simulation. The server runs it with full authority; it is a crate of its own so
 //! the client can run the exact same code later, for prediction.
 //!
-//! It knows nothing of the wire: `space-race-protocol` depends on it, never the reverse. What
+//! It knows nothing of the wire: `star-racer-protocol` depends on it, never the reverse. What
 //! crosses the wire derives its encoding here all the same, so a snapshot carries the
 //! simulation's own `Car` rather than a copy that could drift out of step.
 //!

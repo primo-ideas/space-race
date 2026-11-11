@@ -1,14 +1,61 @@
 [package]
-name = "space-race-client"
+name = "star-racer-client"
 version = "0.1.25"
 edition = "2024"
 license = "Unlicense"
 
 [dependencies]
 anyhow.workspace = true
-bevy = "0.19.1"
-space-race-protocol.workspace = true
-space-race-sim.workspace = true
+# Only what the game uses, named one by one: Bevy with its default features brings glTF, scenes,
+# animation, sprites and gizmos to render, anti-aliasing, the tone mapping tables, compressed
+# textures and an Ogg decoder, none of which a game of meshes built in code and sounds synthesized
+# in code ever calls, and all of which the web build would download (docs/web.md#size).
+bevy = { version = "0.19.1", default-features = false, features = [
+    # The app: tasks, assets (meshes, materials and the font are assets), logs, states.
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_state",
+    # The window and what is pressed in it.
+    "bevy_window",
+    "bevy_winit",
+    "x11",
+    "wayland",
+    "keyboard",
+    "mouse",
+    "touch",
+    "gamepad",
+    "bevy_gilrs",
+    "bevy_clipboard",
+    # The race: lit meshes, fog, bloom. Tone mapping is off, so its tables are not needed.
+    "bevy_color",
+    "bevy_camera",
+    "bevy_image",
+    "bevy_mesh",
+    "bevy_shader",
+    "bevy_material",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_post_process",
+    "bevy_light",
+    "bevy_pbr",
+    "webgl2",
+    # The menus and the HUD.
+    "bevy_text",
+    "default_font",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_ui_widgets",
+    "bevy_input_focus",
+    "bevy_picking",
+    "ui_picking",
+    # Sound, with no decoder: every sound is synthesized (docs/sound.md).
+    "bevy_audio",
+] }
+star-racer-protocol.workspace = true
+star-racer-sim.workspace = true
 futures-util = "0.3.34"
 getrandom.workspace = true
 ron.workspace = true
@@ -18,6 +65,8 @@ tokio-tungstenite-wasm = "0.9.0"
 
 # Native: command line, identity file in the user data directory, networking thread.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# `--capture` saves its screenshot as a PNG.
+bevy = { version = "0.19.1", default-features = false, features = ["png"] }
 clap = { version = "4.6.7", features = ["derive"] }
 directories = "6.0.0"
 tokio = { workspace = true, features = ["rt"] }
@@ -26,7 +75,7 @@ tokio = { workspace = true, features = ["rt"] }
 # loop. Bevy's `web` feature makes its clock and task pool use browser APIs; without it, the game
 # builds but panics as soon as it reads the time.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-bevy = { version = "0.19.1", features = ["web"] }
+bevy = { version = "0.19.1", default-features = false, features = ["web"] }
 wasm-bindgen-futures = "0.4.79"
 web-sys = { version = "0.3.106", features = [
     "CssStyleDeclaration",

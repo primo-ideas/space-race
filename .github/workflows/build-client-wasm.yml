@@ -33,7 +33,7 @@ jobs:
 
       # The dev profile, like every other check here. The release module is built by "Deploy",
       # which is the build that has to work for real.
-      - run: cargo build --locked -p space-race-client --target wasm32-unknown-unknown
+      - run: cargo build --locked -p star-racer-client --target wasm32-unknown-unknown
 
       # Saved even when the step above failed: actions/cache writes only on success,
       # and a red build is exactly when the next run should not start from nothing.

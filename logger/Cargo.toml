@@ -1,5 +1,5 @@
 [package]
-name = "space-race-logger"
+name = "star-racer-logger"
 version = "0.1.25"
 edition = "2024"
 license = "Unlicense"

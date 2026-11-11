@@ -44,7 +44,7 @@ mod web {
     use crate::ui::hud::LeaveDialog;
 
     /// What the game's step in the history holds, so it can tell it from any other.
-    const STEP: &str = "space-race:lobby";
+    const STEP: &str = "star-racer:lobby";
 
     /// Whether the game's step is in the history, as far as the game knows.
     #[derive(Resource, Default)]

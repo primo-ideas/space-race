@@ -9,7 +9,7 @@ check a commit; the fifth puts it online.
 | `test-server.yml` | The server, protocol, simulation and logger tests pass: encoding, authentication, lobbies, an autopilot lapping every shipped track, and a real server driven over WebSocket (see [Architecture](architecture.md#testing)). |
 | `build-client-native.yml` | The desktop client compiles on Linux, tests included. It is the one workflow that installs system packages: Bevy links against ALSA, udev, Wayland, xkbcommon and X11, and a runner image carries none of their `-dev` halves. |
 | `build-client-wasm.yml` | The client compiles for the browser. |
-| `deploy.yml` | The commit is playable at <https://primo-ideas.xyz/space-race/> (see [Deploying](#deploying)). |
+| `deploy.yml` | The commit is playable at <https://primo-ideas.xyz/star-racer/> (see [Deploying](#deploying)). |
 
 The four checks run on every push to `main`, on every pull request, and by hand. They build the
 **dev profile** with `CARGO_PROFILE_DEV_DEBUG=0`: a check only needs to know the code compiles,
@@ -41,7 +41,7 @@ writing to it. Nothing goes online on a red test. The second cross-compiles the 
 `x86_64-unknown-linux-musl`, builds the client for the browser in release, runs `wasm-bindgen` at
 the version the lock file names and `wasm-opt` over the result, then uploads the lot and runs
 `deploy/install.sh` on the machine over SSH. It ends by fetching the page back, checking the
-module is served as `application/wasm` and that `/space-race/ws` is not a 404, so a deployment that
+module is served as `application/wasm` and that `/star-racer/ws` is not a 404, so a deployment that
 cannot be played does not pass for a good one.
 
 Between them, those two jobs are a stronger check than the four: they are the only place the
@@ -75,7 +75,7 @@ would then break deployments with a confusing error, and what pinning defends ag
 answering for this host on a GitHub runner's first connection to it — is outside what this project
 defends against (see [Deployment](deploy.md#what-this-deliberately-does-not-do)).
 
-Forks do not deploy: the job is skipped unless the repository is `primo-ideas/space-race`, and a
+Forks do not deploy: the job is skipped unless the repository is `primo-ideas/star-racer`, and a
 fork has no key in any case.
 
 ## Why this could not exist before

@@ -18,7 +18,7 @@ of `shared/` and knowing nothing of the wire.
 The dependencies run one way and only one way. `protocol` uses `sim` — a snapshot carries the
 simulation's own `Car`, the welcome carries its `TrackDescription` — and `sim` never reaches back.
 So the handling can be read, tested and changed with the wire format out of view, and
-`cargo test -p space-race-sim` is all of the driving and none of the rest.
+`cargo test -p star-racer-sim` is all of the driving and none of the rest.
 
 Authentication stayed inside `protocol`, a module rather than a crate. A public key, a nonce and a
 signature are three of the fields the handshake messages carry, and nothing in the game signs
@@ -274,7 +274,7 @@ release-only compilation error would not be caught anywhere else.
 ## Feature unification
 
 Cargo enables a dependency's features as the union of what every crate *in the same build*
-requests. `cargo build -p space-race-server` and `cargo build --workspace` can therefore
+requests. `cargo build -p star-racer-server` and `cargo build --workspace` can therefore
 produce two different server binaries: in the second, Bevy's requirements leak into the server's
 dependencies.
 
@@ -342,7 +342,7 @@ included. On a slow machine, always build the same way, with `--workspace`.
 Diagnostics for what tests cannot judge:
 
 - The HUD shows the frame rate, top right.
-- `RUST_LOG=info,space_race_server::lobby=debug` makes the server log, once per second, each
+- `RUST_LOG=info,star_racer_server::lobby=debug` makes the server log, once per second, each
   car's status, race progress, speed, heading and input. Reading those while a
   client drives is how the display latency bug described in [Displaying the race](#displaying-the-race) was found.
 

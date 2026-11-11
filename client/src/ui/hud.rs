@@ -14,10 +14,10 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::ui_widgets::Activate;
-use space_race_protocol::ranked::Tier;
-use space_race_protocol::{CarId, LobbyPhase, PlayerStatus};
-use space_race_sim::TICK_RATE;
-use space_race_sim::race::{self, RaceStanding, StartGrade};
+use star_racer_protocol::ranked::Tier;
+use star_racer_protocol::{CarId, LobbyPhase, PlayerStatus};
+use star_racer_sim::TICK_RATE;
+use star_racer_sim::race::{self, RaceStanding, StartGrade};
 
 use super::navigation::MenuInput;
 use super::safe_area::SafeInset;
@@ -34,7 +34,7 @@ use crate::track::CurrentTrack;
 use crate::world;
 
 /// Rows of the standings and of the results: the most players a lobby holds.
-const ROWS: usize = space_race_protocol::MAX_LOBBY_PLAYERS as usize;
+const ROWS: usize = star_racer_protocol::MAX_LOBBY_PLAYERS as usize;
 /// How long the start lights stay after the start, in seconds.
 const GO_SECONDS: f64 = 1.0;
 /// How long a start light pops when it lights up, in seconds.
@@ -126,7 +126,7 @@ const GAUGE_WIDTH: f32 = 220.0;
 /// Between two charges of the turbo meter, in pixels.
 const TURBO_GAP: f32 = 5.0;
 /// How many charges the turbo meter shows.
-const TURBO_CHARGES: usize = space_race_sim::car::TURBO_CHARGES as usize;
+const TURBO_CHARGES: usize = star_racer_sim::car::TURBO_CHARGES as usize;
 
 /// A part of the HUD shown only at times.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Hash)]

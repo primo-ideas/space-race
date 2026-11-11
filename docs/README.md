@@ -1,6 +1,6 @@
 # Documentation
 
-The reasoned technical decisions behind Space Race. `CLAUDE.md` holds the working rules and
+The reasoned technical decisions behind Star Racer. `CLAUDE.md` holds the working rules and
 the current status; these pages explain *why* the code looks the way it does.
 
 - [Architecture](architecture.md) — workspace layout, transport choice, deployment constraints.

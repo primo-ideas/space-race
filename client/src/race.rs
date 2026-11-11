@@ -11,10 +11,10 @@ use std::f32::consts::{PI, TAU};
 use bevy::light::NotShadowCaster;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
-use space_race_protocol::{CarId, CarSnapshot, Snapshot};
-use space_race_sim::TICK_SECONDS;
-use space_race_sim::car::Car;
-use space_race_sim::track::Surface;
+use star_racer_protocol::{CarId, CarSnapshot, Snapshot};
+use star_racer_sim::TICK_SECONDS;
+use star_racer_sim::car::Car;
+use star_racer_sim::track::Surface;
 
 use crate::car_model::{self, Livery};
 use crate::lobby::CurrentLobby;

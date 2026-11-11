@@ -4,7 +4,7 @@
 //! dressed circuit costs no more draw calls than a bare one, and they follow the same language:
 //! dark geometric bodies that take the light, lined with neon that does not. Nothing here touches
 //! the simulation, and every prop is placed from the road rather than in world coordinates (see
-//! [`scenery`](space_race_sim::track::scenery)).
+//! [`scenery`](star_racer_sim::track::scenery)).
 //!
 //! The city's towers are lit as well as built here: bands of light or windows, a crown of neon,
 //! and a warning light on the tallest roofs. What moves around them is the city's own (see
@@ -19,8 +19,8 @@
 //! nobody sees: the props seem to rise out of nothing, the way the road floats over it.
 
 use bevy::prelude::*;
-use space_race_sim::track::scenery::{Prop, Side};
-use space_race_sim::track::{Track, TrackPoint};
+use star_racer_sim::track::scenery::{Prop, Side};
+use star_racer_sim::track::{Track, TrackPoint};
 
 use crate::city::Landmarks;
 use crate::dice::{Dice, seed};
@@ -1451,7 +1451,7 @@ fn bend_at(track: &Track, at: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Elevation, Segment, TrackDescription};
+    use star_racer_sim::track::{Elevation, Segment, TrackDescription};
 
     use super::*;
 

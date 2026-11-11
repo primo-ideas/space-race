@@ -16,7 +16,7 @@
 //! player come back before the server has noticed they had gone (see docs/lobbies.md).
 
 use bevy::prelude::*;
-use space_race_protocol::{ClientMessage, LobbyId, LobbyPhase};
+use star_racer_protocol::{ClientMessage, LobbyId, LobbyPhase};
 
 use crate::lobby::{CurrentLobby, Ladder, LobbyList, LobbyUpdate, Notice};
 use crate::net::{Connection, Network};
@@ -230,7 +230,7 @@ fn rejoin(lobby: Option<LobbyId>, list: &LobbyList) -> Rejoin {
 
 #[cfg(test)]
 mod tests {
-    use space_race_protocol::{
+    use star_racer_protocol::{
         CarId, LobbySettings, LobbyState, LobbyStatus, LobbySummary, RejectReason,
     };
 

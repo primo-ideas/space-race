@@ -179,12 +179,12 @@ in-game text.
 
 There are no accounts, no e-mail and no password in this alpha. **A player is their Ed25519 public
 key.** The client generates a key on first launch and keeps it; on native it lives at
-`%APPDATA%\Space Race\data\identity.key`. Losing that file means losing the identity.
+`%APPDATA%\Star Racer\data\identity.key`. Losing that file means losing the identity.
 
 The signed message is not the bare nonce but:
 
 ```
-b"space-race/auth/v1" || nonce
+b"star-racer/auth/v1" || nonce
 ```
 
 That context prefix is domain separation: a signature produced for this game is worthless in any

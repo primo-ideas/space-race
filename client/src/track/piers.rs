@@ -10,7 +10,7 @@
 //! over itself, and the scenery keeps to the outside of the walls.
 
 use bevy::prelude::*;
-use space_race_sim::track::{Track, TrackPoint};
+use star_racer_sim::track::{Track, TrackPoint};
 
 use super::{SLAB, WALL_THICKNESS, for_each_segment};
 use crate::geometry::Geometry;
@@ -117,7 +117,7 @@ pub(super) fn keel_lines(neon: &mut Geometry, track: &Track) {
 
 #[cfg(test)]
 mod tests {
-    use space_race_sim::track::{Elevation, Segment, TrackDescription};
+    use star_racer_sim::track::{Elevation, Segment, TrackDescription};
 
     use super::*;
 

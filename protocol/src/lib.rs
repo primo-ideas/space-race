@@ -10,15 +10,15 @@ use bitcode::{Decode, DecodeOwned, Encode};
 
 use crate::auth::{Nonce, PublicKey, SignatureBytes};
 use crate::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
-use space_race_sim::car::{Car, CarInput, CarTuning};
-use space_race_sim::race::StartGrade;
-use space_race_sim::track::TrackDescription;
+use star_racer_sim::car::{Car, CarInput, CarTuning};
+use star_racer_sim::race::StartGrade;
+use star_racer_sim::track::TrackDescription;
 
 pub mod auth;
 pub mod ranked;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -329,7 +329,7 @@ pub struct CarSnapshot {
     pub car: Car,
     /// Meters driven since the start line during a race (see [`Progress`]), 0 outside races.
     ///
-    /// [`Progress`]: space_race_sim::race::Progress
+    /// [`Progress`]: star_racer_sim::race::Progress
     pub progress: f32,
     /// The boost letting go of the current drift would give, as a share of the longest boost a
     /// drift can give: 0 when not drifting or not yet, 1 at the most. The tuning stays on the
@@ -415,8 +415,8 @@ mod tests {
     fn race_messages_round_trip() {
         use glam::Vec2;
 
-        use space_race_sim::track::scenery::{Prop, Side};
-        use space_race_sim::track::{Elevation, Narrows, Segment};
+        use star_racer_sim::track::scenery::{Prop, Side};
+        use star_racer_sim::track::{Elevation, Narrows, Segment};
 
         let welcome = ServerMessage::Welcome {
             tracks: vec![TrackInfo {

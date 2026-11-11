@@ -12,7 +12,7 @@ use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::Activate;
-use space_race_protocol::{ClientMessage, LobbyId, LobbyStatus, LobbySummary, Presence};
+use star_racer_protocol::{ClientMessage, LobbyId, LobbyStatus, LobbySummary, Presence};
 
 use super::create_lobby::CreateDialog;
 use super::navigation::MenuInput;

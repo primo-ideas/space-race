@@ -1,4 +1,4 @@
-# Builds Space Race, starts the server in the background and runs the client against it, then stops
+# Builds Star Racer, starts the server in the background and runs the client against it, then stops
 # the server when the client closes. Anything this script does not recognise goes to the client,
 # so every client option works here (`--help` lists them).
 #
@@ -30,8 +30,8 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 $port = 8080
 $log = 'target/server.log'
 $errLog = 'target/server.err.log'
-$serverExe = 'target/debug/space-race-server.exe'
-$clientExe = 'target/debug/space-race-client.exe'
+$serverExe = 'target/debug/star-racer-server.exe'
+$clientExe = 'target/debug/star-racer-client.exe'
 
 function Test-Listening {
     return [bool](Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)

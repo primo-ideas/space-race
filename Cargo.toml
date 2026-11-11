@@ -5,9 +5,9 @@ members = ["client", "logger", "protocol", "server", "sim"]
 [workspace.dependencies]
 anyhow = "1.0.104"
 bitcode = { version = "0.6.9", features = ["glam"] }
-space-race-logger = { path = "logger" }
-space-race-protocol = { path = "protocol" }
-space-race-sim = { path = "sim" }
+star-racer-logger = { path = "logger" }
+star-racer-protocol = { path = "protocol" }
+star-racer-sim = { path = "sim" }
 getrandom = "0.4.3"
 # Must stay the version Bevy uses, so `Vec2` is the same type on the client. The pin lives here
 # and nowhere else: four crates now speak this type, and a second pin is a mismatch waiting to
@@ -26,3 +26,16 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# The web build: the module is downloaded before anything can be played, so it is built for size
+# first. One codegen unit and link-time optimization across every crate let the compiler drop
+# what is never called and merge what is the same; "s" rather than "z", which is a tenth smaller
+# again but stops unrolling and vectorizing loops the renderer runs every frame; no symbols,
+# and a panic aborts, which is all a browser tab can do with one. See docs/web.md#size.
+[profile.web]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

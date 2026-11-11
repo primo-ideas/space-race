@@ -1,10 +1,10 @@
 #!/bin/sh
-# Installs a new Space Race build on a machine that is already set up. It runs as root, from the
+# Installs a new Star Racer build on a machine that is already set up. It runs as root, from the
 # directory the archive was unpacked into, and is called by both deploy/deploy.ps1 and the
 # "Deploy" GitHub workflow.
 #
 # It replaces three things and nothing else: the server binary, its data directory and the web
-# client, then restarts the service. It never touches the space-race user, the systemd unit, the
+# client, then restarts the service. It never touches the star-racer user, the systemd unit, the
 # Apache configuration or the TLS certificate. Those belong to the machine and are put there once
 # by the maintainer's setup-server.sh, which is not in this repository because it sets up the
 # whole host. A deployment that rewrote them could take the whole site down -- not
@@ -16,7 +16,7 @@ set -eu
 
 # The one place the game's name appears. Everything else is derived from it, so renaming the game
 # is this line, here and in setup-server.sh.
-NAME=space-race
+NAME=star-racer
 
 USER_NAME=$NAME
 HOME_DIR=/home/$NAME

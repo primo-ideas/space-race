@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::Activate;
-use space_race_protocol::{
+use star_racer_protocol::{
     ClientMessage, LobbySettings, MAX_LAPS, MAX_LOBBY_NAME_CHARS, MAX_LOBBY_PLAYERS,
     is_valid_lobby_name,
 };

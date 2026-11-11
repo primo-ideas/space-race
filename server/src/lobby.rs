@@ -17,16 +17,16 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::body::Bytes;
-use space_race_protocol::{
+use star_racer_protocol::{
     self as protocol, CarId, CarSnapshot, JoinError, LobbyId, LobbyPhase, LobbyPlayer,
     LobbySettings, LobbyState, LobbyStatus, LobbySummary, MAX_INPUT_LEAD, PlayerStatus, RaceResult,
     RatingChange, ServerMessage, Snapshot,
 };
-use space_race_sim::autopilot;
-use space_race_sim::car::{Car, CarInput, CarTuning};
-use space_race_sim::race::{self, Progress, RaceStanding, StartTiming};
-use space_race_sim::track::Track;
-use space_race_sim::{TICK_DURATION, TICK_RATE, TICK_SECONDS};
+use star_racer_sim::autopilot;
+use star_racer_sim::car::{Car, CarInput, CarTuning};
+use star_racer_sim::race::{self, Progress, RaceStanding, StartTiming};
+use star_racer_sim::track::Track;
+use star_racer_sim::{TICK_DURATION, TICK_RATE, TICK_SECONDS};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{debug, info};
@@ -1079,7 +1079,7 @@ impl Lobby {
 mod tests {
     use std::path::Path;
 
-    use space_race_sim::race::StartGrade;
+    use star_racer_sim::race::StartGrade;
 
     use super::*;
     use crate::content;

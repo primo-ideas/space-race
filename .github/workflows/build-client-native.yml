@@ -49,7 +49,7 @@ jobs:
           key: build-client-native-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: build-client-native-
 
-      - run: cargo build --locked -p space-race-client --all-targets
+      - run: cargo build --locked -p star-racer-client --all-targets
 
       # Saved even when the step above failed: actions/cache writes only on success,
       # and a red build is exactly when the next run should not start from nothing.

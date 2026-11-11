@@ -1,6 +1,6 @@
 # Deployment
 
-Space Race runs on the maintainer's Scaleway machine, at <https://primo-ideas.xyz/space-race/>. The
+Star Racer runs on the maintainer's Scaleway machine, at <https://primo-ideas.xyz/star-racer/>. The
 machine is set up once, by a script that lives outside this repository because it sets up the
 whole host; after that a deployment only replaces the build.
 
@@ -22,18 +22,18 @@ Both build the game server for Linux and the client for the browser, upload them
 `deploy/install.sh` replaces exactly three things:
 
 ```text
-/home/space-race/space-race-server   the binary, renamed over the old one
-/home/space-race/data/               tracks and car tuning, reloaded while it runs
-/var/www/html/space-race/            the web client: index.html, the bindings, the module
+/home/star-racer/star-racer-server   the binary, renamed over the old one
+/home/star-racer/data/               tracks and car tuning, reloaded while it runs
+/var/www/html/star-racer/            the web client: index.html, the bindings, the module
 ```
 
 then restarts the service and checks it is still up two seconds later, so a binary that dies on
 startup fails the deployment instead of passing for one.
 
-The ranked ladder, `/home/space-race/ratings.ron`, sits beside them and is not part of a build: a
+The ranked ladder, `/home/star-racer/ratings.ron`, sits beside them and is not part of a build: a
 deployment restarts the server, which reads it back (see [Quick play and ranked](ranked.md)).
 
-It **never** touches the `space-race` user, the systemd unit, the Apache configuration, the TLS
+It **never** touches the `star-racer` user, the systemd unit, the Apache configuration, the TLS
 certificate, or anything under the document root that is not its own directory. Those belong to
 the machine, not to the repository: a deployment that rewrote the virtual host could take the
 whole site down, and the game is the least important thing on it. So `install.sh` checks they are
@@ -48,7 +48,7 @@ nobody loading the page gets half a module.
 ## Setting the machine up, once
 
 Not from this repository. The machine serves more than this game, and a script that creates the
-`space-race` user and edits the shared virtual host is the machine's business rather than one
+`star-racer` user and edits the shared virtual host is the machine's business rather than one
 game's — so it lives with the maintainer, as `~/Documents/setup-server.sh`, and it knows about
 every game on the host.
 
@@ -71,7 +71,7 @@ the certificate then this script, or this script, the certificate, and this scri
 
 It is idempotent, which is also how the machine is changed afterwards: run it again after adding
 a game, moving a port, or getting the certificate. `--dry-run` says what it would change and
-changes nothing; `--only space-race` restricts it to this game. Anything it overwrites is backed up
+changes nothing; `--only star-racer` restricts it to this game. Anything it overwrites is backed up
 beside itself with a timestamp first, and the virtual host is `configtest`ed before Apache is
 reloaded, then put back as it was if the check fails — a broken configuration there takes down
 every site on the machine, not just the game.
@@ -96,11 +96,11 @@ in the Actions tab by itself. The same key serves the other game's repository.
 ### What the setup script leaves for this game
 
 ```text
-/etc/systemd/system/space-race.service   its own user, loopback port 8081, RUST_LOG=info
-/etc/apache2/space-race.conf             the WebSocket proxy, the wasm media type, the directory
+/etc/systemd/system/star-racer.service   its own user, loopback port 8081, RUST_LOG=info
+/etc/apache2/star-racer.conf             the WebSocket proxy, the wasm media type, the directory
 <the TLS virtual host>                   one Include line, inside the SSLEngine block
-/home/space-race/                        the server's home, owned by the space-race user
-/var/www/html/space-race/                where the web client goes
+/home/star-racer/                        the server's home, owned by the star-racer user
+/var/www/html/star-racer/                where the web client goes
 ```
 
 The port is 8081 and not the default 8080, which belongs to the other game on the same machine.
@@ -116,14 +116,14 @@ directory and unit as the script's, but wired into Apache the way the other site
 is, which leaves the virtual host certbot wrote untouched:
 
 ```text
-/etc/apache2/conf-available/space-race.conf   enabled with a2enconf, so every virtual host has it
+/etc/apache2/conf-available/star-racer.conf   enabled with a2enconf, so every virtual host has it
 ```
 
 ```apache
-<Location "/space-race/ws">
+<Location "/star-racer/ws">
 	ProxyPass "http://127.0.0.1:8081/ws" upgrade=websocket
 </Location>
-<Directory "/var/www/html/space-race">
+<Directory "/var/www/html/star-racer">
 	Options -Indexes
 	AllowOverride None
 	Require all granted
@@ -158,7 +158,7 @@ single crate with `-p` where the rest of the project builds the whole workspace.
 ## The web client finds its own server
 
 A page served from the site connects to `wss://<the same host>/<its own directory>/ws` unless the
-address says otherwise. Served at `/space-race/index.html`, it reaches `/space-race/ws`, which the
+address says otherwise. Served at `/star-racer/index.html`, it reaches `/star-racer/ws`, which the
 proxy forwards to the game server: a deployed page needs no `?server=` at all. A page served from
 `127.0.0.1` is the exception — there is no proxy in front of a development server — and falls back
 to `ws://127.0.0.1:8080/ws`. `?server=` still overrides both.
@@ -166,12 +166,12 @@ to `ws://127.0.0.1:8080/ws`. `?server=` still overrides both.
 ## Day to day
 
 ```sh
-systemctl status space-race        # is it running
-journalctl -u space-race -f        # what it is doing
-systemctl restart space-race       # after editing a track or the car by hand
+systemctl status star-racer        # is it running
+journalctl -u star-racer -f        # what it is doing
+systemctl restart star-racer       # after editing a track or the car by hand
 ```
 
-Tracks and `car.ron` in `/home/space-race/data` are reloaded within a second of being saved, so the
+Tracks and `car.ron` in `/home/star-racer/data` are reloaded within a second of being saved, so the
 car can be tuned on the live server without restarting it. The next deployment overwrites them.
 
 A deployment restarts the server, which drops everyone connected and ends any race in progress.

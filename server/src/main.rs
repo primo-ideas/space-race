@@ -17,7 +17,7 @@ use axum::response::Response;
 use axum::routing::get;
 use axum::serve::ListenerExt;
 use clap::Parser;
-use space_race_protocol::{DEFAULT_PORT, MAX_MESSAGE_SIZE, WS_PATH};
+use star_racer_protocol::{DEFAULT_PORT, MAX_MESSAGE_SIZE, WS_PATH};
 use tokio::net::TcpListener;
 use tracing::{Instrument, info, info_span, warn};
 
@@ -49,7 +49,7 @@ fn listen_addr(port: u16) -> SocketAddr {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Logs at `info` unless `RUST_LOG` says otherwise, e.g. `RUST_LOG=debug`.
-    space_race_logger::init();
+    star_racer_logger::init();
     let args = Args::parse();
 
     let tracks = content::load_tracks(&args.data_dir)?;

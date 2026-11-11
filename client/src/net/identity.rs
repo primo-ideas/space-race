@@ -7,7 +7,7 @@
 //! machine.
 
 use anyhow::{Context, Result};
-use space_race_protocol::auth::{self, SigningKey};
+use star_racer_protocol::auth::{self, SigningKey};
 
 pub use platform::IdentityStore;
 
@@ -31,9 +31,9 @@ mod platform {
             Self(dir)
         }
 
-        /// The user data directory (`%APPDATA%\Space Race\data` on Windows).
+        /// The user data directory (`%APPDATA%\Star Racer\data` on Windows).
         pub fn default_dir() -> Option<Self> {
-            ProjectDirs::from("", "", "Space Race").map(|dirs| Self(dirs.data_dir().to_path_buf()))
+            ProjectDirs::from("", "", "Star Racer").map(|dirs| Self(dirs.data_dir().to_path_buf()))
         }
 
         pub fn load_or_create(&self) -> Result<SigningKey> {
@@ -70,7 +70,7 @@ mod platform {
 
     use super::*;
 
-    const KEY_PREFIX: &str = "space-race/identity";
+    const KEY_PREFIX: &str = "star-racer/identity";
 
     /// Keys of the browser's local storage: the key itself, in hexadecimal, and one per slot.
     #[derive(Clone)]
@@ -146,7 +146,7 @@ mod tests {
     /// The store keeps the same key across runs, and a slot holds what was last written in it.
     #[test]
     fn a_store_remembers_its_key_and_its_slots() {
-        let dir = std::env::temp_dir().join(format!("space-race-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("star-racer-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = IdentityStore::in_dir(dir.clone());
 
