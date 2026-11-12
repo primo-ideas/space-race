@@ -3,9 +3,9 @@
 //!
 //! A car is a long wedge of a hull with a pointed nose, a cockpit bubble on its back, and two
 //! engine pods slung beside it on a rear wing, each pod wearing a fin. It floats above the road on
-//! nothing: its underside clears it by a quarter of a meter, and a pool of colored light under it
-//! says it hovers. Its thrusters glow at the back, and their flames lengthen with its speed and
-//! roar out on a boost.
+//! nothing: its underside clears it by a quarter of a meter, a soft shadow sits it over the
+//! road, and colored light spilling out from under its edge says it hovers. Its thrusters glow
+//! at the back, and their flames lengthen with its speed and roar out on a boost.
 //!
 //! Every car shares the same shape; its livery says whose it is: the player's own in orange, lined
 //! with orange neon, every other in blue lined with magenta. The neon and the thrusters are drawn
@@ -337,41 +337,93 @@ pub fn lights_geometry(livery: &Livery) -> Geometry {
     geometry
 }
 
-/// The light the car throws on the road under it, added to whatever it falls on: brightest under
-/// the hull and fading out past the pods.
-pub fn under_glow_geometry(livery: &Livery) -> Geometry {
+/// The hull's outline on the road, as an oval: half its length and half its width, pods included.
+/// The light and the shadow under the car are drawn in multiples of it.
+const FOOTPRINT: Vec2 = Vec2::new(2.25, 1.35);
+
+/// Around the oval the light and the shadow are drawn as, in this many steps: enough that its
+/// rim never shows a corner.
+const OVAL_STEPS: usize = 24;
+
+/// Concentric ovals on the road under the car, from its middle outward: each ring is a size, in
+/// multiples of [`FOOTPRINT`], and the color everything at that size takes, blended between rings.
+/// A first ring of size 0 is the middle itself. The road may curve away under a flat shape on a
+/// banked turn, so whatever is drawn this way fades to nothing at its rim, where it would sink.
+fn oval_rings(height: f32, rings: &[(f32, Color)]) -> Geometry {
     let mut geometry = Geometry::default();
-    let glow = 0.13;
-    let bright = Color::LinearRgba(LinearRgba::new(
-        livery.accent.red * glow,
-        livery.accent.green * glow,
-        livery.accent.blue * glow,
-        1.0,
-    ));
-    let dark = Color::LinearRgba(LinearRgba::BLACK);
-    let y = 0.07;
-    let inner = Vec2::new(1.6, 0.75);
-    let outer = Vec2::new(2.6, 1.6);
-    let corners = |half: Vec2| {
-        [
-            Vec3::new(-half.x, y, -half.y),
-            Vec3::new(half.x, y, -half.y),
-            Vec3::new(half.x, y, half.y),
-            Vec3::new(-half.x, y, half.y),
-        ]
+    let point = |size: f32, step: usize| {
+        let angle = step as f32 / OVAL_STEPS as f32 * std::f32::consts::TAU;
+        let at = FOOTPRINT * size * Vec2::new(angle.cos(), angle.sin());
+        Vec3::new(at.x, height, at.y)
     };
-    let (inner, outer) = (corners(inner), corners(outer));
-    geometry.quad_shaded(inner, Vec3::Y, [bright; 4]);
-    for side in 0..4 {
-        let next = (side + 1) % 4;
-        geometry.quad_shaded(
-            [inner[side], inner[next], outer[next], outer[side]],
-            Vec3::Y,
-            [bright, bright, dark, dark],
-        );
+    for pair in rings.windows(2) {
+        let ((inner, inner_color), (outer, outer_color)) = (pair[0], pair[1]);
+        for step in 0..OVAL_STEPS {
+            geometry.quad_shaded(
+                [
+                    point(inner, step),
+                    point(inner, step + 1),
+                    point(outer, step + 1),
+                    point(outer, step),
+                ],
+                Vec3::Y,
+                [inner_color, inner_color, outer_color, outer_color],
+            );
+        }
     }
     geometry
 }
+
+/// The light the car throws on the road under it, added to whatever it falls on. It spills out
+/// from under the hull's edge: none in the middle, which the hull hides and the shadow darkens,
+/// most of it just outside the hull's outline, and none a meter and a half beyond.
+///
+/// It used to be a rectangle as wide as the car and a half, evenly lit to its middle: from the
+/// chase camera a slab of muddy orange, wider than the car, whose straight edge cut across a
+/// banked road.
+pub fn under_glow_geometry(livery: &Livery) -> Geometry {
+    let glow = |share: f32| {
+        Color::LinearRgba(LinearRgba::new(
+            livery.accent.red * share,
+            livery.accent.green * share,
+            livery.accent.blue * share,
+            1.0,
+        ))
+    };
+    oval_rings(
+        0.11,
+        &[
+            (0.7, glow(0.0)),
+            (1.0, glow(GLOW)),
+            (1.25, glow(GLOW * 0.4)),
+            (1.6, glow(0.0)),
+        ],
+    )
+}
+
+/// How much of a livery's neon the light under the car is at its brightest, just outside the hull.
+const GLOW: f32 = 0.1;
+
+/// The shadow under the car: a dark oval, darkest under the middle of the hull and fading out by
+/// the hull's edge, laid over the road with its own transparency (see `race.rs`). The moon casts
+/// a shadow of the car too, but it is nearly overhead and dim against the night's ambient, so the
+/// car hovered over nothing; this is what sits it over the road, the way a hovercraft's air
+/// cushion would darken what it presses on.
+pub fn shadow_geometry() -> Geometry {
+    let shade = |alpha: f32| Color::LinearRgba(LinearRgba::new(0.0, 0.0, 0.0, alpha));
+    oval_rings(
+        0.09,
+        &[
+            (0.0, shade(SHADOW)),
+            (0.55, shade(SHADOW)),
+            (0.9, shade(SHADOW * 0.55)),
+            (1.15, shade(0.0)),
+        ],
+    )
+}
+
+/// How dark the shadow is at its darkest, from 0 to 1.
+const SHADOW: f32 = 0.7;
 
 /// Two thrusters' flames, either side of the middle `z` meters out, each one meter long and
 /// pointing back from the origin: the entity they hang from stands at the nozzles and stretches
@@ -463,9 +515,11 @@ mod tests {
         let triangles = hull_geometry(&Livery::OWN).triangles()
             + lights_geometry(&Livery::OWN).triangles()
             + under_glow_geometry(&Livery::OWN).triangles()
+            + shadow_geometry().triangles()
             + hull_flames_geometry().triangles()
             + pod_flames_geometry().triangles();
-        assert!(triangles < 800, "{triangles}");
+        // A few thousand for a full grid of eight, against the 155,000 of the skyway and its city.
+        assert!(triangles < 1000, "{triangles}");
     }
 
     /// The neon and the thrusters are brighter than white, so they bloom; the hull is not.
@@ -479,6 +533,46 @@ mod tests {
         };
         assert!(brightest(lights_geometry(&Livery::OTHER)) > 2.0);
         assert!(brightest(hull_geometry(&Livery::OTHER)) <= 1.0);
+    }
+
+    /// The light and the shadow under the car are ovals around it, fading to nothing at their rim,
+    /// where a banked road could curve up through them; the light is brightest at the hull's edge,
+    /// not in its middle, and is never a lit sheet that blooms.
+    #[test]
+    fn the_light_and_the_shadow_under_the_car_fade_out_at_their_rims() {
+        let reach = |geometry: &Geometry| {
+            geometry
+                .positions()
+                .map(|point| (point.x / FOOTPRINT.x).hypot(point.z / FOOTPRINT.y))
+                .fold(0.0f32, f32::max)
+        };
+        let glow = under_glow_geometry(&Livery::OWN);
+        let shadow = shadow_geometry();
+        // Round: every point of the rim is as far out, in the oval's own measure.
+        for geometry in [&glow, &shadow] {
+            let rim = reach(geometry);
+            let colors: Vec<_> = geometry.colors().collect();
+            for (point, color) in geometry.positions().zip(colors) {
+                let out = (point.x / FOOTPRINT.x).hypot(point.z / FOOTPRINT.y);
+                if (out - rim).abs() < 1e-3 {
+                    assert!(color.iter().all(|&channel| channel == 0.0 || channel == 1.0));
+                    assert!(color[3] == 0.0 || color[..3] == [0.0; 3], "{color:?}");
+                }
+            }
+        }
+        assert!(reach(&glow) < 1.7 && reach(&shadow) < 1.2);
+        // Brightest at the hull's edge, dim in the middle, and nowhere near blooming.
+        let brightness_at = |size: f32| {
+            glow.positions()
+                .zip(glow.colors())
+                .filter(|(point, _)| {
+                    ((point.x / FOOTPRINT.x).hypot(point.z / FOOTPRINT.y) - size).abs() < 1e-3
+                })
+                .map(|(_, [r, g, b, _])| r.max(g).max(b))
+                .fold(0.0f32, f32::max)
+        };
+        assert_eq!(brightness_at(0.7), 0.0);
+        assert!(brightness_at(1.0) < 0.5);
     }
 
     #[test]

@@ -200,19 +200,28 @@ vertex-colored triangles as the circuit, from cross-sections of eight points lof
 about 4.5 m long and 2.8 m wide, a little more than the simulation's 2.4 m collision circle, and
 its underside clears the road by a quarter of a meter: nothing holds it up. Its livery says whose
 it is: the player's own orange, lined with orange neon, every other blue, lined with magenta. Three
-meshes per livery and three materials, shared by every car:
+meshes per livery, one shared by all, and four materials, shared by every car:
 
 - **the hull**, lit, roughness 0.42, casting the car's shadow;
 - **the lights**, unlit and brighter than white so the bloom haloes them: the thruster nozzles,
   white hot, and the neon lines along the hull's flanks and the pods' tops;
-- **the light under the car** and **the flames**, unlit and added to what is behind them. The light
-  under the car hangs from the car rather than its body, so it stays on the road while the body
-  sways. The flames, a pyramid per nozzle fading from blue to nothing at its tip, are stretched
-  every frame to the car's speed, from 0.3 m at rest to 0.9 m at top speed, 0.85 m longer on a
+- **the shadow under the car**, one mesh for all, unlit, black, alpha-blended: an oval as long and
+  as wide as the hull, darkest under its middle and gone by its edge (since v0.1.33). The hull casts
+  a real shadow from the moon, but the moon is nearly overhead and dim against the night's ambient,
+  and the light under the car was added on top of it: the car hovered over nothing. This is what
+  sits it over the road;
+- **the light under the car** and **the flames**, unlit and added to what is behind them. Since
+  v0.1.33 the light is an oval spilling out from under the hull's edge, none in the middle, most
+  just outside the outline and none 1.5 m beyond; it was a rectangle 5.2 by 3.2 m evenly lit to
+  its middle, a slab of muddy orange wider than the car, whose straight edge cut across a banked
+  road. The light and the shadow fade to nothing at their rim, where a flat shape would sink into
+  a road that curves up on a bank, and both hang from the car rather than its body, so they stay
+  on the road while the body sways. The flames, a pyramid per nozzle fading from blue to nothing
+  at its tip, are stretched every frame to the car's speed, from 0.3 m at rest to 0.9 m at top speed, 0.85 m longer on a
   boost, flickering by 8 % to each car's own beat (`light_thrusters`).
 
-The whole car is under 800 triangles, checked by a test, as is its size against the collision
-circle, the clearance under it, and the lights being the only part bright enough to bloom.
+The whole car is under 1,000 triangles (800 before the shadow), checked by a test, as is its size
+against the collision circle, the clearance under it, and the lights being the only part bright enough to bloom.
 
 **Weight.** The car drives heavy (see [Simulation](simulation.md#weight)), and since v0.1.15 it
 looks it. A car entity is placed on the road, and its body, a child of it, rides on springs over

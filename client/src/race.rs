@@ -126,6 +126,10 @@ struct CarAssets {
     lights_material: Handle<StandardMaterial>,
     /// Unlit and added to whatever is behind: the flames and the light under the car.
     added_material: Handle<StandardMaterial>,
+    /// The dark oval under every car, and what draws it: unlit, laid over the road with the
+    /// transparency its vertices carry.
+    shadow: Handle<Mesh>,
+    shadow_material: Handle<StandardMaterial>,
 }
 
 /// The meshes painted in one livery.
@@ -152,6 +156,12 @@ fn create_car_assets(
         other,
         hull_flames: meshes.add(car_model::hull_flames_geometry().into_mesh()),
         pod_flames: meshes.add(car_model::pod_flames_geometry().into_mesh()),
+        shadow: meshes.add(car_model::shadow_geometry().into_mesh()),
+        shadow_material: materials.add(StandardMaterial {
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
         hull_material: materials.add(StandardMaterial {
             perceptual_roughness: 0.42,
             reflectance: 0.6,
@@ -342,8 +352,13 @@ fn display_cars(
                         flames(&assets.pod_flames, car_model::pod_flames_origin()),
                     ],
                 ),
-                // On the road rather than on the body: the light stays where the road is while
-                // the body sways over it.
+                // On the road rather than on the body: the shadow and the light stay where the
+                // road is while the body sways over it.
+                (
+                    Mesh3d(assets.shadow.clone()),
+                    MeshMaterial3d(assets.shadow_material.clone()),
+                    NotShadowCaster,
+                ),
                 (
                     Mesh3d(livery.under_glow.clone()),
                     MeshMaterial3d(assets.added_material.clone()),
