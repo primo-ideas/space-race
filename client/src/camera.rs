@@ -41,7 +41,7 @@ const HEADING_FOLLOW: f32 = 6.0;
 /// The field of view widens with speed, up to `FOV_FAST` at `FOV_FULL_SPEED` m/s.
 const FOV_SLOW: f32 = 65.0 * PI / 180.0;
 const FOV_FAST: f32 = 78.0 * PI / 180.0;
-const FOV_FULL_SPEED: f32 = 45.0;
+const FOV_FULL_SPEED: f32 = 58.0;
 /// Below this forward speed, in m/s, the camera follows the heading rather than the direction of
 /// travel.
 const MIN_TRAVEL_SPEED: f32 = 5.0;

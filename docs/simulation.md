@@ -115,7 +115,11 @@ corner by as far as its travel lags its nose; this one does not.
   so it lands on its angle instead of hunting around it. With the shipped 36 degrees, 150 degrees
   per second per second and 45 per second (since v0.1.35; 42, 260 and 75 in v0.1.32 and v0.1.33,
   55, 450 and 110 before), a tap at full lock has the body 6 degrees across after a quarter of a
-  second, 17 after half a second, 28 after three quarters and all 36 at 1 s. When a drift
+  second, 17 after half a second, 28 after three quarters and all 36 at 1 s. Since v0.1.37 the
+  swing has a **knee**: past `drift_swing_knee` (15 degrees) the body swings further out at no
+  more than `drift_swing_knee_rate` (half) of its fastest swing, reaching that slower rate at its
+  acceleration rather than at once, and swings back into line unhindered: 6, 17, 23 and 29
+  degrees at 0.25, 0.5, 0.75 and 1 s (see [Faster still](#faster-still-and-a-knee)). When a drift
   starts, the body takes over whatever slide the car had and the heading becomes the travel, so
   nothing on screen jumps.
 - **Turning.** The stick sets a **signed curvature**: fully to one side turns on
@@ -159,8 +163,8 @@ corner by as far as its travel lags its nose; this one does not.
   instead of 1, and charged a quarter faster. What a full boost adds over top speed went from 8
   to 12 m/s, and the skyway's drifting lap from 45.9 to 44.4 s before any turbo. At 54 m/s the
   autopilot was still clean from live state but spent a second against the walls when six ticks
-  late, so 52 is where it stopped. Since v0.1.35 it is 58 m/s at 50 m/s², still three tenths
-  above a `top_speed` raised to 45.
+  late, so 52 is where it stopped. Since v0.1.37 it is 75 m/s at 65 m/s² (58 at 50 in v0.1.35), still three tenths
+  above a `top_speed` raised to 58.
 - **Losing it.** A drift that hits a wall ends at once and pays nothing. The body settles back
   into line on its own, and the button, still held, starts nothing until it is pressed again. A
   graze is forgiven: meeting the wall at less than `drift_wall_tolerance`, 3 m/s into it, keeps
@@ -191,8 +195,8 @@ request "Add a turbo bar").
   to move, and a drift lost to a wall keeps what it had filled. The skyway's ten drifts fill a
   little over two charges a lap.
 - **Firing.** A press with at least one whole charge spends it on `turbo_seconds` of boost, 2 s,
-  toward `turbo_top_speed`, 67 m/s (60 before v0.1.35), half as much again as `top_speed`,
-  pushing at `turbo_acceleration`, 62 m/s² (55), in full up to `top_speed` and fading out toward its own top speed
+  toward `turbo_top_speed`, 87 m/s (67 in v0.1.35, 60 before), half as much again as `top_speed`,
+  pushing at `turbo_acceleration`, 80 m/s² (62, 55), in full up to `top_speed` and fading out toward its own top speed
   as a boost's does. A press is a press: holding the button fires once. A press while a charge is
   firing does nothing and spends nothing, and so does one with less than a whole charge.
 - **With a boost.** The turbo is the stronger of the two and takes over while it fires; a drift's
@@ -356,6 +360,42 @@ open road and lapping the skyway:
   again sooner. The autopilot that never touches the button now breaks away once a lap on the
   skyway, for about 1.3 s.
 
+#### Faster still, and a knee
+
+The same day the user asked for the game faster again, picking 30% from the choices offered, and
+for the car to be carried across "less directly past a certain angle" of steering or drift
+(v0.1.37). Measured with the same scratch tool:
+
+- **30% faster.** `top_speed` 45 to 58 m/s (209 km/h), `acceleration` 18 to 23.2 (the same 7.5 s
+  to 95% of it, 0 to 30 m/s in 1.8 s), boost 75 m/s at 65 m/s², turbo 87 m/s at 80 m/s². Alone,
+  that broke the car: sliding grows with speed, so half lock broke into a drift, and the
+  autopilot six ticks late spent 34 ticks against the walls gripping and 259 drifting. Three
+  numbers bring the slide back to what it was at 45 m/s: `grip` 9 to 11.6 (the same 9 × 58 / 45),
+  `turn_radius_fast` 32 to 38 and `drift_radius_tight` 26 to 30 m, the car turning a little wider
+  in meters and faster in degrees per second than before (full lock at top speed 87 degrees per
+  second gripping, against 81). Full lock breaks away at 0.35 s, three quarters lock at 0.52 s.
+  `drift_entry_angle` 4.5, to keep three quarters lock at 0.37 s, made the late autopilot scrape
+  in both styles, so it stays at 5.
+- **The knee.** Two new numbers, `drift_swing_knee` and `drift_swing_knee_rate` (see
+  [Drift](#drift)): the slide comes as directly as before up to 15 degrees across, then grows at
+  half the rate. At 18 degrees and 0.4 it held back about as much and the late autopilot scraped
+  more; at 15 and 0.5 the drifting autopilot six ticks late improved (97 ticks against a wall
+  instead of 134 without the knee). The body still reaches its full 36 degrees, a quarter of a
+  second later.
+
+| At 58 m/s | No knee, `grip` 9, radii 32 and 26 | Shipped |
+| --- | --- | --- |
+| Half lock without the button | breaks away at 0.45 s | never |
+| Body across, a tap at full lock, at 0.5, 0.75, 1 s | 17, 28, 36 degrees | 17, 23, 29 |
+| Skyway, gripping, live and six ticks late | 30.3 s clean, 45.0 s with 34 ticks | 36.5 s, 36.2 s, clean |
+| Skyway, drifting, live | 29.4 s, clean | 29.4 s, clean |
+| Skyway, drifting, six ticks late | 65.0 s, 259 ticks | 41.5 s, 97 ticks |
+
+The drifting autopilot six ticks late is what a client's `--autopilot-drift` drives, and at this
+speed it scrapes: unattended checks on the client still finish their laps, but the clean lap a
+client has is the gripping one. The server's autopilot, which drives a finished car, sees the car
+live and is clean.
+
 #### What drifting is worth
 
 Measured with the shipped tuning, the autopilot lapping each circuit twice: once never touching the
@@ -364,7 +404,8 @@ models of their time.
 
 | Track | Without the button | With it |
 | --- | --- | --- |
-| **skyway** (34 m, relief from 3 to 47 m) | 45.3 s | **36.6 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 36.5 s | **29.4 s** |
+| skyway, at 45 m/s (v0.1.35 and v0.1.36) | 45.3 s | 36.6 s |
 | skyway, at 40 m/s (v0.1.32 to v0.1.34) | 51.1 s | 41.3 s |
 | skyway, before the handling was carried out less (v0.1.31) | 52.6 s | 41.5 s |
 | skyway, the same without firing the turbo | 52.6 s | 44.4 s |

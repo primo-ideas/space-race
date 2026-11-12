@@ -198,6 +198,14 @@ pub struct CarTuning {
     pub drift_swing_acceleration: f32,
     /// The fastest the body swings, in degrees per second.
     pub drift_swing_rate: f32,
+    /// How far across the travel, in degrees, the body swings at full rate. Beyond it the slide
+    /// grows less directly: the body swings further out no faster than `drift_swing_knee_rate`
+    /// times `drift_swing_rate`, reaching that slower rate as smoothly as any change of its swing.
+    /// Swinging back into line is never held back.
+    pub drift_swing_knee: f32,
+    /// The share of `drift_swing_rate` the body swings out at beyond `drift_swing_knee`, from 0
+    /// (it stops there) to 1 (no knee at all).
+    pub drift_swing_knee_rate: f32,
     /// Radius of the curve the car travels on while drifting with the stick fully into the drift
     /// and the body swung fully out, in meters. The stick sets the curve directly: the car does not
     /// run wide. The curve tightens from the gripping car's to this one as the body swings out.
@@ -283,6 +291,7 @@ impl CarTuning {
             ("drift_angle", self.drift_angle),
             ("drift_swing_acceleration", self.drift_swing_acceleration),
             ("drift_swing_rate", self.drift_swing_rate),
+            ("drift_swing_knee", self.drift_swing_knee),
             ("drift_button_tighten", self.drift_button_tighten),
             ("drift_button_tighten_time", self.drift_button_tighten_time),
             ("drift_radius_tight", self.drift_radius_tight),
@@ -325,6 +334,12 @@ impl CarTuning {
                     "{name} must be zero or a positive number, not {value}"
                 ));
             }
+        }
+        if !(0.0..=1.0).contains(&self.drift_swing_knee_rate) {
+            return Err(format!(
+                "drift_swing_knee_rate must be between 0 and 1, not {}",
+                self.drift_swing_knee_rate
+            ));
         }
         if self.drift_button_tighten > 1.0 {
             return Err(format!(
@@ -497,8 +512,18 @@ impl Car {
         // acceleration every tick, and no faster than reaches it this tick, so it settles there
         // instead of hunting around it.
         let braking = acceleration * dt / 2.0;
+        // Past the knee, a body swinging further out goes no faster than its share of the rate:
+        // the slide keeps growing, less directly. Its speed still changes only at `acceleration`,
+        // so the knee is taken smoothly.
+        let outward = gap * self.body > 0.0;
+        let past_knee = self.body.abs() >= tuning.drift_swing_knee.to_radians();
+        let fastest = if outward && past_knee {
+            tuning.drift_swing_rate * tuning.drift_swing_knee_rate
+        } else {
+            tuning.drift_swing_rate
+        };
         let wanted = ((braking * braking + 2.0 * acceleration * gap.abs()).sqrt() - braking)
-            .min(tuning.drift_swing_rate.to_radians())
+            .min(fastest.to_radians())
             .min(gap.abs() / dt);
         self.body_rate = move_towards(self.body_rate, wanted * gap.signum(), acceleration * dt);
         self.body += self.body_rate * dt;
@@ -1054,6 +1079,45 @@ mod tests {
             run(&mut car, CarInput::new(true, steer), 1.5, &track);
             assert_eq!(car.drift, side, "full lock, {} rad off axis", car.slip);
         }
+    }
+
+    /// Past the knee the body swings further out at no more than its share of the fastest swing,
+    /// taken without a jump, and still reaches its full angle; swinging back is not held back.
+    #[test]
+    fn the_slide_grows_less_directly_past_the_knee() {
+        let track = Track::build(&open_track()).unwrap();
+        let knee = CarTuning {
+            drift_swing_knee: 20.0,
+            drift_swing_knee_rate: 0.4,
+            ..tuning()
+        };
+        let swing = |tuning: &CarTuning| {
+            let mut car = at_top_speed(&track);
+            let mut rates = Vec::new();
+            for tick in 0..ticks(2.5) {
+                let input = CarInput::new(true, 1.0).with_drift(tick < 6);
+                car.step(input, tuning, &track);
+                rates.push((car.body.abs().to_degrees(), car.body_rate.abs().to_degrees()));
+            }
+            (car, rates)
+        };
+        let (free, _) = swing(&tuning());
+        let (held, rates) = swing(&knee);
+        assert!((free.body - held.body).abs() < 1e-3, "the knee kept the body from its angle");
+
+        // The swing slows onto the knee at its acceleration, so the slower rate holds a little
+        // past it: 66 deg/s shed at 450 deg/s² take about 11 degrees.
+        let mut previous = 0.0f32;
+        for &(angle, rate) in &rates {
+            if angle > 35.0 {
+                assert!(rate <= 110.0 * 0.4 + 0.5, "{rate} deg/s at {angle} degrees");
+            }
+            // No jump: the swing changes by no more than its acceleration allows.
+            assert!((rate - previous).abs() <= 450.0 * TICK_SECONDS + 0.5);
+            previous = rate;
+        }
+        let fastest = rates.iter().map(|&(_, rate)| rate).fold(0.0, f32::max);
+        assert!(fastest > 60.0, "the body never swung at full rate before the knee");
     }
 
     /// The body comes off the travel on the very tick a drift starts, slowly, and swings faster and

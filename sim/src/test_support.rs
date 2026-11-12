@@ -73,6 +73,8 @@ pub fn tuning() -> CarTuning {
         drift_angle: 55.0,
         drift_swing_acceleration: 450.0,
         drift_swing_rate: 110.0,
+        drift_swing_knee: 80.0,
+        drift_swing_knee_rate: 1.0,
         drift_radius_tight: 14.0,
         drift_steering_response: 60.0,
         drift_button_tighten: 0.7,
