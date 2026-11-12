@@ -26,10 +26,12 @@ use bevy::window::PrimaryWindow;
 
 use bevy::ui::Pressed;
 use bevy::ui_widgets::{Activate, Button};
+use serde::{Deserialize, Serialize};
 
 use super::hud::LeaveDialog;
 use super::safe_area::{SafeArea, SafeInset};
 use super::theme::{self, Fonts};
+use crate::preferences::StoredPreferences;
 use crate::race::{RaceUpdate, RaceView, Spectated};
 use crate::screen::Screen;
 use crate::weight::FollowedPush;
@@ -141,6 +143,94 @@ impl Touchscreen {
     /// differently, in the line that does it rather than in a branch of its own.
     pub fn pick<T>(self, desk: T, phone: T) -> T {
         if self.0 { phone } else { desk }
+    }
+}
+
+/// How the controls over the race are laid out, as the player set them in the settings screen
+/// (`ui/settings.rs`). Thumbs differ more than keyboards do: which hand steers, how far a thumb
+/// reaches, and how far it likes to roll for full lock.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct TouchOptions {
+    /// The steering under the right thumb and the cross under the left, mirrored, so the turbo
+    /// branch still points to the middle of the screen.
+    pub swapped: bool,
+    pub size: ControlSize,
+    pub steering: Sensitivity,
+}
+
+/// How large the controls are drawn, and so how far the thumbs travel on them.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ControlSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl ControlSize {
+    /// How much larger than the medium size everything is, margins included.
+    pub fn scale(self) -> f32 {
+        match self {
+            Self::Small => 0.85,
+            Self::Medium => 1.0,
+            Self::Large => 1.2,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Small => "SMALL",
+            Self::Medium => "MEDIUM",
+            Self::Large => "LARGE",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Small => Self::Medium,
+            Self::Medium => Self::Large,
+            Self::Large => Self::Small,
+        }
+    }
+}
+
+/// How far the steering thumb has to roll outward for full lock.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Sensitivity {
+    /// Full lock at the outer rim of a button: its middle turns at a little over half lock.
+    Gentle,
+    /// Full lock on the outer part of a button, three quarters on its middle.
+    #[default]
+    Normal,
+    /// Full lock from the middle of a button outward.
+    Sharp,
+}
+
+impl Sensitivity {
+    /// From this far out of the gap between the buttons, in medium-sized units, full lock.
+    fn full(self) -> f32 {
+        match self {
+            Self::Gentle => 88.0,
+            Self::Normal => STEER_FULL,
+            Self::Sharp => STEER_SPAN,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Gentle => "GENTLE",
+            Self::Normal => "NORMAL",
+            Self::Sharp => "SHARP",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Gentle => Self::Normal,
+            Self::Normal => Self::Sharp,
+            Self::Sharp => Self::Gentle,
+        }
     }
 }
 
@@ -263,10 +353,10 @@ impl TouchControls {
 }
 
 /// How hard a thumb resting `offset` from the middle of the gap between the buttons steers, and
-/// which way: nothing on the gap, three quarters on the middle of a button, full lock on its outer
-/// part.
-fn steering_at(offset: f32) -> f32 {
-    let amount = ((offset.abs() - STEER_DEAD) / (STEER_FULL - STEER_DEAD)).clamp(0.0, 1.0);
+/// which way: nothing on the gap, then in proportion up to full lock `full` out. At the normal
+/// sensitivity that is three quarters on the middle of a button and full lock on its outer part.
+fn steering_at(offset: f32, full: f32) -> f32 {
+    let amount = ((offset.abs() - STEER_DEAD) / (full - STEER_DEAD)).clamp(0.0, 1.0);
     amount.copysign(offset)
 }
 
@@ -299,7 +389,17 @@ impl Branch {
 
     /// Where the branch lies inside the square the cross is drawn in, whose side is `2 * REACH`.
     /// Every branch runs from the center outward, and the hub covers their inner ends.
-    fn node(self) -> Node {
+    ///
+    /// Everything is `scale` times its medium size, and with the controls `swapped` the cross is
+    /// mirrored, so the branch a thumb reaches by folding toward the middle of the screen is
+    /// drawn there.
+    fn node(self, scale: f32, swapped: bool) -> Node {
+        let px = |units: f32| px(units * scale);
+        let drawn = match (self, swapped) {
+            (Self::Left, true) => Self::Right,
+            (Self::Right, true) => Self::Left,
+            (branch, _) => branch,
+        };
         let across = REACH - BRANCH_WIDTH / 2.0;
         let mut node = Node {
             position_type: PositionType::Absolute,
@@ -309,26 +409,26 @@ impl Branch {
             border_radius: BorderRadius::all(px(BRANCH_WIDTH / 2.0)),
             ..default()
         };
-        match self {
+        match drawn {
             // The label sits at the tip, out from under the thumb.
             Self::Up => {
                 (node.width, node.height) = (px(BRANCH_WIDTH), px(REACH));
-                (node.left, node.top) = (px(across), px(0));
+                (node.left, node.top) = (px(across), px(0.0));
                 node.padding = UiRect::bottom(px(BRANCH_WIDTH));
             }
             Self::Down => {
                 (node.width, node.height) = (px(BRANCH_WIDTH), px(REACH));
-                (node.left, node.bottom) = (px(across), px(0));
+                (node.left, node.bottom) = (px(across), px(0.0));
                 node.padding = UiRect::top(px(BRANCH_WIDTH));
             }
             Self::Left => {
                 (node.width, node.height) = (px(REACH), px(BRANCH_WIDTH));
-                (node.left, node.top) = (px(0), px(across));
+                (node.left, node.top) = (px(0.0), px(across));
                 node.padding = UiRect::right(px(BRANCH_WIDTH));
             }
             Self::Right => {
                 (node.width, node.height) = (px(REACH), px(BRANCH_WIDTH));
-                (node.right, node.top) = (px(0), px(across));
+                (node.right, node.top) = (px(0.0), px(across));
                 node.padding = UiRect::left(px(BRANCH_WIDTH));
             }
         }
@@ -392,7 +492,15 @@ impl Pad {
 #[derive(Component)]
 struct SteerKnob;
 
-fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
+fn spawn_controls(
+    mut commands: Commands,
+    fonts: Res<Fonts>,
+    preferences: Res<StoredPreferences>,
+) {
+    let options = preferences.get().touch;
+    let scale = options.size.scale();
+    // Everything below is written at the medium size.
+    let px = |units: f32| px(units * scale);
     let pad = |kind: Pad, node: Node, label: &'static str, size: f32| {
         let (background, border, text) = kind.colors(0.0);
         (
@@ -404,7 +512,7 @@ fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
             Pickable::IGNORE,
             children![(
                 Text::new(label),
-                fonts.caption(size),
+                fonts.caption(size * scale),
                 theme::CAPTION_SPACING,
                 TextColor(text),
             )],
@@ -437,10 +545,17 @@ fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
             },
         ))
         .with_children(|root| {
-            // Bottom left, under the left thumb: left and right.
+            // Bottom left, under the left thumb: left and right. Swapped, bottom right, the two
+            // still in that order.
             for (index, right) in [false, true].into_iter().enumerate() {
                 let mut node = round(2.0 * STEER_RADIUS, 1.5);
-                node.left = px(MARGIN + index as f32 * (2.0 * STEER_RADIUS + STEER_GAP));
+                let along =
+                    |index: usize| px(MARGIN + index as f32 * (2.0 * STEER_RADIUS + STEER_GAP));
+                if options.swapped {
+                    node.right = along(1 - index);
+                } else {
+                    node.left = along(index);
+                }
                 node.bottom = px(MARGIN);
                 let arrow = if right { "\u{2192}" } else { "\u{2190}" };
                 root.spawn(pad(Pad::Steer(right), node, arrow, 30.0));
@@ -455,27 +570,29 @@ fn spawn_controls(mut commands: Commands, fonts: Res<Fonts>) {
                 knob,
                 BackgroundColor(theme::TEXT.with_alpha(0.85)),
                 BorderColor::all(theme::NEON),
-                BoxShadow::new(theme::NEON.with_alpha(0.6), px(0), px(0), px(0), px(10)),
+                BoxShadow::new(theme::NEON.with_alpha(0.6), px(0.0), px(0.0), px(0.0), px(10.0)),
                 Pickable::IGNORE,
             ));
 
-            // Bottom right, under the right thumb: the cross.
-            root.spawn((
-                Pickable::IGNORE,
-                Node {
-                    position_type: PositionType::Absolute,
-                    right: px(MARGIN),
-                    bottom: px(MARGIN),
-                    width: px(2.0 * REACH),
-                    height: px(2.0 * REACH),
-                    ..default()
-                },
-            ))
+            // Bottom right, under the right thumb: the cross. Swapped, bottom left.
+            let mut cross = Node {
+                position_type: PositionType::Absolute,
+                bottom: px(MARGIN),
+                width: px(2.0 * REACH),
+                height: px(2.0 * REACH),
+                ..default()
+            };
+            if options.swapped {
+                cross.left = px(MARGIN);
+            } else {
+                cross.right = px(MARGIN);
+            }
+            root.spawn((Pickable::IGNORE, cross))
             .with_children(|cross| {
                 for branch in Branch::ALL {
                     cross.spawn(pad(
                         Pad::Branch(branch),
-                        branch.node(),
+                        branch.node(scale, options.swapped),
                         branch.label(),
                         13.0,
                     ));
@@ -496,6 +613,7 @@ fn read_touches(
     safe_area: Res<SafeArea>,
     view: Res<RaceView>,
     dialog: Res<LeaveDialog>,
+    preferences: Res<StoredPreferences>,
     mut controls: ResMut<TouchControls>,
 ) {
     // Nothing to drive while spectating, and nothing to drive behind the leaving question.
@@ -511,11 +629,12 @@ fn read_touches(
                     .iter()
                     .map(|touch| (touch.id(), touch.position() / scale - area.min)),
                 area.size(),
+                preferences.get().touch,
             )
         }
         _ => TouchControls::default(),
     };
-    if next.drifting() && !controls.drifting() {
+    if next.drifting() && !controls.drifting() && preferences.get().vibration {
         buzz(DRIFT_BUZZ);
     }
     controls.set_if_neq(next);
@@ -523,7 +642,17 @@ fn read_touches(
 
 /// What fingers resting at these places, in interface units on a screen of this size, are asking
 /// the car to do. Each finger comes with its touch's number, which grows with every new touch.
-fn fingers(fingers: impl Iterator<Item = (u64, Vec2)>, size: Vec2) -> TouchControls {
+///
+/// The controls are read where `options` draws them: the screen is measured in units of their
+/// size, and mirrored when they are swapped, so everything below is written once, for controls
+/// of the medium size with the steering on the left.
+fn fingers(
+    fingers: impl Iterator<Item = (u64, Vec2)>,
+    size: Vec2,
+    options: TouchOptions,
+) -> TouchControls {
+    let scale = options.size.scale();
+    let size = size / scale;
     let gap = Vec2::new(
         MARGIN + STEER_RADIUS + STEER_SPAN,
         size.y - MARGIN - STEER_RADIUS,
@@ -536,6 +665,10 @@ fn fingers(fingers: impl Iterator<Item = (u64, Vec2)>, size: Vec2) -> TouchContr
     // Two thumbs on the steering: the one put down last steers, as the last key pressed would.
     let mut steering: Option<(u64, f32)> = None;
     for (id, at) in fingers {
+        let mut at = at / scale;
+        if options.swapped {
+            at.x = size.x - at.x;
+        }
         let left_half = at.x < size.x / 2.0;
         if left_half && at.y >= steering_top {
             if steering.is_none_or(|(latest, _)| id > latest) {
@@ -550,7 +683,9 @@ fn fingers(fingers: impl Iterator<Item = (u64, Vec2)>, size: Vec2) -> TouchContr
         }
     }
     if let Some((_, offset)) = steering {
-        controls.steer = steering_at(offset);
+        // Mirrored, the thumb's place was read backward: left is still left on the screen.
+        let offset = if options.swapped { -offset } else { offset };
+        controls.steer = steering_at(offset, options.steering.full());
         controls.thumb = Some(offset);
     }
     controls
@@ -590,6 +725,7 @@ fn style_controls(
     controls: Res<TouchControls>,
     view: Res<RaceView>,
     dialog: Res<LeaveDialog>,
+    preferences: Res<StoredPreferences>,
     mut root: Query<&mut Node, (With<Controls>, Without<SteerKnob>)>,
     mut knob: Query<&mut Node, (With<SteerKnob>, Without<Controls>)>,
     mut pads: Query<(&Pad, &Children, &mut BackgroundColor, &mut BorderColor)>,
@@ -608,18 +744,28 @@ fn style_controls(
     }
 
     // The mark rides along the buttons, from the outer edge of one to the outer edge of the other.
+    let options = preferences.get().touch;
+    let scale = options.size.scale();
     for mut node in &mut knob {
-        let (display, left) = match controls.thumb {
-            Some(offset) => {
-                let along = offset.clamp(-STEER_SPAN - STEER_RADIUS, STEER_SPAN + STEER_RADIUS);
-                let left = MARGIN + STEER_RADIUS + STEER_SPAN + along - KNOB / 2.0;
-                (Display::Flex, px(left))
+        let Some(offset) = controls.thumb else {
+            if node.display != Display::None {
+                node.display = Display::None;
             }
-            None => (Display::None, node.left),
+            continue;
         };
-        if node.display != display || node.left != left {
-            node.display = display;
+        let along = offset.clamp(-STEER_SPAN - STEER_RADIUS, STEER_SPAN + STEER_RADIUS);
+        // Measured from the edge the buttons are drawn from: the right one when swapped.
+        let along = if options.swapped { -along } else { along };
+        let from_edge = px((MARGIN + STEER_RADIUS + STEER_SPAN + along - KNOB / 2.0) * scale);
+        let (left, right) = if options.swapped {
+            (Val::Auto, from_edge)
+        } else {
+            (from_edge, Val::Auto)
+        };
+        if node.display != Display::Flex || node.left != left || node.right != right {
+            node.display = Display::Flex;
             node.left = left;
+            node.right = right;
         }
     }
 
@@ -755,9 +901,13 @@ fn buzz_on_hits(
     push: Res<FollowedPush>,
     view: Res<RaceView>,
     time: Res<Time<Real>>,
+    preferences: Res<StoredPreferences>,
     mut last: Local<f64>,
     mut boosting: Local<(bool, bool)>,
 ) {
+    if !preferences.get().vibration {
+        return;
+    }
     let Some(car) = view.own_car else {
         *boosting = (false, false);
         return;
@@ -820,7 +970,82 @@ mod tests {
         fingers(
             at.into_iter().enumerate().map(|(id, at)| (id as u64, at)),
             SCREEN,
+            TouchOptions::default(),
         )
+    }
+
+    fn read_with(options: TouchOptions, at: impl IntoIterator<Item = Vec2>) -> TouchControls {
+        fingers(
+            at.into_iter().enumerate().map(|(id, at)| (id as u64, at)),
+            SCREEN,
+            options,
+        )
+    }
+
+    /// Swapped, the steering is under the right thumb and still steers the way it is pushed, and
+    /// the cross is under the left one with its turbo branch toward the middle of the screen.
+    #[test]
+    fn swapped_controls_are_mirrored_and_steer_the_same_way() {
+        let options = TouchOptions {
+            swapped: true,
+            ..default()
+        };
+        let mirrored = |at: Vec2| Vec2::new(SCREEN.x - at.x, at.y);
+        // The right button is the one nearer the edge now.
+        let right_button = mirrored(button(false));
+        let left_button = mirrored(button(true));
+        assert!(right_button.x > left_button.x);
+        assert!(close(read_with(options, [right_button]).steer(), 0.75));
+        assert!(close(read_with(options, [left_button]).steer(), -0.75));
+        assert_eq!(read_with(options, [left_button]).thumb, Some(-STEER_SPAN));
+
+        let unswapped_hub = hub();
+        let hub = mirrored(unswapped_hub);
+        assert!(read_with(options, [hub]).accelerating());
+        assert!(read_with(options, [hub + Vec2::new(0.0, -REACH + 6.0)]).drifting());
+        // Toward the middle of the screen, which is to the right of a cross on the left.
+        assert!(read_with(options, [hub + Vec2::new(REACH - 6.0, 0.0)]).firing_turbo());
+        assert!(!read_with(options, [hub + Vec2::new(-REACH + 6.0, 0.0)]).firing_turbo());
+        // Where the cross used to be, nothing accelerates any more: it steers.
+        assert!(!read_with(options, [unswapped_hub]).accelerating());
+    }
+
+    /// Larger controls are read where they are drawn: the middle of a button moves out with it.
+    #[test]
+    fn the_controls_are_read_at_the_size_they_are_drawn() {
+        for size in [ControlSize::Small, ControlSize::Large] {
+            let options = TouchOptions { size, ..default() };
+            let scale = size.scale();
+            let at = |medium: Vec2| {
+                Vec2::new(medium.x * scale, SCREEN.y - (SCREEN.y - medium.y) * scale)
+            };
+            assert!(close(read_with(options, [at(button(true))]).steer(), 0.75));
+            assert_eq!(read_with(options, [at(gap())]).steer(), 0.0);
+        }
+        // The cross grows from its corner.
+        let options = TouchOptions {
+            size: ControlSize::Large,
+            ..default()
+        };
+        let hub = SCREEN - Vec2::splat((MARGIN + REACH) * 1.2);
+        assert!(read_with(options, [hub + Vec2::new(0.0, -REACH * 1.2 + 8.0)]).drifting());
+        assert!(!read_with(options, [hub + Vec2::new(0.0, -HUB_RADIUS)]).drifting());
+    }
+
+    #[test]
+    fn the_sensitivity_moves_where_full_lock_is() {
+        let with = |steering| TouchOptions {
+            steering,
+            ..default()
+        };
+        let middle = read_with(with(Sensitivity::Gentle), [button(true)]).steer();
+        assert!(middle > 0.5 && middle < 0.6, "{middle}");
+        assert_eq!(
+            read_with(with(Sensitivity::Sharp), [button(true)]).steer(),
+            1.0
+        );
+        let rim = button(true) + Vec2::X * STEER_RADIUS;
+        assert_eq!(read_with(with(Sensitivity::Gentle), [rim]).steer(), 1.0);
     }
 
     fn close(a: f32, b: f32) -> bool {

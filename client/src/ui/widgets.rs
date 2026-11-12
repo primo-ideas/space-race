@@ -586,8 +586,8 @@ pub fn set_badge<B: QueryFilter, D: QueryFilter, T: QueryFilter>(
 /// device the player used last.
 #[derive(Component)]
 pub struct Hint {
-    pub keyboard: &'static str,
-    pub gamepad: &'static str,
+    pub keyboard: String,
+    pub gamepad: String,
 }
 
 #[derive(Component)]
@@ -595,12 +595,16 @@ struct HintKey;
 
 pub fn hint(
     fonts: &Fonts,
-    keyboard: &'static str,
-    gamepad: &'static str,
+    keyboard: impl Into<String>,
+    gamepad: impl Into<String>,
     action: &'static str,
 ) -> impl Bundle {
+    let (keyboard, gamepad) = (keyboard.into(), gamepad.into());
     (
-        Hint { keyboard, gamepad },
+        Hint {
+            keyboard: keyboard.clone(),
+            gamepad,
+        },
         Node {
             column_gap: px(7),
             align_items: AlignItems::Center,
@@ -756,13 +760,13 @@ fn show_hints(
     }
     for (hint, children) in &hints {
         let label = match *last_input {
-            LastInput::Keyboard => hint.keyboard,
-            LastInput::Gamepad => hint.gamepad,
+            LastInput::Keyboard => &hint.keyboard,
+            LastInput::Gamepad => &hint.gamepad,
         };
         for keycap in children.iter().filter_map(|child| keycaps.get(child).ok()) {
             for key in keycap {
                 if let Ok(mut text) = texts.get_mut(*key) {
-                    text.0 = label.to_owned();
+                    text.0 = label.clone();
                 }
             }
         }

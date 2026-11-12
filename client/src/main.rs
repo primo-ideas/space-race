@@ -1,3 +1,4 @@
+mod bindings;
 mod camera;
 mod car_model;
 #[cfg(not(target_arch = "wasm32"))]

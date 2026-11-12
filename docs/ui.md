@@ -26,7 +26,8 @@ ranked match. Each screen's entities despawn when it is left.
   opens, even with a gamepad, which cannot type; Enter in the field is quick play. While queued,
   the ranked button counts the time and cancels. The dice button rolls another nickname. The last
   nickname is saved next to the identity key when the player presses a button. Under the card:
-  BROWSE LOBBIES, LEADERBOARD (a dialog with the ten best, `leaderboard.rs`) and QUIT, which closes
+  BROWSE LOBBIES, LEADERBOARD (a dialog with the ten best, `leaderboard.rs`), SETTINGS (see
+  [Settings](#settings)) and QUIT, which closes
   the game: the window's close button does the same, but a gamepad cannot reach it. QUIT has no
   shortcut, Escape and B being "back" on every other screen, where pressing them once too often
   must not close the game; and the web has no such button, since a page cannot close the tab it is
@@ -97,12 +98,67 @@ identity key, so `--identity` gives each player on a machine their own: a file
 has edited it; someone who plays under what was offered gets a new one at the next launch, which is
 the point of generating one. The lobby name works the same way, since it is offered as
 "*nickname*'s lobby". Everything else in the creation dialog — track, laps, players to start,
-maximum players — is remembered as soon as a lobby is created with it.
+maximum players — is remembered as soon as a lobby is created with it. So is everything the
+[settings](#settings) hold: the bindings, the layout of the touch controls, and vibration.
 
 Anything read back is checked before it is used: a nickname that is no longer valid, a lap count
 outside what a lobby allows, a track the server no longer has, all fall back to the default instead
 of reaching the server. The file can be edited by hand, and an older version may have written
 something this one refuses.
+
+## Settings
+
+SETTINGS, on the first screen, opens a dialog over it (`ui/settings.rs`; `--settings` opens it at
+once). What it holds is stored with the other choices, written out as it changes, and in force
+from the next lobby entered.
+
+**With keys and a gamepad**, it is the table of bindings (`client/src/bindings.rs`): five actions
+-- accelerate, steer left, steer right, drift, turbo -- each with two keys and one gamepad button.
+
+| Action | Key | Or | Gamepad |
+| --- | --- | --- | --- |
+| Accelerate | W | up arrow | R (right bumper) |
+| Steer left | A | left arrow | D-pad left |
+| Steer right | D | right arrow | D-pad right |
+| Drift | Shift | Space | RT (right trigger) |
+| Turbo | E | down arrow | Y (top face button) |
+
+Those are the defaults, the gamepad's drift and turbo being the user's choice of 2026-11-11. The
+left stick always steers and is not in the table. A place is changed by picking it and pressing
+the key or the button it should be: the dialog *listens* for the next press, and while it does the
+menus do not answer and nothing has the focus, which is what lets the arrows, Space and the
+gamepad's own A be bound. Escape, or Start on a gamepad, gives up; Backspace or Delete leaves the
+place empty. A key does one thing: bound to an action, it leaves whatever it did before, which
+then shows as "—".
+
+- **Keys are named by position**, as they are read: the table shows what a key is called where
+  it sits, never what a layout prints on it.
+- **What the game keeps cannot be bound**: Escape (leave), Enter and Tab (menus), Backspace and
+  Delete (unbind), the function keys, and Start on a gamepad. Control is offered natively and
+  never by a page, where with W held it closes the tab; it is never a default.
+- **A stored name this version does not know** -- a key from a newer one, a typo in a file edited
+  by hand -- is read as an empty place, not as a file that cannot be read, so the nickname and the
+  rest survive it.
+- The hints over the race name the first key and the gamepad button of each action as bound.
+
+Under the table, **Vibration** turns off the gamepad's rumble and the phone's buzz together.
+RESET TO DEFAULTS puts back everything the dialog holds.
+
+**On a touchscreen** there are no keys, and the dialog holds what thumbs care about instead
+(`TouchOptions` in `ui/touch.rs`), each a button that steps to its next value:
+
+| Option | Values | Why |
+| --- | --- | --- |
+| Steering thumb | left, right | Which hand steers is a habit, and left-handed players' is the other one. Swapped, the whole layout is mirrored, so the turbo branch still points to the middle of the screen, where the thumb folds. |
+| Size of the controls | small (85 %), medium, large (120 %) | Hands and screens differ more than the 400-unit layout can average: a small phone wants its corners back, a tablet wants reach. Everything scales from its corner, margins included. |
+| Steering | gentle, normal, sharp | How far out full lock is: at the rim of a button, on its outer part (three quarters on its middle, the default), or from its middle outward. It is the stick's travel, for a thumb. |
+| Vibration | on, off | Some phones buzz loudly, and it costs battery. |
+
+Considered and left out: moving each control freely (a layout editor is a screen of its own, and
+swap plus size cover what was asked of it), opacity (the controls are already dark glass), and a
+tilt-to-steer mode (it fights the landscape lock and has no dead zone to speak of). A phone with
+a gamepad paired keeps the default gamepad bindings: the table is not shown there. Large and
+swapped together, the cross reaches up into the speed and its gauges on a 390-pixel screen.
 
 ## Navigation
 
@@ -116,6 +172,7 @@ Every screen works with the mouse, the keyboard and a gamepad (`navigation.rs`):
 | Back, cancel | Escape | B |
 | Other nickname (first screen) | F2 | Y |
 | Create a lobby (lobbies) | C | Y |
+| Unbind, give up (settings, while a binding listens) | Backspace, Escape | Start |
 | Leave the lobby (race) | Escape | Start |
 
 Moving the focus uses Bevy's automatic directional navigation, which picks the nearest widget in
@@ -198,7 +255,8 @@ changes beyond sizes:
 
 ### The controls over the race
 
-`ui/touch.rs` draws them and reads them. Two buttons in the bottom left steer, and **where the
+`ui/touch.rs` draws them and reads them. Where they are, how large and how sharp is the
+player's to say (see [Settings](#settings)); what follows describes them as they come. Two buttons in the bottom left steer, and **where the
 thumb rests on them is how hard**, as a stick's angle is on a gamepad: nothing on the gap between
 them, three quarters on the middle of a button, full lock from 66 units out, on its outer part,
 and evenly in between. A mark follows the thumb along the buttons, and each lights up as hard as
@@ -280,6 +338,7 @@ ready (see [Architecture](architecture.md#testing)):
 | none | the login screen |
 | `--nickname N` | the lobby list, once received |
 | `--nickname N --create-dialog` | the creation dialog |
+| `--settings` | the settings, over the first screen |
 | `--nickname N --quick-play` | the lobby quick play puts the player in |
 | `--nickname N --ranked` | the ranked match, once the queue has found one |
 | `--nickname N --lobby L` | the lobby, once its state and a car are displayed |

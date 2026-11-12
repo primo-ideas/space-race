@@ -339,12 +339,17 @@ v0.1.21), so the car underneath is the same for everyone and only what the hands
   pressed steers, as on a touchscreen, rather than the two cancelling out.
 - **Thumbs on a screen** say how hard by where they rest (see [Interface](ui.md#the-controls-over-the-race)).
 
-The arrow keys and Space work as W, A, D and Shift do, for whoever's hand falls there. The devices
-still add up: whichever is used drives.
+Every action has a second key, and by default the arrow keys and Space work as W, A, D and Shift
+do, for whoever's hand falls there. The devices still add up: whichever is used drives. Which
+key and which button does what is the player's to change ([Interface](ui.md#settings)); what
+follows names the defaults.
 
 The turbo is E or the down arrow on a keyboard, never Control, which with W held closes a
-browser's tab; A, the bottom face button, or the left bumper on a gamepad, the bumper being for a
-thumb busy holding X through a drift; and the left branch of the cross on a touchscreen.
+browser's tab, and which a page does not let a player bind either; Y, the top face button, on a
+gamepad; and the left branch of the cross on a touchscreen. The drift is Shift or Space, and the
+right trigger on a gamepad (the user's choice of 2026-11-11; it was X, with the turbo on A or the
+left bumper). A trigger counts as held from a third of its travel, well before Bevy calls it
+pressed at three quarters: a drift is tapped into, and nobody taps a trigger to its stop.
 
 Each device also says what happened, for eyes that are on the road: a gamepad rumbles on a wall hit,
 harder and longer the more speed it took (from a quarter to full strength, 85 to 160 ms, at most

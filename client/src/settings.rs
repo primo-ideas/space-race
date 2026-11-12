@@ -1,6 +1,6 @@
 //! What the client is asked to do: from the command line on native, from the page address on the
 //! web (`?server=ws://…&nickname=…&lobby=…&track=…&identity=…&volume=…&autopilot`,
-//! `&autopilot_drift`, `&quick_play`, `&ranked`, `&touch`, `&safe_area=…` or `&latency`).
+//! `&autopilot_drift`, `&quick_play`, `&ranked`, `&settings`, `&touch`, `&safe_area=…` or `&latency`).
 //!
 //! Without a nickname the game opens on the login screen. The other options skip screens, so the
 //! game can reach a lobby and drive with nobody at the keyboard.
@@ -52,6 +52,8 @@ pub struct Script {
     pub quick_play: bool,
     /// Once connected, enter the ranked queue, as the QUEUE FOR RANKED button does.
     pub ranked: bool,
+    /// Open the settings over the first screen, to look at them.
+    pub settings: bool,
     /// Let the autopilot drive, in this style.
     pub autopilot: Option<Style>,
 }
@@ -140,6 +142,10 @@ pub fn read() -> Settings {
         #[arg(long, requires = "nickname", conflicts_with_all = ["lobby", "create_dialog", "quick_play"])]
         ranked: bool,
 
+        /// Open the settings over the first screen.
+        #[arg(long, conflicts_with = "nickname")]
+        settings: bool,
+
         /// Player identity directory. Useful to run several clients on the same machine.
         #[arg(long)]
         identity: Option<PathBuf>,
@@ -213,6 +219,7 @@ pub fn read() -> Settings {
             create_dialog: args.create_dialog,
             quick_play: args.quick_play,
             ranked: args.ranked,
+            settings: args.settings,
             autopilot: autopilot_style(args.autopilot, args.autopilot_drift),
         },
         touch: args.touch,
@@ -266,6 +273,7 @@ pub fn read() -> Settings {
             create_dialog: has("create_dialog"),
             quick_play: has("quick_play"),
             ranked: has("ranked"),
+            settings: has("settings"),
             autopilot: autopilot_style(has("autopilot"), has("autopilot_drift")),
         },
         touch: has("touch") || touchscreen(),

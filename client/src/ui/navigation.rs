@@ -20,6 +20,7 @@ use bevy::ui::auto_directional_navigation::{AutoDirectionalNavigation, AutoDirec
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::ui_widgets::{Activate, Button};
 
+use super::settings::Listening;
 use super::widgets::Stepper;
 
 /// How far the stick must lean to move the focus, and how fast holding it repeats.
@@ -111,9 +112,14 @@ fn navigate(
     buttons: Query<(), With<Button>>,
     widgets: Query<NavigableWidget, With<AutoDirectionalNavigation>>,
     time: Res<Time<Real>>,
+    listening: Res<Listening>,
     mut stick: Local<StickRepeat>,
     mut commands: Commands,
 ) {
+    // The settings are waiting for a key or a button to bind: it is theirs, not the menus'.
+    if listening.active() {
+        return;
+    }
     let focused = navigator.input_focus();
     let in_text = focused.is_some_and(|entity| text_fields.contains(entity));
     let shift =

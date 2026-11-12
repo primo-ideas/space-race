@@ -24,7 +24,9 @@ use super::safe_area::SafeInset;
 use super::theme::{self, Fonts};
 use super::touch::Touchscreen;
 use super::widgets::{ButtonKind, button, hint, hint_row, panel};
+use crate::bindings::{Action, Input};
 use crate::camera::MainCamera;
+use crate::preferences::StoredPreferences;
 use crate::latency::{Latency, LatencyOverlay};
 use crate::lobby::{CurrentLobby, Membership, Tracks, leave_lobby};
 use crate::net::Network;
@@ -166,7 +168,13 @@ impl HudModel {
     }
 }
 
-fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchscreen>) {
+fn spawn_hud(
+    mut commands: Commands,
+    fonts: Res<Fonts>,
+    touchscreen: Res<Touchscreen>,
+    preferences: Res<StoredPreferences>,
+) {
+    let controls = preferences.get().controls;
     // A phone is a short screen held close, with a thumb over each bottom corner: everything is
     // drawn smaller, and what lives in those corners on a desk moves up out of the way.
     let pick = |desk: f32, phone: f32| touchscreen.pick(desk, phone);
@@ -551,10 +559,35 @@ fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, touchscreen: Res<Touchsc
                     Block::DrivingHints,
                     hint_row(),
                     children![
-                        hint(&fonts, "W", "R", "Accelerate"),
-                        hint(&fonts, "A D", "L-stick", "Steer"),
-                        hint(&fonts, "Shift", "X", "Drift"),
-                        hint(&fonts, "E", "A", "Turbo"),
+                        // What the player bound, which the settings screen changes.
+                        hint(
+                            &fonts,
+                            controls.key_label(Action::Accelerate),
+                            controls.accelerate.label(Input::Gamepad),
+                            "Accelerate"
+                        ),
+                        hint(
+                            &fonts,
+                            format!(
+                                "{} {}",
+                                controls.key_label(Action::SteerLeft),
+                                controls.key_label(Action::SteerRight)
+                            ),
+                            "L-stick",
+                            "Steer"
+                        ),
+                        hint(
+                            &fonts,
+                            controls.key_label(Action::Drift),
+                            controls.drift.label(Input::Gamepad),
+                            "Drift"
+                        ),
+                        hint(
+                            &fonts,
+                            controls.key_label(Action::Turbo),
+                            controls.turbo.label(Input::Gamepad),
+                            "Turbo"
+                        ),
                         hint(&fonts, "Esc", "Start", "Leave"),
                     ],
                 ));

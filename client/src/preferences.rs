@@ -1,5 +1,7 @@
-//! What the player chose in the menus, kept between runs: their nickname and the settings of the
-//! lobby creation dialog. They are stored beside the player's key (see
+//! What the player chose in the menus, kept between runs: their nickname, the settings of the
+//! lobby creation dialog, and what the settings screen holds (`ui/settings.rs`): their controls,
+//! how the touch controls are laid out and whether anything vibrates.
+//! They are stored beside the player's key (see
 //! [`crate::net::identity`]), so `--identity` gives each player on a machine their own.
 //!
 //! **A generated nickname is not a choice.** It is remembered only once the player has made it
@@ -14,7 +16,9 @@ use star_racer_protocol::{
     LobbySettings, MAX_LAPS, MAX_LOBBY_PLAYERS, is_valid_lobby_name, is_valid_nickname,
 };
 
+use crate::bindings::Bindings;
 use crate::net::identity::IdentityStore;
+use crate::ui::touch::TouchOptions;
 
 /// Where the choices are stored, next to the identity key.
 const SLOT: &str = "preferences.ron";
@@ -37,13 +41,31 @@ impl Plugin for PreferencesPlugin {
 }
 
 /// The player's choices, as last saved.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Preferences {
     /// The nickname the player typed. None while they keep what was generated for them.
     pub nickname: Option<String>,
     /// The lobby creation dialog, as they last left it.
     pub lobby: LobbyPreferences,
+    /// Which key and which gamepad button does what in a race.
+    pub controls: Bindings,
+    /// How the controls drawn over the race on a touchscreen are laid out.
+    pub touch: TouchOptions,
+    /// Whether a gamepad rumbles and a phone buzzes on hits, drifts and boosts.
+    pub vibration: bool,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            nickname: None,
+            lobby: LobbyPreferences::default(),
+            controls: Bindings::default(),
+            touch: TouchOptions::default(),
+            vibration: true,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -166,6 +188,8 @@ mod tests {
                 min_players: 3,
                 max_players: 4,
             },
+            vibration: false,
+            ..default()
         };
         assert_eq!(round_trip(&preferences), preferences);
     }
@@ -182,6 +206,7 @@ mod tests {
                 min_players: 12,
                 max_players: 3,
             },
+            ..default()
         }
         .checked();
 
@@ -199,6 +224,8 @@ mod tests {
         let preferences: Preferences = ron::from_str("()").expect("an empty record reads");
         assert_eq!(preferences, Preferences::default());
         assert_eq!(preferences.lobby.laps, DEFAULT_LAPS);
+        assert!(preferences.vibration);
+        assert_eq!(preferences.controls, Bindings::default());
     }
 
     /// The name offered by the dialog is not a choice either.

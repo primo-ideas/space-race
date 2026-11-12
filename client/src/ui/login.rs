@@ -22,6 +22,7 @@ use star_racer_protocol::{
 use super::leaderboard::LeaderboardDialog;
 use super::navigation::MenuInput;
 use super::safe_area::SafePadding;
+use super::settings::SettingsDialog;
 use super::theme::{self, Fonts};
 use super::touch::{FullScreenButton, Touchscreen, full_screen_wanted};
 use super::widgets::{
@@ -321,6 +322,10 @@ fn spawn_login(
                 ))
                 .insert(small(170.0))
                 .observe(ask_for_leaderboard);
+                // Needs no nickname and no server: it is always there.
+                row.spawn(button(&fonts, ButtonKind::Secondary, "SETTINGS"))
+                    .insert(small(130.0))
+                    .observe(open_settings);
                 // A page cannot close the tab it is in, so only the native game has a way out.
                 if cfg!(not(target_arch = "wasm32")) {
                     row.spawn(button(&fonts, ButtonKind::Secondary, "QUIT"))
@@ -525,11 +530,20 @@ fn reroll(
     }
 }
 
+fn open_settings(_: On<Activate>, mut settings: ResMut<SettingsDialog>) {
+    settings.open = true;
+}
+
 fn reroll_shortcut(
     input: MenuInput,
     buttons: Query<Entity, With<RerollButton>>,
+    settings: Res<SettingsDialog>,
     mut commands: Commands,
 ) {
+    // Not behind the settings, where Y may be on its way to being bound.
+    if settings.open {
+        return;
+    }
     if input.key(KeyCode::F2) || input.gamepad(GamepadButton::North) {
         for entity in &buttons {
             commands.trigger(Activate { entity });
