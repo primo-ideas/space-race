@@ -375,7 +375,7 @@ fn display_cars(
 struct Thrusters(CarId);
 
 /// How fast a car goes, for its flames, as a share of this speed: a car at top speed burns at full.
-const FLAME_FULL_SPEED: f32 = 40.0;
+const FLAME_FULL_SPEED: f32 = 45.0;
 
 /// Stretches every car's flames to its speed, a boost throwing them far out, and makes them
 /// flicker, each car to its own beat.

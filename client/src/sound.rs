@@ -39,7 +39,7 @@ use crate::weight::FollowedPush;
 
 /// The speed the drone takes for a car's top speed, in m/s: the shipped car's. The real one is
 /// the server's to know, and a drone a few percent off is still the right drone.
-const DRONE_TOP_SPEED: f32 = 40.0;
+const DRONE_TOP_SPEED: f32 = 45.0;
 /// A boost that grew by more than this, in seconds, was just fired: a prediction corrected by a
 /// tick or two is not one.
 const BOOST_FIRED: f32 = 0.2;

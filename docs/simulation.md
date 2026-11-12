@@ -96,13 +96,14 @@ corner by as far as its travel lags its nose; this one does not.
 - **Starting.** Above `drift_min_speed`, a press of the drift button with the stick turned at
   least a fifth of the way throws the car into a drift toward the stick, on the tick it is pressed.
   A press is a press: a button held down since before starts nothing. It is remembered for
-  `drift_press_buffer`, 0.15 s: a thumb often lands on the button a moment before the stick has
-  left the center, or before the car is fast enough, and that press used to start nothing, with
-  nothing to say why. Turning hard enough starts
+  `drift_press_buffer`, 0.25 s since v0.1.35 (0.15 before): a thumb often lands on the button a
+  moment before the stick has left the center, or before the car is fast enough, and that press
+  used to start nothing, with nothing to say why. Turning hard enough starts
   one too, without the button: while the car grips, `Car::slip` is the real angle between its nose
   and its travel, and its reaching `drift_entry_angle` breaks the car away toward the side it came
-  round. With the shipped tuning, full lock at speed puts the nose about 12 degrees off the travel
-  and the entry sits at 9: full lock breaks away after 0.45 s, half lock never does.
+  round. With the shipped tuning, the entry sits at 5 degrees: at top speed full lock breaks away
+  after 0.32 s and three quarters lock after 0.35 s, six tenths never does (see
+  [Into a slide more easily](#faster-and-into-a-slide-more-easily)).
 - **The angle.** The body swings toward `drift_angle` times `1 - (1 - s)²`, where `s` is how far
   the steering points into the drift: most of the angle with the first half of the steering, all
   of it at full lock, none with the steering centered or against the drift. The curve eases in
@@ -111,10 +112,10 @@ corner by as far as its travel lags its nose; this one does not.
   `drift_swing_rate`, and slows down the same way to stop on its angle, so it comes off the travel
   on the very tick the drift starts, slowly, then faster and faster, and never lunges, whether the
   drift starts, the stick eases or the drift ends. It brakes on a curve that allows for the tick,
-  so it lands on its angle instead of hunting around it. With the shipped 42 degrees, 260 degrees
-  per second per second and 75 per second (since v0.1.32; 55, 450 and 110 before), the body is 9
-  degrees across after a quarter of a second, 27 after half a second and 41 after three quarters,
-  all 42 at 0.8 s. When a drift
+  so it lands on its angle instead of hunting around it. With the shipped 36 degrees, 150 degrees
+  per second per second and 45 per second (since v0.1.35; 42, 260 and 75 in v0.1.32 and v0.1.33,
+  55, 450 and 110 before), a tap at full lock has the body 6 degrees across after a quarter of a
+  second, 17 after half a second, 28 after three quarters and all 36 at 1 s. When a drift
   starts, the body takes over whatever slide the car had and the heading becomes the travel, so
   nothing on screen jumps.
 - **Turning.** The stick sets a **signed curvature**: fully to one side turns on
@@ -142,8 +143,9 @@ corner by as far as its travel lags its nose; this one does not.
   drift charges at the slow end, never backwards.
 - **Ending.** The body back within `drift_exit_angle` of the travel, with the stick keeping it
   there, centered or against the drift, ends the drift and pays out, unless the button is held.
-  With the shipped tuning, a drift ends half a second after the stick straightens, as the steering
-  unwinds and the body swings back into line. Falling
+  With the shipped tuning, a drift ends 0.8 s after the stick straightens (0.6 s before v0.1.35,
+  the body now swinging back as slowly as it swings out), as the steering unwinds and the body
+  swings back into line. Falling
   below `drift_min_speed` ends it and pays out too.
 - **Boost.** Ending the drift converts the charge beyond `drift_min_charge` into
   `drift_boost_rate` seconds of boost per second, up to `drift_max_boost`: with the shipped tuning,
@@ -157,11 +159,12 @@ corner by as far as its travel lags its nose; this one does not.
   instead of 1, and charged a quarter faster. What a full boost adds over top speed went from 8
   to 12 m/s, and the skyway's drifting lap from 45.9 to 44.4 s before any turbo. At 54 m/s the
   autopilot was still clean from live state but spent a second against the walls when six ticks
-  late, so 52 is where it stopped.
+  late, so 52 is where it stopped. Since v0.1.35 it is 58 m/s at 50 m/s², still three tenths
+  above a `top_speed` raised to 45.
 - **Losing it.** A drift that hits a wall ends at once and pays nothing. The body settles back
   into line on its own, and the button, still held, starts nothing until it is pressed again. A
   graze is forgiven: meeting the wall at less than `drift_wall_tolerance`, 3 m/s into it, keeps
-  the drift, though it charges nothing on the ticks it touches. The tail of a car swung 42 degrees (55 then)
+  the drift, though it charges nothing on the ticks it touches. The tail of a car swung 36 degrees (55 then)
   across the road brushes a wall often, and losing two seconds of charge to it was a punishment
   out of proportion.
 
@@ -188,8 +191,8 @@ request "Add a turbo bar").
   to move, and a drift lost to a wall keeps what it had filled. The skyway's ten drifts fill a
   little over two charges a lap.
 - **Firing.** A press with at least one whole charge spends it on `turbo_seconds` of boost, 2 s,
-  toward `turbo_top_speed`, 60 m/s, half as much again as `top_speed`, pushing at
-  `turbo_acceleration`, 55 m/s², in full up to `top_speed` and fading out toward its own top speed
+  toward `turbo_top_speed`, 67 m/s (60 before v0.1.35), half as much again as `top_speed`,
+  pushing at `turbo_acceleration`, 62 m/s² (55), in full up to `top_speed` and fading out toward its own top speed
   as a boost's does. A press is a press: holding the button fires once. A press while a charge is
   firing does nothing and spends nothing, and so does one with less than a whole charge.
 - **With a boost.** The turbo is the stronger of the two and takes over while it fires; a drift's
@@ -312,6 +315,47 @@ breaking away. The rotation itself is unchanged: full lock still turns the drift
 87 degrees per second, and holding the button at 121. All of it is in `car.ron` and reloads while
 driving.
 
+#### Faster, and into a slide more easily
+
+On 2026-11-12 the user asked for three things (v0.1.35): the pods faster by default, the car
+carried sideways less fast once it is in a slide, and a slide easier to get into. Measured with a
+scratch tool outside the repository, as for v0.1.32, stepping the shipped car from top speed on an
+open road and lapping the skyway:
+
+| | v0.1.32 to v0.1.34 | v0.1.35 |
+| --- | --- | --- |
+| Top speed | 40 m/s, 144 km/h | 45 m/s, 162 km/h |
+| 0 to 30 m/s, and to 95% of top speed | 3.5 s, 7.5 s | 2.75 s, 7.5 s |
+| Full lock without the button breaks into a drift | after 0.52 s | after 0.32 s |
+| Three quarters lock without the button | never | after 0.35 s |
+| Body across the travel, a tap at full lock, at 0.25, 0.5, 0.75, 1 s | 10, 29, 41, 42 degrees | 6, 17, 28, 36 |
+| The body's fastest swing | 75 degrees per second | 45 |
+| A drift ends after the stick straightens | 0.6 s | 0.8 s |
+| Skyway, gripping, live and six ticks late | 51.1 s, 51.3 s, clean | 45.3 s, 45.6 s, clean |
+| Skyway, drifting, live | 41.3 s, clean | 36.6 s, clean |
+| Skyway, drifting, six ticks late | 43.2 s, 3 ticks against a wall | 42.3 s, 3 ticks |
+
+- **Faster.** `top_speed` 40 to 45, and `acceleration` 16 to 18 with it: the acceleration fades
+  out toward top speed, so their ratio is how heavy the car feels, and it is kept, the car taking
+  as long as before to reach its top speed, just a higher one. Boost and turbo follow at the same
+  shares of it: `boost_top_speed` 52 to 58 (`boost_acceleration` 45 to 50), `turbo_top_speed` 60 to
+  67 (`turbo_acceleration` 55 to 62). The turning radii stay, so the car turns as tightly in
+  meters and faster in degrees per second: the drifting car at full lock at 99 degrees per second
+  instead of 87.
+- **Carried sideways less fast.** As in v0.1.32, what is seen as the car being carried sideways is
+  the body swinging across the travel the chase camera looks along: `drift_swing_acceleration`
+  260 to 150 and `drift_swing_rate` 75 to 45, and `drift_angle` 42 to 36, so that at the higher
+  speed the car slides across its own body no faster than before (26 m/s at full swing, against
+  27). The price is the end of a drift, the body swinging back as slowly: 0.8 s after the stick
+  straightens instead of 0.6. A `drift_exit_angle` of 10 or 12 to win it back made the autopilot
+  six ticks late scrape the walls for 46 to 86 ticks, so it stays at 8.
+- **Into a slide more easily.** `drift_entry_angle` 7 to 5, so three quarters lock breaks away as
+  well as full lock, and sooner; the higher speed adds to it, a car sliding further off its nose
+  the faster it turns. `drift_press_buffer` 0.15 to 0.25 s, so a press of the button made a
+  little earlier still counts, and `drift_min_speed` 15 to 12, so a car slowed by a wall can slide
+  again sooner. The autopilot that never touches the button now breaks away once a lap on the
+  skyway, for about 1.3 s.
+
 #### What drifting is worth
 
 Measured with the shipped tuning, the autopilot lapping each circuit twice: once never touching the
@@ -320,7 +364,9 @@ models of their time.
 
 | Track | Without the button | With it |
 | --- | --- | --- |
-| **skyway** (34 m, relief from 3 to 47 m) | 52.6 s | **41.5 s** |
+| **skyway** (34 m, relief from 3 to 47 m) | 45.3 s | **36.6 s** |
+| skyway, at 40 m/s (v0.1.32 to v0.1.34) | 51.1 s | 41.3 s |
+| skyway, before the handling was carried out less (v0.1.31) | 52.6 s | 41.5 s |
 | skyway, the same without firing the turbo | 52.6 s | 44.4 s |
 | skyway, before the bigger boost and the turbo (v0.1.22) | 52.6 s | 45.9 s |
 | skyway, before the car had weight (v0.1.13) | 49.9 s | 45.9 s |
@@ -334,7 +380,9 @@ The hippodrome was the thin margin, and it should have been: its turns were 38 m
 nearly flat, where tightening the line buys little and the drag costs real speed. The skyway is the
 opposite, slaloms and bowls with hardly a straight, and drifting is worth 11.1 s a lap on it, 21%,
 the most of any circuit so far: ten drifts, 22 s of the 41.5 spent sliding, a boost out of every
-one, and two charges of turbo fired on the way, worth 2.9 s between them. Without the button, the autopilot never turns hard enough on it to break away. The car's
+one, and two charges of turbo fired on the way, worth 2.9 s between them (at 45 m/s since v0.1.35,
+8.7 s, 19%, three charges fired). Without the button, the autopilot never turned hard enough on it
+to break away until v0.1.35, and now does once a lap. The car's
 weight (v0.1.14) widened the gap from 3.9 s: the gripping lap lost 2.7 s, to the slower start, the
 heavier wheel and the looser grip, while the drifting lap lost nothing, its boosts now lingering
 where they used to be gone in two seconds.
@@ -351,9 +399,9 @@ smoothly instead of hitting a ceiling. Letting go of the button coasts to a stop
 
 Above `top_speed`, the car keeps its **momentum**: whatever put it there, a boost or a dive, the
 excess fades by `overspeed_drag`, a share of itself every second, a lot of it quickly and the last
-of it slowly, as air would hold back a heavy car. With the shipped 0.5, a boost that took the car to
-52 m/s leaves it at 47 a second after it ends and 43 three seconds after, where before the car had
-weight it was back at 40 within two seconds. Coasting still applies on top of it when the accelerator is let go.
+of it slowly, as air would hold back a heavy car. With the shipped 0.5 and a top speed of 45 m/s, a
+boost that took the car to 58 m/s leaves it at about 53 a second after it ends and 48 three seconds
+after, where before the car had weight it was back at top speed within two seconds. Coasting still applies on top of it when the accelerator is let go.
 
 Pressing the accelerator right at the start of a race gives up to `start_boost` seconds of boost,
 graded from S to E (see [Lobbies](lobbies.md#the-start)).
