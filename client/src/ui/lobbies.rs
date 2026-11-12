@@ -139,6 +139,8 @@ struct ShownPlayers(Vec<Chip>);
 #[derive(Clone, PartialEq)]
 struct Chip {
     nickname: String,
+    /// Playing without an account, which the chip says.
+    guest: bool,
     place: String,
     color: Color,
     /// The player looking at the screen, whose name stands out. Two players may have chosen the
@@ -170,7 +172,9 @@ fn spawn_browser(
     joining.0 = false;
     focus.clear();
     let nickname = match &*connection {
-        Connection::Online { nickname } | Connection::Connecting { nickname } => nickname.clone(),
+        Connection::Online { nickname, .. } | Connection::Connecting { nickname } => {
+            nickname.clone()
+        }
         _ => String::new(),
     };
     let caption = |text: &str| {
@@ -1016,9 +1020,10 @@ fn update_online_players(
     mut captions: Query<&mut Text, With<OnlineCaption>>,
     mut panels: Query<(Entity, Option<&Children>, &mut ShownPlayers), With<OnlineList>>,
 ) {
-    let own = match &*connection {
-        Connection::Online { nickname } | Connection::Connecting { nickname } => nickname.as_str(),
-        _ => "",
+    let (own, own_guest) = match &*connection {
+        Connection::Online { nickname, guest } => (nickname.as_str(), *guest),
+        Connection::Connecting { nickname } => (nickname.as_str(), false),
+        _ => ("", false),
     };
     let chips: Vec<Chip> = online
         .0
@@ -1027,9 +1032,10 @@ fn update_online_players(
             let (place, color) = presence_place(player.presence, &list);
             Chip {
                 nickname: player.nickname.clone(),
+                guest: player.guest,
                 place,
                 color,
-                own: player.nickname == own,
+                own: player.nickname == own && player.guest == own_guest,
             }
         })
         .collect();
@@ -1070,7 +1076,14 @@ fn presence_place(presence: Presence, list: &LobbyList) -> (String, Color) {
 }
 
 fn spawn_chip(commands: &mut Commands, fonts: &Fonts, chip: &Chip) -> Entity {
-    commands
+    let name_color = if chip.own {
+        theme::OWN
+    } else if chip.guest {
+        theme::TEXT_DIM
+    } else {
+        theme::TEXT
+    };
+    let chip_entity = commands
         .spawn((
             Node {
                 align_items: AlignItems::Center,
@@ -1093,16 +1106,25 @@ fn spawn_chip(commands: &mut Commands, fonts: &Fonts, chip: &Chip) -> Entity {
                 (
                     Text::new(chip.nickname.clone()),
                     fonts.text(15.0, 600),
-                    TextColor(if chip.own { theme::OWN } else { theme::TEXT }),
-                ),
-                (
-                    Text::new(chip.place.clone()),
-                    fonts.text(14.0, 400),
-                    TextColor(theme::TEXT_FAINT),
+                    TextColor(name_color),
                 ),
             ],
         ))
-        .id()
+        .id();
+    if chip.guest {
+        commands.entity(chip_entity).with_child((
+            Text::new("GUEST"),
+            fonts.caption(11.0),
+            theme::CAPTION_SPACING,
+            TextColor(theme::TEXT_FAINT),
+        ));
+    }
+    commands.entity(chip_entity).with_child((
+        Text::new(chip.place.clone()),
+        fonts.text(14.0, 400),
+        TextColor(theme::TEXT_FAINT),
+    ));
+    chip_entity
 }
 
 fn update_frame(

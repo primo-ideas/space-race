@@ -95,7 +95,7 @@ fn notice_loss(
     }
     let now = time.elapsed_secs_f64();
     match &*connection {
-        Connection::Online { nickname } => reconnect.online_as = Some(nickname.clone()),
+        Connection::Online { nickname, .. } => reconnect.online_as = Some(nickname.clone()),
         Connection::Disconnected {
             was_online: true, ..
         } => {
@@ -164,9 +164,11 @@ fn try_again(
     }
     attempt.tries += 1;
     attempt.next_at = now + delay(attempt.tries);
-    let nickname = attempt.nickname.clone();
     info!(tries = attempt.tries, "trying to reconnect");
-    network.connect(nickname, &mut connection);
+    // Nothing to come back as: the server never welcomed this run.
+    if !network.resume(&mut connection) {
+        reconnect.attempt = None;
+    }
 }
 
 /// Once welcomed back and listed, goes back into the lobby the player was in.
@@ -306,6 +308,7 @@ mod tests {
     fn online() -> Connection {
         Connection::Online {
             nickname: "Ada".into(),
+            guest: false,
         }
     }
 

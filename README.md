@@ -49,7 +49,7 @@ There is no brake: the game is full speed all the time. **Tap the drift button w
 
 The car handling is tuned in `server/data/car.ron`. The server reloads it within a second of every save, so you can keep driving while adjusting it.
 
-Useful client options (`--help` for all of them): `--nickname` to skip the login screen, `--lobby <name>` to enter a lobby (created with `--track`, `--laps` and `--min-players` if it does not exist), `--identity <dir>` to run several clients on one machine, `--autopilot` (or `--autopilot-drift`) to let the car drive itself, and `--capture <file.png>` with `--capture-delay <seconds>` to take a screenshot and exit. The game is quiet by default: `--log info` (or `?log=info` in the browser) makes it say what it is doing. For example, a race alone: `--nickname Primo --lobby Test --min-players 1`.
+Useful client options (`--help` for all of them): `--guest` (or `--account <name> --password <password>`, with `--create` the first time) to skip the first screen, `--lobby <name>` to enter a lobby (created with `--track`, `--laps` and `--min-players` if it does not exist), `--identity <dir>` to run several clients on one machine, `--autopilot` (or `--autopilot-drift`) to let the car drive itself, and `--capture <file.png>` with `--capture-delay <seconds>` to take a screenshot and exit. The game is quiet by default: `--log info` (or `?log=info` in the browser) makes it say what it is doing. For example, a race alone: `--guest --lobby Test --min-players 1`.
 
 ## In a browser
 
@@ -59,7 +59,7 @@ The client also runs in the browser (WebGL2). With the server running and `cargo
 cargo run --release -p star-racer-client --target wasm32-unknown-unknown
 ```
 
-then open <http://127.0.0.1:1334>. Settings go in the page address, for example `?nickname=Primo`. Tools, deployment builds and `wasm-opt` are described in [docs/web.md](docs/web.md).
+then open <http://127.0.0.1:1334>. Settings go in the page address, for example `?guest`. Tools, deployment builds and `wasm-opt` are described in [docs/web.md](docs/web.md).
 
 ## Documentation
 

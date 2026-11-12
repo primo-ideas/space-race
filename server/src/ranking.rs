@@ -140,7 +140,7 @@ impl Ratings {
         info!(file = %path.display(), players = records.len(), "ratings loaded");
         Ok(Self {
             records,
-            file: Some(spawn_writer(path)),
+            file: Some(spawn_writer(path, "ratings")),
         })
     }
 
@@ -245,8 +245,9 @@ fn ladder_key(record: &Record) -> (i32, std::cmp::Reverse<u32>, &str) {
 }
 
 /// Writes the file on a task of its own, so a slow disk never holds up the lobbies. Contents
-/// queued behind each other are superseded: only the latest is written.
-fn spawn_writer(path: PathBuf) -> mpsc::UnboundedSender<String> {
+/// queued behind each other are superseded: only the latest is written. `what` names the file's
+/// contents in the log.
+pub(crate) fn spawn_writer(path: PathBuf, what: &'static str) -> mpsc::UnboundedSender<String> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<String>();
     tokio::spawn(async move {
         while let Some(mut text) = receiver.recv().await {
@@ -256,8 +257,8 @@ fn spawn_writer(path: PathBuf) -> mpsc::UnboundedSender<String> {
             let target = path.clone();
             match tokio::task::spawn_blocking(move || write_whole(&target, &text)).await {
                 Ok(Ok(())) => {}
-                Ok(Err(problem)) => error!("the ratings could not be saved: {problem:#}"),
-                Err(problem) => error!("the ratings could not be saved: {problem}"),
+                Ok(Err(problem)) => error!("the {what} could not be saved: {problem:#}"),
+                Err(problem) => error!("the {what} could not be saved: {problem}"),
             }
         }
     });
@@ -271,11 +272,11 @@ fn write_whole(path: &Path, text: &str) -> Result<()> {
     Ok(())
 }
 
-fn hex(key: &PublicKey) -> String {
+pub(crate) fn hex(key: &PublicKey) -> String {
     key.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn player_id(text: &str) -> Option<PlayerId> {
+pub(crate) fn player_id(text: &str) -> Option<PlayerId> {
     if text.len() != 64 || !text.is_ascii() {
         return None;
     }

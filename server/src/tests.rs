@@ -14,9 +14,9 @@ use futures_util::{SinkExt, StreamExt};
 use star_racer_protocol::auth::{self, SigningKey};
 use star_racer_protocol::ranked::{QueueStatus, RankedProfile};
 use star_racer_protocol::{
-    self as protocol, CarId, ClientMessage, JoinError, LobbyId, LobbyPhase, LobbySettings,
-    LobbyState, LobbyStatus, LobbySummary, OnlinePlayer, PROTOCOL_VERSION, PlayerStatus, Presence,
-    RejectReason, ServerMessage, Snapshot, TrackInfo, WS_PATH,
+    self as protocol, CarId, ClientMessage, Identity, JoinError, LobbyId, LobbyPhase,
+    LobbySettings, LobbyState, LobbyStatus, LobbySummary, Login, OnlinePlayer, PROTOCOL_VERSION,
+    PlayerStatus, Presence, RejectReason, ServerMessage, Snapshot, TrackInfo, WS_PATH,
 };
 use star_racer_sim::car::{Car, CarInput};
 use tokio::net::{TcpListener, TcpStream};
@@ -25,6 +25,7 @@ use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use crate::accounts::Accounts;
 use crate::content;
 use crate::directory::Directory;
 use crate::lobby::Timings;
@@ -47,7 +48,13 @@ async fn start_server_with(timings: Timings) -> String {
         content::load_car_tuning(&data_dir.join(content::CAR_TUNING_FILE), &tracks).unwrap();
     // Nothing will change the tuning: the sender can go.
     let (_, tuning) = watch::channel(tuning);
-    let directory = Directory::spawn(tracks, tuning, timings, Ratings::in_memory());
+    let directory = Directory::spawn(
+        tracks,
+        tuning,
+        timings,
+        Ratings::in_memory(),
+        Accounts::in_memory(),
+    );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -111,22 +118,41 @@ async fn assert_closed(socket: &mut Client) {
     }
 }
 
-fn hello(protocol_version: u32, nickname: &str, key: &SigningKey) -> ClientMessage {
+/// The password every test account is created with.
+const PASSWORD: &str = "correct horse battery";
+
+/// The name a test guest plays under: a generated one, as a guest's must be.
+const GUEST: &str = "Neon Falcon";
+
+fn hello(protocol_version: u32, login: Login, key: &SigningKey) -> ClientMessage {
     ClientMessage::Hello {
         protocol_version,
-        nickname: nickname.into(),
         public_key: key.verifying_key().to_bytes(),
+        login,
     }
 }
 
-/// Sends `Hello` under `nickname`, then answers the challenge with a signature made by `signer`.
-async fn handshake_as(
+fn guest(name: &str) -> Login {
+    Login::Guest { name: name.into() }
+}
+
+/// Creates the account `name`.
+fn new_account(name: &str) -> Login {
+    Login::Password {
+        name: name.into(),
+        password: PASSWORD.into(),
+        create: true,
+    }
+}
+
+/// Sends `Hello` with `login`, then answers the challenge with a signature made by `signer`.
+async fn handshake_with(
     socket: &mut Client,
-    nickname: &str,
+    login: Login,
     key: &SigningKey,
     signer: &SigningKey,
 ) -> ServerMessage {
-    send(socket, &hello(PROTOCOL_VERSION, nickname, key)).await;
+    send(socket, &hello(PROTOCOL_VERSION, login, key)).await;
     let ServerMessage::Challenge { nonce } = receive(socket).await else {
         panic!("expected Challenge");
     };
@@ -135,32 +161,40 @@ async fn handshake_as(
     receive(socket).await
 }
 
-/// The same, under the nickname every test uses when it does not care which.
+/// The same, as the guest every test uses when it does not care who plays.
 async fn handshake(socket: &mut Client, key: &SigningKey, signer: &SigningKey) -> ServerMessage {
-    handshake_as(socket, "Tester", key, signer).await
+    handshake_with(socket, guest(GUEST), key, signer).await
 }
 
-/// Connects with a new identity, and returns once the lobby list has arrived.
+/// Connects as a guest with a new identity, and returns once the lobby list has arrived.
 async fn browse(url: &str) -> (Client, Vec<TrackInfo>, Vec<LobbySummary>) {
     let key = auth::new_signing_key();
     let mut socket = connect(url).await;
-    let ServerMessage::Welcome { tracks } = handshake(&mut socket, &key, &key).await else {
+    let ServerMessage::Welcome { tracks, .. } = handshake(&mut socket, &key, &key).await else {
         panic!("expected Welcome");
     };
     let lobbies = next_lobbies(&mut socket).await;
     (socket, tracks, lobbies)
 }
 
-/// Connects with a new identity under `nickname`, and returns as soon as it is welcomed. The
+/// Creates the account `name` from a new device, and returns as soon as it is welcomed. The
 /// lobby list and the player list follow in either order, so this waits for neither: waiting for
 /// one would throw away the other whenever it came first.
-async fn welcome_as(url: &str, nickname: &str) -> Client {
+async fn welcome_as(url: &str, name: &str) -> Client {
     let key = auth::new_signing_key();
     let mut socket = connect(url).await;
-    let ServerMessage::Welcome { .. } = handshake_as(&mut socket, nickname, &key, &key).await
+    let ServerMessage::Welcome { identity, .. } =
+        handshake_with(&mut socket, new_account(name), &key, &key).await
     else {
         panic!("expected Welcome");
     };
+    assert_eq!(
+        identity,
+        Identity {
+            name: name.into(),
+            guest: false
+        }
+    );
     socket
 }
 
@@ -284,7 +318,7 @@ async fn a_created_lobby_is_listed_until_its_last_player_leaves() {
     })
     .await;
     assert_eq!(listed.settings.name, "Friday night");
-    assert_eq!(listed.players, ["Tester"]);
+    assert_eq!(listed.players, [GUEST]);
     assert_eq!(listed.status, LobbyStatus::Waiting);
 
     // Leaving takes the creator back to the list, where the empty lobby is gone.
@@ -558,18 +592,22 @@ async fn a_new_connection_of_the_same_player_replaces_the_old_one() {
     let url = start_server().await;
     let key = auth::new_signing_key();
     let mut first = connect(&url).await;
-    let ServerMessage::Welcome { .. } = handshake_as(&mut first, "Old", &key, &key).await else {
+    let ServerMessage::Welcome { .. } =
+        handshake_with(&mut first, guest("Solar Comet"), &key, &key).await
+    else {
         panic!("expected Welcome");
     };
 
     let mut second = connect(&url).await;
-    let ServerMessage::Welcome { .. } = handshake_as(&mut second, "New", &key, &key).await else {
+    let ServerMessage::Welcome { .. } =
+        handshake_with(&mut second, guest("Lunar Otter"), &key, &key).await
+    else {
         panic!("expected Welcome");
     };
     assert_replaced(&mut first).await;
-    // Listed once, under the name it came back with.
+    // Listed once, under the name it came back with: a guest may roll another.
     next_players(&mut second, "the player listed once", |players| {
-        players.len() == 1 && players[0].nickname == "New"
+        players.len() == 1 && players[0].nickname == "Lunar Otter" && players[0].guest
     })
     .await;
 
@@ -630,7 +668,7 @@ async fn protocol_mismatch_is_rejected() {
     let url = start_server().await;
     let mut socket = connect(&url).await;
     let key = auth::new_signing_key();
-    send(&mut socket, &hello(PROTOCOL_VERSION + 1, "Tester", &key)).await;
+    send(&mut socket, &hello(PROTOCOL_VERSION + 1, guest(GUEST), &key)).await;
 
     assert_eq!(
         receive(&mut socket).await,
@@ -646,11 +684,164 @@ async fn invalid_nickname_is_rejected() {
     let url = start_server().await;
     let mut socket = connect(&url).await;
     let key = auth::new_signing_key();
-    send(&mut socket, &hello(PROTOCOL_VERSION, " Tester", &key)).await;
+    send(&mut socket, &hello(PROTOCOL_VERSION, new_account(" Tester"), &key)).await;
 
     assert_eq!(
         receive(&mut socket).await,
         ServerMessage::Rejected(RejectReason::InvalidNickname)
+    );
+    assert_closed(&mut socket).await;
+}
+
+/// A guest plays under a generated name and nothing else: what tells a guest from an account is
+/// that the name was not theirs to choose.
+#[tokio::test]
+async fn a_guest_cannot_choose_their_name() {
+    let url = start_server().await;
+    let mut socket = connect(&url).await;
+    let key = auth::new_signing_key();
+    send(&mut socket, &hello(PROTOCOL_VERSION, guest("Primo"), &key)).await;
+
+    assert_eq!(
+        receive(&mut socket).await,
+        ServerMessage::Rejected(RejectReason::InvalidNickname)
+    );
+    assert_closed(&mut socket).await;
+}
+
+/// A guest is told so, listed as one, and kept out of ranked.
+#[tokio::test]
+async fn a_guest_plays_everything_but_ranked() {
+    let url = start_server().await;
+    let key = auth::new_signing_key();
+    let mut socket = connect(&url).await;
+    let ServerMessage::Welcome { identity, .. } = handshake(&mut socket, &key, &key).await else {
+        panic!("expected Welcome");
+    };
+    assert_eq!(
+        identity,
+        Identity {
+            name: GUEST.into(),
+            guest: true
+        }
+    );
+    next_players(&mut socket, "the guest listed as one", |players| {
+        players.len() == 1 && players[0].guest
+    })
+    .await;
+
+    send(&mut socket, &ClientMessage::QueueRanked).await;
+    wait_for(&mut socket, "ranked refused", |message| match message {
+        ServerMessage::JoinFailed(JoinError::AccountRequired) => Some(()),
+        ServerMessage::Queue(Some(_)) => panic!("a guest entered the queue"),
+        _ => None,
+    })
+    .await;
+    // Quick play is theirs, though.
+    enter(&mut socket, ClientMessage::QuickPlay)
+        .await
+        .expect("a guest could not quick play");
+}
+
+/// An account is created once, comes back on its device without its password, signs in with it
+/// on another, and signs out.
+#[tokio::test]
+async fn an_account_signs_in_and_out() {
+    let url = start_server().await;
+    let phone = auth::new_signing_key();
+    let mut socket = connect(&url).await;
+    let ServerMessage::Welcome { identity, .. } =
+        handshake_with(&mut socket, new_account("Ada"), &phone, &phone).await
+    else {
+        panic!("expected Welcome");
+    };
+    assert!(!identity.guest);
+    drop(socket);
+
+    // The name is hers now, whatever its case.
+    let other = auth::new_signing_key();
+    let mut socket = connect(&url).await;
+    assert_eq!(
+        handshake_with(&mut socket, new_account("ADA"), &other, &other).await,
+        ServerMessage::Rejected(RejectReason::NameTaken)
+    );
+    // A wrong password does not get in, and no device of hers is signed in yet.
+    let mut socket = connect(&url).await;
+    let wrong = Login::Password {
+        name: "Ada".into(),
+        password: "wrong password".into(),
+        create: false,
+    };
+    assert_eq!(
+        handshake_with(&mut socket, wrong, &other, &other).await,
+        ServerMessage::Rejected(RejectReason::WrongPassword)
+    );
+    let mut socket = connect(&url).await;
+    assert_eq!(
+        handshake_with(&mut socket, Login::Device, &other, &other).await,
+        ServerMessage::Rejected(RejectReason::NotSignedIn)
+    );
+
+    // The device that created it comes back without the password.
+    let mut socket = connect(&url).await;
+    let ServerMessage::Welcome { identity, .. } =
+        handshake_with(&mut socket, Login::Device, &phone, &phone).await
+    else {
+        panic!("expected Welcome");
+    };
+    assert_eq!(identity.name, "Ada");
+
+    // Signing out forgets the device, and the server closes the connection, once it has said
+    // what it was saying.
+    send(&mut socket, &ClientMessage::SignOut).await;
+    let closed = async {
+        loop {
+            match socket.next().await {
+                None | Some(Ok(Message::Close(_))) => return,
+                Some(Ok(_)) => {}
+                Some(Err(error)) => panic!("{error}"),
+            }
+        }
+    };
+    timeout(PATIENCE, closed)
+        .await
+        .expect("the connection stayed open after signing out");
+    let mut socket = connect(&url).await;
+    assert_eq!(
+        handshake_with(&mut socket, Login::Device, &phone, &phone).await,
+        ServerMessage::Rejected(RejectReason::NotSignedIn)
+    );
+
+    // The password brings her back, under the name she chose.
+    let mut socket = connect(&url).await;
+    let right = Login::Password {
+        name: "ada".into(),
+        password: PASSWORD.into(),
+        create: false,
+    };
+    let ServerMessage::Welcome { identity, .. } =
+        handshake_with(&mut socket, right, &phone, &phone).await
+    else {
+        panic!("expected Welcome");
+    };
+    assert_eq!(identity.name, "Ada");
+}
+
+/// A password too short to create an account with is refused before anything is hashed.
+#[tokio::test]
+async fn a_short_password_is_refused() {
+    let url = start_server().await;
+    let mut socket = connect(&url).await;
+    let key = auth::new_signing_key();
+    let login = Login::Password {
+        name: "Ada".into(),
+        password: "short".into(),
+        create: true,
+    };
+    send(&mut socket, &hello(PROTOCOL_VERSION, login, &key)).await;
+    assert_eq!(
+        receive(&mut socket).await,
+        ServerMessage::Rejected(RejectReason::InvalidPassword)
     );
     assert_closed(&mut socket).await;
 }

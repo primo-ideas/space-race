@@ -70,7 +70,7 @@ server, on a home connection: welcomed, then a quick play race on the drifting a
 The server allows 2 minutes (`HANDSHAKE_TIMEOUT`) for the whole exchange. That is far more than
 the exchange takes, on purpose: a web client runs its session on the page's main thread, between
 frames, and the first frames of a page can hold that thread for several seconds each while the
-browser compiles shaders. With 5 seconds, a page opened with `?nickname=`, which connects at once,
+browser compiles shaders. With 5 seconds, a page opened with `?nickname=` (now `?guest`), which connects at once,
 timed out on its first load even on a desktop GPU. 20 seconds was not enough either against the
 deployed site: a first visit with empty caches (Edge, ANGLE on Direct3D 11, a GTX 1050 Ti) opened
 the socket 5 seconds in and then held the thread until 34 seconds, so the client only saw the
@@ -79,19 +79,27 @@ second visit, with the shaders cached, connected in 50 ms. A phone is slower sti
 connection that never answers only costs the server a task until the deadline.
 
 ```
-Client                                        Server
-  |                                              |
-  |-- Hello { version, nickname, public_key } -->|
-  |                                              |  check version, then nickname
-  |<------------- Challenge { nonce } -----------|  32 fresh random bytes
-  |                                              |
-  |-- ChallengeResponse { signature } ---------->|
-  |                                              |  verify signature against public_key,
-  |                                              |  and that this identity is not connected
-  |<---------------- Welcome { tracks } ---------|
+Client                                          Server
+  |                                                |
+  |-- Hello { version, public_key, login } ------->|
+  |                                                |  check version, then what can be refused
+  |                                                |  without work: a guest name that is not
+  |                                                |  a generated one, a bad account name, a
+  |                                                |  password too short to create with
+  |<------------- Challenge { nonce } -------------|  32 fresh random bytes
+  |                                                |
+  |-- ChallengeResponse { signature } ------------>|
+  |                                                |  verify signature against public_key,
+  |                                                |  then the login: the guest comes in, or
+  |                                                |  the account is found, checked or created
+  |<---------- Welcome { tracks, identity } -------|
 ```
 
-At any of the four checks the server answers `Rejected(reason)`, sends a Close frame and drops the
+`login` is one of three (see [Accounts](#accounts-and-guests)): `Guest { name }`, `Device`, the
+account this device is signed in to, or `Password { name, password, create }`. `identity` says who
+the server took the player for: a name, and whether it is a guest's.
+
+At any of the checks the server answers `Rejected(reason)`, sends a Close frame and drops the
 connection. Anything other than the expected message at that point is a protocol error, and the
 connection is dropped without a reply.
 
@@ -220,11 +228,55 @@ refused rather than trimmed — silently changing what a player typed would let 
 identical while differing. Control characters are refused so a nickname cannot corrupt logs or
 in-game text.
 
+## Accounts and guests
+
+Since v0.1.38 (protocol 26, 2026-11-12, the user's request "Fais des comptes, et login par comptes,
+sauf un mode invité avec qqch qui les distingue et un nom généré obligatoire"; asked, they chose a
+name and a password, no e-mail, and guests playing everything but ranked):
+
+- **An account** is a name and a password. The name is unique whatever its case, follows the
+  nickname rules below, and is what the player is seen as. There is no e-mail, so no way to get a
+  forgotten password back: the account is lost with it (an e-mail can be added later).
+- **The device signs in, not the session.** Every connection still proves it holds the device's
+  Ed25519 key (below). Signing in with the password, or creating the account, links that key to the
+  account on the server, so the device comes back with `Login::Device`, without the password, run
+  after run and through every reconnection. `SignOut`, sent while browsing, unlinks it and the
+  server closes the connection; a device signed out while it cannot reach the server makes itself a
+  new key instead, which no account knows. A device is signed in to one account at most; an
+  account to any number of devices.
+- **A guest** plays under a generated name, an adjective and a noun from the game's world
+  (`protocol::names`), which the dice on the first screen roll again but nobody can type: the
+  server refuses a guest name that is not one of them. That, and a `guest` flag on every listed
+  player (`OnlinePlayer`, `LobbyPlayer`), is what tells a guest apart; the client writes a guest's
+  name dimmer and tags them GUEST in the list of players online. A guest's identity is the device
+  key, as every player's was before accounts. **Ranked is for accounts**: a guest's `QueueRanked`
+  is answered `JoinFailed(AccountRequired)`, and a guest is sent no profile.
+- **The server keeps the accounts** in `accounts.ron` (`--accounts`, beside `ratings.ron` and for
+  the same reason: deployments replace the data directory and leave these alone). Each account has
+  an identity, 32 random bytes drawn when it is created, which the ladder is kept by, so an
+  account's rating survives any change of device; its name; its password as an **Argon2id** hash in
+  the PHC string format (the `argon2` crate's defaults: 19 MiB, 2 passes, a random 16-byte salt),
+  never the password itself; and the keys of its devices. Hashing and checking take tens of
+  milliseconds on purpose, on a blocking thread. A file the server cannot read stops it rather
+  than being replaced, unlike the ladder: accounts cannot be started over without locking every
+  player out.
+- **The password crosses the wire once**, in `Hello`, inside the TLS of `wss://` in production.
+  Locally, against `ws://127.0.0.1`, it is in the clear on the loopback. Nothing limits how many
+  passwords a client may try, which is in keeping with how light the user wants the security of
+  this alpha to be; an account name and password do not say which of the two was wrong.
+- **The client remembers** the account the device is signed in to and the name last typed
+  (`preferences.ron`), never the password. Bevy's text field cannot mask yet, so the password field
+  draws its text in no color under a row of dots (`widgets::secret_field`); on a phone, typing goes
+  through the browser's own box, which shows what is typed, and starts empty for a password.
+
+The ladder of before accounts was kept by public keys: it is not carried over (it was empty).
+
 ## Authentication
 
-There are no accounts, no e-mail and no password in this alpha. **A player is their Ed25519 public
-key.** The client generates a key on first launch and keeps it; on native it lives at
-`%APPDATA%\Star Racer\data\identity.key`. Losing that file means losing the identity.
+**Every connection proves it holds the device's Ed25519 key.** The client generates a key on first
+launch and keeps it; on native it lives at `%APPDATA%\Star Racer\data\identity.key`. It is a
+guest's identity, and what keeps a device signed in to its account. Losing that file means
+signing in again, or, for a guest, being a new guest.
 
 The signed message is not the bare nonce but:
 
@@ -239,7 +291,7 @@ Verification uses `verify_strict`, which rejects the malleable and small-order e
 plain `verify` accepts. The nonce is freshly generated for each connection, so a captured
 `ChallengeResponse` cannot be replayed on a later one.
 
-In logs, a player is identified by the first 8 bytes of their public key in hex — enough to tell
+In logs, a player is identified by the first 8 bytes of their identity in hex, a guest's public key or an account's identity, — enough to tell
 players apart without dumping a full key on every line.
 
 ## Disconnecting
@@ -254,8 +306,12 @@ the session removes the player from their lobby on all of these paths, not only 
 | Reason | Meaning |
 | --- | --- |
 | `ProtocolMismatch { server_version }` | Client and server speak different protocol versions. |
-| `InvalidNickname` | The nickname failed `is_valid_nickname`. |
+| `InvalidNickname` | The name failed `is_valid_nickname`, or, for a guest, is not a generated one. |
 | `AuthenticationFailed` | The signature did not verify against the announced public key. |
+| `NotSignedIn` | `Login::Device` from a device no account knows, or no longer does: the client forgets the account and shows the sign-in tab. |
+| `WrongPassword` | No account has this name, or its password is another. |
+| `NameTaken` | Creating an account under a name another account already has, whatever its case. |
+| `InvalidPassword` | Creating an account with a password shorter than 8 characters or longer than 128. |
 | `AlreadyConnected` | Sent to a connection that another one of the same identity has just replaced, before it is closed: the newest connection wins (see [Lobbies](lobbies.md#on-the-server)). |
 
 ## Join errors

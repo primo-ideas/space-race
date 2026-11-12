@@ -1,12 +1,13 @@
-//! What the player chose in the menus, kept between runs: their nickname, the settings of the
+//! What the player chose in the menus, kept between runs: the account they sign in to, the settings of the
 //! lobby creation dialog, and what the settings screen holds (`ui/settings.rs`): their controls,
 //! how the touch controls are laid out, whether anything vibrates, and the server they play on.
 //! They are stored beside the player's key (see
 //! [`crate::net::identity`]), so `--identity` gives each player on a machine their own.
 //!
-//! **A generated nickname is not a choice.** It is remembered only once the player has made it
-//! theirs, by editing it; a player who takes what the dice offered gets a new one next time. The
-//! same goes for the lobby name, which is offered as "*nickname*'s lobby". Everything read back is
+//! **A generated name is not a choice.** A guest's is never remembered: a guest gets a new one
+//! every run. The same goes for the lobby name, which is offered as "*nickname*'s lobby". The
+//! password never is: once signed in, the device is what the server knows the player by.
+//! Everything read back is
 //! checked before it is used: a stored nickname that is not valid any more, or a number outside
 //! what a lobby allows, falls back to the default rather than reaching the server.
 
@@ -35,8 +36,7 @@ pub struct PreferencesPlugin {
 
 impl Plugin for PreferencesPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(StoredPreferences::load(self.store.clone()))
-            .init_resource::<OfferedNickname>();
+        app.insert_resource(StoredPreferences::load(self.store.clone()));
     }
 }
 
@@ -44,8 +44,12 @@ impl Plugin for PreferencesPlugin {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Preferences {
-    /// The nickname the player typed. None while they keep what was generated for them.
+    /// The account name the player last typed to sign in or create an account, to fill the
+    /// field again.
     pub nickname: Option<String>,
+    /// The account this device is signed in to, as the server last welcomed it. None for a guest,
+    /// or once signed out.
+    pub account: Option<String>,
     /// The lobby creation dialog, as they last left it.
     pub lobby: LobbyPreferences,
     /// Which key and which gamepad button does what in a race.
@@ -63,6 +67,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             nickname: None,
+            account: None,
             lobby: LobbyPreferences::default(),
             controls: Bindings::default(),
             touch: TouchOptions::default(),
@@ -101,6 +106,7 @@ impl Preferences {
     /// edited by hand, and what a past version stored may not be valid now.
     fn checked(mut self) -> Self {
         self.nickname = self.nickname.filter(|nickname| is_valid_nickname(nickname));
+        self.account = self.account.filter(|account| is_valid_nickname(account));
         self.lobby.name = self.lobby.name.filter(|name| is_valid_lobby_name(name));
         self.host = self
             .host
@@ -166,11 +172,6 @@ impl StoredPreferences {
         }
     }
 }
-
-/// The nickname the dice offered this run, if the player has not been given a remembered one.
-/// Playing under it does not make it theirs: it is not saved.
-#[derive(Resource, Default)]
-pub struct OfferedNickname(pub Option<String>);
 
 #[cfg(test)]
 mod tests {

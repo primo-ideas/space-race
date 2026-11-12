@@ -30,8 +30,12 @@ Both build the game server for Linux and the client for the browser, upload them
 then restarts the service and checks it is still up two seconds later, so a binary that dies on
 startup fails the deployment instead of passing for one.
 
-The ranked ladder, `/home/star-racer/ratings.ron`, sits beside them and is not part of a build: a
-deployment restarts the server, which reads it back (see [Quick play and ranked](ranked.md)).
+The ranked ladder, `/home/star-racer/ratings.ron`, and the player accounts,
+`/home/star-racer/accounts.ron` (since v0.1.38), sit beside them and are not part of a build: a
+deployment restarts the server, which reads them back (see [Quick play and ranked](ranked.md) and
+[Protocol](protocol.md#accounts-and-guests)). The accounts file holds password hashes, never
+passwords, and is the one file on the machine that cannot be lost without locking players out:
+it is worth a copy now and then.
 
 It **never** touches the `star-racer` user, the systemd unit, the Apache configuration, the TLS
 certificate, or anything under the document root that is not its own directory. Those belong to

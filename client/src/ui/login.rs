@@ -1,12 +1,14 @@
-//! The first screen: the game's title, a nickname, and the ways into a race.
+//! The first screen: the game's title, who the player comes in as, and the ways into a race.
 //!
-//! The field comes filled in, with the nickname last played under or a generated one, so a race is
-//! one press away from the moment the game opens, even with a gamepad: QUICK PLAY, or QUEUE FOR
-//! RANKED beside it. Everything else waits under them. The dice button, or Y on a gamepad, rolls a
-//! new nickname.
+//! A player comes in one of three ways, picked on tabs at the top of the card: as a **guest**,
+//! under a generated name the dice can roll again but nobody can type, playing everything but
+//! ranked; by **signing in** to their account, with its name and password; or by creating a **new
+//! account**. A device that signed in stays signed in, the server knowing it by its key: the card
+//! then only says who the player is, with a way to sign out. Whichever it is, a race is one press
+//! away: QUICK PLAY, or QUEUE FOR RANKED beside it. Everything else waits under them.
 //!
-//! It is also the screen a player comes back to, still connected: pressing a button under another
-//! nickname connects again, and otherwise acts at once.
+//! It is also the screen a player comes back to, still connected: pressing a button as someone
+//! else connects again, and otherwise acts at once.
 
 use bevy::ecs::system::SystemParam;
 use bevy::input_focus::{FocusCause, InputFocus};
@@ -16,7 +18,8 @@ use bevy::ui::InteractionDisabled;
 use bevy::ui_widgets::Activate;
 use star_racer_protocol::ranked::{PLACEMENT_GAMES, Tier};
 use star_racer_protocol::{
-    ClientMessage, MAX_NICKNAME_CHARS, PROTOCOL_VERSION, RejectReason, is_valid_nickname,
+    ClientMessage, Login, MAX_NICKNAME_CHARS, MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS,
+    PROTOCOL_VERSION, RejectReason, is_valid_nickname, is_valid_password,
 };
 
 use super::leaderboard::LeaderboardDialog;
@@ -26,37 +29,89 @@ use super::settings::SettingsDialog;
 use super::theme::{self, Fonts};
 use super::touch::{FullScreenButton, Touchscreen, full_screen_wanted};
 use super::widgets::{
-    ButtonKind, ButtonLabel, button, button_of_size, hint, hint_row, panel, set_text, text_field,
+    ButtonKind, ButtonLabel, button, button_of_size, hint, hint_row, panel, secret_field,
+    set_text, text_field,
 };
 use crate::lobby::{Ladder, Notice};
-use crate::net::{Connection, Network};
+use crate::net::{Connection, NetEvent, Network};
 use crate::nickname;
-use crate::preferences::{OfferedNickname, StoredPreferences};
+use crate::preferences::StoredPreferences;
 use crate::reconnect::Reconnect;
 use crate::screen::{AfterLobby, Intent, Screen};
-use crate::settings::Script;
+use crate::settings::{Script, ScriptedLogin};
 
 pub struct LoginPlugin;
 
 impl Plugin for LoginPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            OnEnter(Screen::Login),
-            (spawn_login, connect_scripted).chain(),
-        )
-        .add_systems(
-            Update,
-            (carry_out_intent, reroll_shortcut, update_login).run_if(in_state(Screen::Login)),
-        );
+        app.init_resource::<LoginMode>()
+            .init_resource::<GuestName>()
+            .add_systems(
+                OnEnter(Screen::Login),
+                (spawn_login, connect_scripted).chain(),
+            )
+            // Wherever the player is when the server says who they are.
+            .add_systems(Update, remember_account)
+            .add_systems(
+                Update,
+                (carry_out_intent, reroll_shortcut, update_login).run_if(in_state(Screen::Login)),
+            );
     }
 }
 
-#[derive(Component)]
-struct NicknameField;
+/// How a player who is not signed in comes in.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LoginMode {
+    /// Not chosen yet: the first screen picks guest, or signing in for a player who once typed an
+    /// account name.
+    #[default]
+    Unset,
+    Guest,
+    SignIn,
+    Create,
+}
 
-/// A button that needs a valid nickname, and not to be connecting already.
+/// The name a guest plays under this run, rolled by the dice.
+#[derive(Resource, Default)]
+struct GuestName(String);
+
+/// A tab choosing how to come in.
+#[derive(Component)]
+struct ModeTab(LoginMode);
+
+#[derive(Component)]
+struct Tabs;
+
+#[derive(Component)]
+struct SignedInPanel;
+
+#[derive(Component)]
+struct SignedInName;
+
+#[derive(Component)]
+struct GuestPanel;
+
+#[derive(Component)]
+struct GuestNameText;
+
+#[derive(Component)]
+struct AccountPanel;
+
+#[derive(Component)]
+struct NameField;
+
+#[derive(Component)]
+struct PasswordField;
+
+#[derive(Component)]
+struct PasswordCaption;
+
+/// A button that needs someone to come in as, and not to be connecting already.
 #[derive(Component)]
 struct ActionButton;
+
+#[derive(Component)]
+struct QuickPlayButton;
 
 #[derive(Component)]
 struct RankedButton;
@@ -85,6 +140,17 @@ fn server_line(network: &Network) -> String {
     format!("{}  ·  protocol {PROTOCOL_VERSION}", network.server())
 }
 
+/// A caption over a field or a panel.
+fn caption(fonts: &Fonts, text: &str) -> impl Bundle {
+    (
+        Text::new(text),
+        fonts.caption(13.0),
+        theme::CAPTION_SPACING,
+        TextColor(theme::TEXT_FAINT),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn spawn_login(
     mut commands: Commands,
     fonts: Res<Fonts>,
@@ -92,7 +158,8 @@ fn spawn_login(
     connection: Res<Connection>,
     preferences: Res<StoredPreferences>,
     touchscreen: Res<Touchscreen>,
-    mut offered: ResMut<OfferedNickname>,
+    mut mode: ResMut<LoginMode>,
+    mut guest_name: ResMut<GuestName>,
     mut focus: ResMut<InputFocus>,
     mut after: ResMut<AfterLobby>,
 ) {
@@ -100,80 +167,198 @@ fn spawn_login(
     // A phone screen is short: the title and the card give up the room they can spare, and the
     // card lays out its two halves side by side.
     let pick = |desk: f32, phone: f32| touchscreen.pick(desk, phone);
-    // The nickname of the run being played, then the one the player made theirs, then the dice.
-    let initial = match &*connection {
-        Connection::Connecting { nickname } | Connection::Online { nickname } => {
-            Some(nickname.clone())
-        }
-        _ => None,
+    if *mode == LoginMode::Unset {
+        *mode = if preferences.get().nickname.is_some() {
+            LoginMode::SignIn
+        } else {
+            LoginMode::Guest
+        };
     }
-    .or_else(|| preferences.get().nickname.clone())
-    .unwrap_or_else(|| {
-        let generated = nickname::generate(None);
-        offered.0 = Some(generated.clone());
-        generated
-    });
+    // The guest name of the run being played, or one the dice roll now.
+    if let Connection::Online {
+        nickname,
+        guest: true,
+    } = &*connection
+    {
+        guest_name.0.clone_from(nickname);
+    }
+    if guest_name.0.is_empty() {
+        guest_name.0 = nickname::generate(None);
+    }
+    let typed = preferences.get().nickname.clone().unwrap_or_default();
 
-    let field = commands
+    let name_field = commands
         .spawn((
-            NicknameField,
-            text_field(&fonts, "Nickname", &initial, MAX_NICKNAME_CHARS),
+            NameField,
+            text_field(&fonts, "Account name", &typed, MAX_NICKNAME_CHARS),
         ))
         .id();
+    let (password_box, password_field) =
+        secret_field(&mut commands, &fonts, "Password", MAX_PASSWORD_CHARS);
+    commands.entity(password_field).insert(PasswordField);
 
-    let nickname_half = commands
-        .spawn(Node {
-            flex_direction: FlexDirection::Column,
-            flex_grow: 1.0,
-            flex_basis: touchscreen.pick(Val::Auto, px(0)),
-            justify_content: JustifyContent::Center,
-            row_gap: px(pick(12.0, 7.0)),
-            ..default()
-        })
-        .with_children(|card| {
-            card.spawn(Node {
-                justify_content: JustifyContent::SpaceBetween,
-                align_items: AlignItems::End,
+    let tabs = commands
+        .spawn((
+            Tabs,
+            Node {
+                column_gap: px(6),
                 ..default()
-            })
-            .with_children(|row| {
-                row.spawn((
-                    Text::new("NICKNAME"),
-                    fonts.caption(13.0),
-                    theme::CAPTION_SPACING,
-                    TextColor(theme::TEXT_FAINT),
-                ));
-                row.spawn((
-                    CharCount,
-                    Text::default(),
-                    fonts.caption(13.0),
-                    theme::CAPTION_SPACING,
-                    TextColor(theme::TEXT_FAINT),
-                ));
-            });
-            card.spawn(Node {
-                column_gap: px(10),
-                align_items: AlignItems::Stretch,
-                ..default()
-            })
-            .add_child(field)
-            .with_children(|row| {
-                row.spawn((RerollButton, button(&fonts, ButtonKind::Secondary, "")))
+            },
+        ))
+        .with_children(|row| {
+            for (tab, label) in [
+                (LoginMode::Guest, "GUEST"),
+                (LoginMode::SignIn, "SIGN IN"),
+                (LoginMode::Create, "NEW ACCOUNT"),
+            ] {
+                row.spawn((ModeTab(tab), button(&fonts, ButtonKind::Quiet, label)))
                     .insert(Node {
-                        width: px(48),
+                        flex_grow: 1.0,
+                        padding: UiRect::axes(px(8), px(pick(7.0, 5.0))),
                         justify_content: JustifyContent::Center,
                         align_items: AlignItems::Center,
                         border: px(1.5).all(),
                         border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
                         ..default()
                     })
-                    .with_child(die())
-                    .observe(reroll);
-            });
+                    .observe(select_mode);
+            }
+        })
+        .id();
+
+    let signed_in = commands
+        .spawn((
+            SignedInPanel,
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(pick(8.0, 5.0)),
+                ..default()
+            },
+        ))
+        .with_children(|panel| {
+            panel.spawn(caption(&fonts, "SIGNED IN AS"));
+            panel
+                .spawn(Node {
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::Center,
+                    column_gap: px(10),
+                    ..default()
+                })
+                .with_children(|row| {
+                    row.spawn((
+                        SignedInName,
+                        Text::default(),
+                        fonts.text(26.0, 700),
+                        TextColor(theme::TEXT),
+                        TextLayout::no_wrap(),
+                    ));
+                    row.spawn(button(&fonts, ButtonKind::Secondary, "SIGN OUT"))
+                        .observe(sign_out);
+                });
+        })
+        .id();
+
+    let guest = commands
+        .spawn((
+            GuestPanel,
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(pick(8.0, 5.0)),
+                ..default()
+            },
+        ))
+        .with_children(|panel| {
+            panel.spawn(caption(&fonts, "GUEST NAME"));
+            panel
+                .spawn(Node {
+                    column_gap: px(10),
+                    align_items: AlignItems::Stretch,
+                    ..default()
+                })
+                .with_children(|row| {
+                    // Not a field: a guest's name is rolled, never typed.
+                    row.spawn((
+                        Node {
+                            flex_grow: 1.0,
+                            padding: UiRect::axes(px(14), px(9)),
+                            border: px(1.5).all(),
+                            border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
+                            ..default()
+                        },
+                        BackgroundColor(theme::SURFACE),
+                        BorderColor::all(theme::PANEL_BORDER),
+                    ))
+                    .with_child((
+                        GuestNameText,
+                        Text::default(),
+                        fonts.text(21.0, 500),
+                        TextColor(theme::TEXT_DIM),
+                    ));
+                    row.spawn((RerollButton, button(&fonts, ButtonKind::Secondary, "")))
+                        .insert(Node {
+                            width: px(48),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: px(1.5).all(),
+                            border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
+                            ..default()
+                        })
+                        .with_child(die())
+                        .observe(reroll);
+                });
+        })
+        .id();
+
+    let account = commands
+        .spawn((
+            AccountPanel,
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(pick(6.0, 4.0)),
+                ..default()
+            },
+        ))
+        .with_children(|panel| {
+            panel
+                .spawn(Node {
+                    justify_content: JustifyContent::SpaceBetween,
+                    align_items: AlignItems::End,
+                    ..default()
+                })
+                .with_children(|row| {
+                    row.spawn(caption(&fonts, "ACCOUNT NAME"));
+                    row.spawn((CharCount, caption(&fonts, "")));
+                });
+        })
+        .add_child(name_field)
+        .with_children(|panel| {
+            panel.spawn((
+                PasswordCaption,
+                caption(&fonts, "PASSWORD"),
+                Node {
+                    margin: UiRect::top(px(pick(4.0, 2.0))),
+                    ..default()
+                },
+            ));
+        })
+        .add_child(password_box)
+        .id();
+
+    let identity_half = commands
+        .spawn(Node {
+            flex_direction: FlexDirection::Column,
+            flex_grow: 1.0,
+            flex_basis: touchscreen.pick(Val::Auto, px(0)),
+            justify_content: JustifyContent::Center,
+            row_gap: px(pick(10.0, 6.0)),
+            ..default()
+        })
+        .add_children(&[tabs, signed_in, guest, account])
+        .with_children(|card| {
             // Texts that come and go sit in a box of fixed minimum height, so the card does not
             // jump when they change.
             card.spawn(Node {
-                min_height: px(20),
+                min_height: px(pick(20.0, 16.0)),
                 ..default()
             })
             .with_child((
@@ -183,7 +368,7 @@ fn spawn_login(
                 TextColor(theme::TEXT_DIM),
             ));
             card.spawn(Node {
-                min_height: px(22),
+                min_height: px(pick(22.0, 18.0)),
                 justify_content: JustifyContent::Center,
                 ..default()
             })
@@ -198,6 +383,7 @@ fn spawn_login(
         .id();
 
     // The two ways into a race, as big as the screen allows: the reason anyone opened the game.
+    let mut quick_play_button = None;
     let actions_half = commands
         .spawn(Node {
             flex_direction: FlexDirection::Column,
@@ -216,13 +402,17 @@ fn spawn_login(
                 border_radius: BorderRadius::all(px(theme::RADIUS_SMALL)),
                 ..default()
             };
-            actions
-                .spawn((
-                    ActionButton,
-                    button_of_size(&fonts, ButtonKind::Primary, "QUICK PLAY", pick(30.0, 28.0)),
-                ))
-                .insert(big(pick(78.0, 72.0)))
-                .observe(quick_play);
+            quick_play_button = Some(
+                actions
+                    .spawn((
+                        ActionButton,
+                        QuickPlayButton,
+                        button_of_size(&fonts, ButtonKind::Primary, "QUICK PLAY", pick(30.0, 28.0)),
+                    ))
+                    .insert(big(pick(78.0, 72.0)))
+                    .observe(quick_play)
+                    .id(),
+            );
             actions
                 .spawn((
                     ActionButton,
@@ -248,7 +438,7 @@ fn spawn_login(
                 width: px(pick(440.0, 680.0)),
                 flex_direction: touchscreen.pick(FlexDirection::Column, FlexDirection::Row),
                 column_gap: px(18),
-                padding: px(pick(28.0, 14.0)).all(),
+                padding: px(pick(24.0, 12.0)).all(),
                 row_gap: px(pick(14.0, 7.0)),
                 border: px(1).all(),
                 border_radius: BorderRadius::all(px(theme::RADIUS)),
@@ -256,10 +446,12 @@ fn spawn_login(
             },
             panel(),
         ))
-        .add_children(&[nickname_half, actions_half])
+        .add_children(&[identity_half, actions_half])
         .id();
 
-    commands.entity(field).observe(quick_play);
+    // Enter in a field is QUICK PLAY.
+    commands.entity(name_field).observe(quick_play);
+    commands.entity(password_field).observe(quick_play);
 
     commands
         .spawn((
@@ -282,7 +474,7 @@ fn spawn_login(
         .with_children(|root| {
             root.spawn((
                 Text::new("STAR RACER"),
-                fonts.display(pick(92.0, 48.0)),
+                fonts.display(pick(72.0, 40.0)),
                 TextColor(theme::TEXT),
                 TextShadow {
                     offset: Vec2::new(4.0, 4.0),
@@ -295,7 +487,9 @@ fn spawn_login(
                 LetterSpacing::Px(5.0),
                 TextColor(theme::NEON),
                 Node {
-                    margin: UiRect::bottom(px(pick(46.0, 10.0))),
+                    margin: UiRect::bottom(px(pick(14.0, 6.0))),
+                    // On a phone the card needs the room more than the line does.
+                    display: touchscreen.pick(Display::Flex, Display::None),
                     ..default()
                 },
             ));
@@ -305,7 +499,7 @@ fn spawn_login(
             // Under the card, everything that is not getting straight into a race.
             root.spawn(Node {
                 column_gap: px(10),
-                margin: UiRect::top(px(pick(18.0, 8.0))),
+                margin: UiRect::top(px(pick(14.0, 6.0))),
                 ..default()
             })
             .with_children(|row| {
@@ -330,7 +524,7 @@ fn spawn_login(
                 ))
                 .insert(small(170.0))
                 .observe(ask_for_leaderboard);
-                // Needs no nickname and no server: it is always there.
+                // Needs nobody to come in as and no server: it is always there.
                 row.spawn(button(&fonts, ButtonKind::Secondary, "SETTINGS"))
                     .insert(small(130.0))
                     .observe(open_settings);
@@ -372,17 +566,23 @@ fn spawn_login(
                         hint_row(),
                         children![
                             hint(&fonts, "Enter", "A", "Quick play"),
-                            hint(&fonts, "F2", "Y", "Other nickname"),
+                            hint(&fonts, "F2", "Y", "Other guest name"),
                         ],
                     ),
                 ],
             ));
         });
 
-    focus.set(field, FocusCause::Navigated);
+    // Typing first for a player who has to sign in; otherwise, the race.
+    let signed_in_already = preferences.get().account.is_some();
+    let target = match *mode {
+        LoginMode::SignIn | LoginMode::Create if !signed_in_already => name_field,
+        _ => quick_play_button.expect("spawned above"),
+    };
+    focus.set(target, FocusCause::Navigated);
 }
 
-/// A die, drawn with nodes, for the button that rolls a new nickname.
+/// A die, drawn with nodes, for the button that rolls a new guest name.
 fn die() -> impl Bundle {
     let pip = |offset: f32| {
         (
@@ -416,16 +616,78 @@ fn connect_scripted(
     mut network: ResMut<Network>,
     mut connection: ResMut<Connection>,
     mut intent: ResMut<Intent>,
+    mut guest_name: ResMut<GuestName>,
+    mut mode: ResMut<LoginMode>,
 ) {
-    if let Some(nickname) = script.nickname.take() {
-        *intent = if script.quick_play {
-            Intent::QuickPlay
-        } else if script.ranked {
-            Intent::Ranked
-        } else {
-            Intent::Browse
-        };
-        network.connect(nickname, &mut connection);
+    let Some(login) = script.login.take() else {
+        return;
+    };
+    // Should it fail, the card shows the way it was tried.
+    *mode = match &login {
+        ScriptedLogin::Guest => LoginMode::Guest,
+        ScriptedLogin::Account { create: true, .. } => LoginMode::Create,
+        ScriptedLogin::Account { .. } => LoginMode::SignIn,
+    };
+    *intent = if script.quick_play {
+        Intent::QuickPlay
+    } else if script.ranked {
+        Intent::Ranked
+    } else {
+        Intent::Browse
+    };
+    let (nickname, login) = match login {
+        ScriptedLogin::Guest => {
+            let name = guest_name.0.clone();
+            (name.clone(), Login::Guest { name })
+        }
+        ScriptedLogin::Account {
+            name,
+            password,
+            create,
+        } => (
+            name.clone(),
+            Login::Password {
+                name,
+                password,
+                create,
+            },
+        ),
+    };
+    if guest_name.0.is_empty() {
+        guest_name.0 = nickname::generate(None);
+    }
+    network.connect(nickname, login, &mut connection);
+}
+
+/// Keeps what the server says about who the player is: the account this device is signed in
+/// to once welcomed to one, nothing once the server no longer knows the device.
+fn remember_account(
+    mut events: MessageReader<NetEvent>,
+    mut preferences: ResMut<StoredPreferences>,
+    mut network: ResMut<Network>,
+    mut passwords: Query<&mut EditableText, With<PasswordField>>,
+) {
+    for event in events.read() {
+        match event {
+            NetEvent::Welcome { identity, .. } if !identity.guest => {
+                let name = identity.name.clone();
+                if preferences.get().account.as_ref() != Some(&name) {
+                    preferences.update(|preferences| {
+                        preferences.account = Some(name.clone());
+                        preferences.nickname = Some(name);
+                    });
+                }
+                // Signed in: the password has done its work.
+                for mut field in &mut passwords {
+                    set_text(&mut field, "");
+                }
+            }
+            NetEvent::Rejected(RejectReason::NotSignedIn) => {
+                preferences.update(|preferences| preferences.account = None);
+                network.forget();
+            }
+            _ => {}
+        }
     }
 }
 
@@ -455,12 +717,74 @@ fn carry_out_intent(
     }
 }
 
-/// What a button on this screen does first: makes sure the player is connected, under the
-/// nickname in the field.
+/// How the card would have the player come in, if it can: the name to show while connecting, the
+/// login, and whether it is as a guest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Request {
+    nickname: String,
+    login: Login,
+    guest: bool,
+}
+
+/// What the card asks for, if it is enough to come in with.
+fn request(
+    account: Option<&str>,
+    mode: LoginMode,
+    guest_name: &str,
+    name: &str,
+    password: &str,
+) -> Option<Request> {
+    if let Some(account) = account {
+        return Some(Request {
+            nickname: account.to_owned(),
+            login: Login::Device,
+            guest: false,
+        });
+    }
+    match mode {
+        LoginMode::Unset | LoginMode::Guest => Some(Request {
+            nickname: guest_name.to_owned(),
+            login: Login::Guest {
+                name: guest_name.to_owned(),
+            },
+            guest: true,
+        }),
+        LoginMode::SignIn | LoginMode::Create => {
+            let create = mode == LoginMode::Create;
+            let password_ok = if create {
+                is_valid_password(password)
+            } else {
+                !password.is_empty()
+            };
+            (is_valid_nickname(name) && password_ok).then(|| Request {
+                nickname: name.to_owned(),
+                login: Login::Password {
+                    name: name.to_owned(),
+                    password: password.to_owned(),
+                    create,
+                },
+                guest: false,
+            })
+        }
+    }
+}
+
+/// Whether the player is online already the way `request` would bring them in.
+fn online_as(connection: &Connection, request: &Request) -> bool {
+    let Connection::Online { nickname, guest } = connection else {
+        return false;
+    };
+    *guest == request.guest && nickname.to_lowercase() == request.nickname.to_lowercase()
+}
+
+/// What a button on this screen does first: makes sure the player is connected, the way the card
+/// says.
 #[derive(SystemParam)]
 struct Start<'w, 's> {
-    fields: Query<'w, 's, &'static EditableText, With<NicknameField>>,
-    offered: Res<'w, OfferedNickname>,
+    names: Query<'w, 's, &'static EditableText, With<NameField>>,
+    passwords: Query<'w, 's, &'static EditableText, With<PasswordField>>,
+    mode: Res<'w, LoginMode>,
+    guest_name: Res<'w, GuestName>,
     preferences: ResMut<'w, StoredPreferences>,
     network: ResMut<'w, Network>,
     connection: ResMut<'w, Connection>,
@@ -468,28 +792,45 @@ struct Start<'w, 's> {
 }
 
 impl Start<'_, '_> {
+    /// What the card asks for now, if it is enough to come in with.
+    fn request(&self) -> Option<Request> {
+        let name = self
+            .names
+            .single()
+            .map(|field| field.value().to_string())
+            .unwrap_or_default();
+        let password = self
+            .passwords
+            .single()
+            .map(|field| field.value().to_string())
+            .unwrap_or_default();
+        request(
+            self.preferences.get().account.as_deref(),
+            *self.mode,
+            &self.guest_name.0,
+            &name,
+            &password,
+        )
+    }
+
     /// Connects if need be, and asks for `wanted` once connected.
     fn go(&mut self, wanted: Intent) {
         if matches!(*self.connection, Connection::Connecting { .. }) {
             return;
         }
-        let Ok(field) = self.fields.single() else {
+        let Some(request) = self.request() else {
             return;
         };
-        let nickname = field.value().to_string();
-        if !is_valid_nickname(&nickname) {
-            return;
+        if let Login::Password { name, .. } = &request.login {
+            // The name typed is offered again next time; the password never is.
+            let name = name.clone();
+            self.preferences
+                .update(|preferences| preferences.nickname = Some(name));
         }
-        // A nickname the dice offered and the player simply played with is not remembered: they
-        // get a new one next time. Editing it makes it theirs.
-        let theirs = self.offered.0.as_deref() != Some(nickname.as_str());
-        self.preferences
-            .update(|preferences| preferences.nickname = theirs.then(|| nickname.clone()));
-
         *self.intent = wanted;
-        let connected_as_them = matches!(&*self.connection, Connection::Online { nickname: online } if *online == nickname);
-        if !connected_as_them {
-            self.network.connect(nickname, &mut self.connection);
+        if !online_as(&self.connection, &request) {
+            self.network
+                .connect(request.nickname, request.login, &mut self.connection);
         }
     }
 }
@@ -519,21 +860,67 @@ fn ask_for_leaderboard(_: On<Activate>, mut start: Start) {
     start.go(Intent::Leaderboard);
 }
 
-fn reroll(
-    _: On<Activate>,
-    mut fields: Query<&mut EditableText, With<NicknameField>>,
+fn select_mode(
+    activate: On<Activate>,
+    tabs: Query<&ModeTab>,
     connection: Res<Connection>,
-    mut offered: ResMut<OfferedNickname>,
+    mut mode: ResMut<LoginMode>,
+    names: Query<Entity, With<NameField>>,
+    mut focus: ResMut<InputFocus>,
 ) {
     if matches!(*connection, Connection::Connecting { .. }) {
         return;
     }
-    for mut field in &mut fields {
-        let current = field.value().to_string();
-        let generated = nickname::generate(Some(&current));
-        offered.0 = Some(generated.clone());
-        set_text(&mut field, &generated);
+    let Ok(tab) = tabs.get(activate.entity) else {
+        return;
+    };
+    *mode = tab.0;
+    // Choosing to sign in is choosing to type.
+    if matches!(tab.0, LoginMode::SignIn | LoginMode::Create)
+        && let Ok(field) = names.single()
+    {
+        focus.set(field, FocusCause::Navigated);
     }
+}
+
+/// Signs this device out: the server forgets it, if it can be told, and otherwise the device
+/// becomes a new one it never knew.
+fn sign_out(
+    _: On<Activate>,
+    mut network: ResMut<Network>,
+    mut connection: ResMut<Connection>,
+    mut preferences: ResMut<StoredPreferences>,
+    mut mode: ResMut<LoginMode>,
+    ladder: Res<Ladder>,
+) {
+    if ladder.queue.is_some() {
+        network.send(ClientMessage::LeaveQueue);
+    }
+    if matches!(*connection, Connection::Online { guest: false, .. }) {
+        network.sign_out(&mut connection);
+    } else {
+        network.disconnect(&mut connection);
+        network.forget();
+        network.new_device();
+    }
+    preferences.update(|preferences| preferences.account = None);
+    *mode = LoginMode::SignIn;
+}
+
+fn reroll(
+    _: On<Activate>,
+    connection: Res<Connection>,
+    mode: Res<LoginMode>,
+    preferences: Res<StoredPreferences>,
+    mut guest_name: ResMut<GuestName>,
+) {
+    if matches!(*connection, Connection::Connecting { .. })
+        || *mode != LoginMode::Guest
+        || preferences.get().account.is_some()
+    {
+        return;
+    }
+    guest_name.0 = nickname::generate(Some(&guest_name.0));
 }
 
 fn open_settings(_: On<Activate>, mut settings: ResMut<SettingsDialog>) {
@@ -562,17 +949,88 @@ fn quit(_: On<Activate>, mut exit: MessageWriter<AppExit>) {
     exit.write(AppExit::Success);
 }
 
+/// Which part of the card shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    SignedIn,
+    Guest,
+    Account,
+}
+
+fn shown(account: Option<&str>, mode: LoginMode) -> Shown {
+    match (account, mode) {
+        (Some(_), _) => Shown::SignedIn,
+        (None, LoginMode::SignIn | LoginMode::Create) => Shown::Account,
+        (None, _) => Shown::Guest,
+    }
+}
+
+/// What the line under the fields says, and in which color.
+fn help(
+    shown: Shown,
+    mode: LoginMode,
+    name: &str,
+    password: &str,
+) -> (String, Color) {
+    match shown {
+        Shown::SignedIn => ("Signed in on this device.".into(), theme::TEXT_FAINT),
+        Shown::Guest => (
+            "Guests play everything but ranked.".into(),
+            theme::TEXT_FAINT,
+        ),
+        Shown::Account => {
+            let chars = name.chars().count();
+            if chars == 0 {
+                let text = if mode == LoginMode::Create {
+                    "Pick the name other players will see."
+                } else {
+                    "Your account name and password."
+                };
+                (text.into(), theme::TEXT_DIM)
+            } else if name.trim() != name {
+                ("A name can't start or end with a space.".into(), theme::AMBER)
+            } else if !is_valid_nickname(name) {
+                ("A name can't contain control characters.".into(), theme::AMBER)
+            } else if mode == LoginMode::Create
+                && !password.is_empty()
+                && password.chars().count() < MIN_PASSWORD_CHARS
+            {
+                (
+                    format!("A password needs at least {MIN_PASSWORD_CHARS} characters."),
+                    theme::AMBER,
+                )
+            } else if mode == LoginMode::Create {
+                ("This is how other players will see you.".into(), theme::TEXT_FAINT)
+            } else {
+                (String::new(), theme::TEXT_DIM)
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn update_login(
     mut commands: Commands,
-    fields: Query<&EditableText, With<NicknameField>>,
+    fields: Query<(&EditableText, Has<PasswordField>), Or<(With<NameField>, With<PasswordField>)>>,
     connection: Res<Connection>,
     network: Res<Network>,
     reconnect: Res<Reconnect>,
     ladder: Res<Ladder>,
     notice: Res<Notice>,
+    mode: Res<LoginMode>,
+    guest_name: Res<GuestName>,
+    preferences: Res<StoredPreferences>,
     time: Res<Time<Real>>,
-    action_buttons: Query<(Entity, Has<InteractionDisabled>), With<ActionButton>>,
+    action_buttons: Query<(Entity, Has<InteractionDisabled>, Has<RankedButton>), With<ActionButton>>,
     ranked_buttons: Query<&Children, With<RankedButton>>,
+    mut tabs: Query<(&ModeTab, &mut ButtonKind)>,
+    mut panels: Query<(
+        &mut Node,
+        Has<Tabs>,
+        Has<SignedInPanel>,
+        Has<GuestPanel>,
+        Has<AccountPanel>,
+    )>,
     mut texts: ParamSet<(
         Query<&mut Text, With<CharCount>>,
         Query<(&mut Text, &mut TextColor), With<FieldHelp>>,
@@ -580,37 +1038,75 @@ fn update_login(
         Query<&mut Text, With<ButtonLabel>>,
         Query<(&mut Text, &mut TextColor), With<RankLine>>,
         Query<&mut Text, With<ServerLine>>,
+        Query<&mut Text, With<SignedInName>>,
+        Query<&mut Text, With<GuestNameText>>,
     )>,
 ) {
     for mut text in &mut texts.p5() {
         set(&mut text, server_line(&network));
     }
-    let Ok(field) = fields.single() else {
-        return;
-    };
-    let nickname = field.value().to_string();
-    let chars = nickname.chars().count();
-    let valid = is_valid_nickname(&nickname);
+    let (mut name, mut password) = (String::new(), String::new());
+    for (field, secret) in &fields {
+        if secret {
+            password = field.value().to_string();
+        } else {
+            name = field.value().to_string();
+        }
+    }
+    let account = preferences.get().account.clone();
+    let shown = shown(account.as_deref(), *mode);
     let connecting = matches!(*connection, Connection::Connecting { .. });
 
-    for mut text in &mut texts.p0() {
-        set(&mut text, format!("{chars} / {MAX_NICKNAME_CHARS}"));
+    for (mut node, tabs_row, signed_in, guest, account_panel) in &mut panels {
+        let visible = if tabs_row {
+            shown != Shown::SignedIn
+        } else if signed_in {
+            shown == Shown::SignedIn
+        } else if guest {
+            shown == Shown::Guest
+        } else if account_panel {
+            shown == Shown::Account
+        } else {
+            continue;
+        };
+        let display = if visible { Display::Flex } else { Display::None };
+        if node.display != display {
+            node.display = display;
+        }
     }
-
-    let (help, help_color) = if chars == 0 {
-        ("Pick a nickname, or roll the dice.", theme::TEXT_DIM)
-    } else if nickname.trim() != nickname {
-        ("A nickname can't start or end with a space.", theme::AMBER)
-    } else if !valid {
-        ("A nickname can't contain control characters.", theme::AMBER)
-    } else {
-        ("This is how other players will see you.", theme::TEXT_FAINT)
-    };
+    for (tab, mut kind) in &mut tabs {
+        let wanted = if tab.0 == *mode {
+            ButtonKind::Secondary
+        } else {
+            ButtonKind::Quiet
+        };
+        if *kind != wanted {
+            *kind = wanted;
+        }
+    }
+    for mut text in &mut texts.p6() {
+        set(&mut text, account.clone().unwrap_or_default());
+    }
+    for mut text in &mut texts.p7() {
+        set(&mut text, guest_name.0.clone());
+    }
+    for mut text in &mut texts.p0() {
+        set(
+            &mut text,
+            format!("{} / {MAX_NICKNAME_CHARS}", name.chars().count()),
+        );
+    }
+    let (help_text, help_color) = help(shown, *mode, &name, &password);
     for (mut text, mut color) in &mut texts.p1() {
-        set(&mut text, help.to_owned());
+        set(&mut text, help_text.clone());
         color.0 = help_color;
     }
 
+    // A guest, or a player about to come in as one, has no ranked: the line says why.
+    let as_guest = match &*connection {
+        Connection::Online { guest, .. } if !connecting => *guest && shown == Shown::Guest,
+        _ => shown == Shown::Guest,
+    };
     let now = time.elapsed_secs_f64();
     let label = ladder.queue.map_or_else(
         || RANKED_LABEL.to_owned(),
@@ -623,7 +1119,11 @@ fn update_login(
             }
         }
     }
-    let (line, line_color) = rank_line(&ladder);
+    let (line, line_color) = if as_guest {
+        ("SIGN IN TO PLAY RANKED".to_owned(), theme::TEXT_FAINT)
+    } else {
+        rank_line(&ladder)
+    };
     for (mut text, mut color) in &mut texts.p4() {
         set(&mut text, line.clone());
         color.0 = line_color;
@@ -664,8 +1164,17 @@ fn update_login(
         color.0 = status_color;
     }
 
-    let enabled = valid && !connecting;
-    for (button, disabled) in &action_buttons {
+    let ready = request(
+        account.as_deref(),
+        *mode,
+        &guest_name.0,
+        &name,
+        &password,
+    )
+    .is_some();
+    for (button, disabled, ranked) in &action_buttons {
+        // Leaving the queue is always possible.
+        let enabled = (ready && !connecting && !(ranked && as_guest)) || (ranked && ladder.queue.is_some());
         if enabled && disabled {
             commands.entity(button).remove::<InteractionDisabled>();
         } else if !enabled && !disabled {
@@ -731,12 +1240,18 @@ fn rejection_text(reason: &RejectReason) -> String {
         RejectReason::ProtocolMismatch { .. } => {
             "The server runs an older version of the game.".into()
         }
-        RejectReason::InvalidNickname => "The server refused this nickname.".into(),
+        RejectReason::InvalidNickname => "The server refused this name.".into(),
         RejectReason::AuthenticationFailed => "The server could not verify your identity.".into(),
         // Said to the connection that was replaced: the newest one of a player wins.
         RejectReason::AlreadyConnected => {
             "You connected again from another window, which took over from this one.".into()
         }
+        RejectReason::NotSignedIn => "This device is signed out: sign in again.".into(),
+        RejectReason::WrongPassword => "Wrong account name or password.".into(),
+        RejectReason::NameTaken => "This name is taken: pick another, or sign in.".into(),
+        RejectReason::InvalidPassword => format!(
+            "A password needs {MIN_PASSWORD_CHARS} to {MAX_PASSWORD_CHARS} characters."
+        ),
     }
 }
 
@@ -812,5 +1327,76 @@ mod tests {
             since: 0.0,
         });
         assert_eq!(rank_line(&ladder).0, "3 PLAYERS IN THE QUEUE");
+    }
+
+    /// A device signed in to an account comes back as it, whatever the tabs say.
+    #[test]
+    fn a_signed_in_device_comes_back_as_its_account() {
+        let request = request(Some("Ada"), LoginMode::Guest, "Neon Falcon", "", "").unwrap();
+        assert_eq!(request.login, Login::Device);
+        assert_eq!(request.nickname, "Ada");
+        assert!(!request.guest);
+        assert_eq!(shown(Some("Ada"), LoginMode::Create), Shown::SignedIn);
+    }
+
+    /// A guest comes in under the name the dice rolled, and only that.
+    #[test]
+    fn a_guest_comes_in_under_the_rolled_name() {
+        let request = request(None, LoginMode::Guest, "Neon Falcon", "Typed", "secret").unwrap();
+        assert_eq!(
+            request.login,
+            Login::Guest {
+                name: "Neon Falcon".into()
+            }
+        );
+        assert!(request.guest);
+        assert_eq!(shown(None, LoginMode::Guest), Shown::Guest);
+    }
+
+    /// Signing in needs a name and a password; creating an account, a password long enough.
+    #[test]
+    fn signing_in_needs_a_name_and_a_password() {
+        // In order: the guest name, which signing in ignores, the account name, the password.
+        assert_eq!(request(None, LoginMode::SignIn, "x", "", "secret"), None);
+        assert_eq!(request(None, LoginMode::SignIn, "x", "Ada", ""), None);
+        assert_eq!(request(None, LoginMode::SignIn, "x", " Ada", "secret"), None);
+        let request_in = request(None, LoginMode::SignIn, "x", "Ada", "short").unwrap();
+        assert_eq!(
+            request_in.login,
+            Login::Password {
+                name: "Ada".into(),
+                password: "short".into(),
+                create: false
+            }
+        );
+
+        assert_eq!(request(None, LoginMode::Create, "x", "Ada", "short"), None);
+        let created = request(None, LoginMode::Create, "x", "Ada", "long enough").unwrap();
+        assert!(matches!(created.login, Login::Password { create: true, .. }));
+    }
+
+    /// Already online the way the card asks: nothing to connect again for.
+    #[test]
+    fn online_as_the_same_player_needs_no_new_connection() {
+        let online = Connection::Online {
+            nickname: "Ada".into(),
+            guest: false,
+        };
+        let device = request(Some("ada"), LoginMode::Guest, "Neon Falcon", "", "").unwrap();
+        assert!(online_as(&online, &device));
+        let as_guest = request(None, LoginMode::Guest, "Ada", "", "").unwrap();
+        assert!(!online_as(&online, &as_guest), "a guest is someone else");
+    }
+
+    #[test]
+    fn the_help_line_says_what_is_missing() {
+        assert_eq!(
+            help(Shown::Account, LoginMode::Create, "Ada", "short").0,
+            format!("A password needs at least {MIN_PASSWORD_CHARS} characters.")
+        );
+        assert_eq!(
+            help(Shown::Account, LoginMode::SignIn, " Ada", "").1,
+            theme::AMBER
+        );
     }
 }

@@ -1,3 +1,4 @@
+mod accounts;
 mod content;
 mod directory;
 mod lobby;
@@ -21,6 +22,7 @@ use star_racer_protocol::{DEFAULT_PORT, MAX_MESSAGE_SIZE, WS_PATH};
 use tokio::net::TcpListener;
 use tracing::{Instrument, info, info_span, warn};
 
+use crate::accounts::Accounts;
 use crate::content::CarTuningFile;
 use crate::directory::Directory;
 use crate::lobby::Timings;
@@ -39,6 +41,9 @@ struct Args {
     /// relative to the working directory, the service's home on the deployment machine.
     #[arg(long, default_value = "ratings.ron")]
     ratings: PathBuf,
+    /// Where the player accounts are kept, beside the ladder and for the same reason.
+    #[arg(long, default_value = "accounts.ron")]
+    accounts: PathBuf,
 }
 
 /// Plain text and loopback only: in production, the reverse proxy terminates TLS and forwards here.
@@ -64,11 +69,13 @@ async fn main() -> Result<()> {
     let (tuning_file, tuning) =
         CarTuningFile::load(args.data_dir.join(content::CAR_TUNING_FILE), &tracks)?;
     let ratings = Ratings::load(args.ratings)?;
+    let accounts = Accounts::load(args.accounts)?;
     let directory = Directory::spawn(
         tracks,
         tuning_file.watch(tuning),
         Timings::default(),
         ratings,
+        accounts,
     );
 
     let listener = TcpListener::bind(listen_addr(args.port)).await?;

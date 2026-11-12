@@ -338,8 +338,8 @@ included. On a slow machine, always build the same way, with `--workspace`.
   a fixed number of frames: on a slow GPU, shaders take seconds to compile and the first frames are
   not drawn at all, which gave pure black screenshots. It gives up with an error after two minutes
   rather than hanging.
-- `--nickname`, `--lobby`, `--track`, `--laps`, `--min-players` and `--create-dialog` skip the
-  login screen and the lobby list, so a client reaches a race with nobody at the keyboard.
+- `--guest` (or `--account` with `--password`), `--lobby`, `--track`, `--laps`, `--min-players`
+  and `--create-dialog` skip the first screen and the lobby list, so a client reaches a race with nobody at the keyboard.
   Against a local server, they go with `--server 127.0.0.1`: the client's default is the deployed
   server ([Protocol](protocol.md#the-servers-address)), which a check must not race on by accident.
 - `--autopilot` lets the shared autopilot drive the client's car, through the same input path as

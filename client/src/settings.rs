@@ -1,9 +1,10 @@
 //! What the client is asked to do: from the command line on native, from the page address on the
-//! web (`?server=…&nickname=…&lobby=…&track=…&identity=…&volume=…&autopilot`,
-//! `&autopilot_drift`, `&quick_play`, `&ranked`, `&settings`, `&touch`, `&safe_area=…` or `&latency`).
+//! web (`?server=…&guest&lobby=…&track=…&identity=…&volume=…&autopilot`, or
+//! `&account=…&password=…&create` in place of `&guest`, `&autopilot_drift`, `&quick_play`,
+//! `&ranked`, `&settings`, `&touch`, `&safe_area=…` or `&latency`).
 //!
-//! Without a nickname the game opens on the login screen. The other options skip screens, so the
-//! game can reach a lobby and drive with nobody at the keyboard.
+//! Without `--guest` or `--account` the game opens on the first screen. The other options skip
+//! screens, so the game can reach a lobby and drive with nobody at the keyboard.
 
 use star_racer_protocol::{DEFAULT_PORT, WS_PATH};
 use star_racer_sim::autopilot::Style;
@@ -43,8 +44,8 @@ pub struct Settings {
 /// Screens the client goes through on its own, for unattended runs.
 #[derive(bevy::prelude::Resource, Clone, Default)]
 pub struct Script {
-    /// Connect at once under this nickname, skipping the login screen.
-    pub nickname: Option<String>,
+    /// Connect at once, skipping the first screen.
+    pub login: Option<ScriptedLogin>,
     /// Once connected, enter the lobby of this name, creating it if there is none.
     pub lobby: Option<ScriptedLobby>,
     /// Once connected, open the lobby creation dialog.
@@ -57,6 +58,32 @@ pub struct Script {
     pub settings: bool,
     /// Let the autopilot drive, in this style.
     pub autopilot: Option<Style>,
+}
+
+/// How an unattended run comes in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScriptedLogin {
+    /// As a guest, under a generated name.
+    Guest,
+    /// To an account, created first with `create`.
+    Account {
+        name: String,
+        password: String,
+        create: bool,
+    },
+}
+
+impl ScriptedLogin {
+    fn of(guest: bool, account: Option<String>, password: Option<String>, create: bool) -> Option<Self> {
+        match account {
+            Some(name) => Some(Self::Account {
+                name,
+                password: password.unwrap_or_default(),
+                create,
+            }),
+            None => guest.then_some(Self::Guest),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -211,12 +238,24 @@ pub fn read() -> Settings {
         #[arg(long, value_parser = server)]
         server: Option<String>,
 
-        /// Connect at once under this nickname, skipping the login screen.
-        #[arg(long)]
-        nickname: Option<String>,
+        /// Connect at once as a guest, under a generated name, skipping the first screen.
+        #[arg(long, group = "who")]
+        guest: bool,
 
-        /// With --nickname, enter the lobby of this name, creating it if there is none.
-        #[arg(long, requires = "nickname")]
+        /// Connect at once to this account, skipping the first screen. Goes with --password.
+        #[arg(long, group = "who", requires = "password")]
+        account: Option<String>,
+
+        /// The password of --account.
+        #[arg(long, requires = "account")]
+        password: Option<String>,
+
+        /// Create --account first, with --password.
+        #[arg(long, requires = "account")]
+        create: bool,
+
+        /// With --guest or --account, enter the lobby of this name, creating it if there is none.
+        #[arg(long, requires = "who")]
         lobby: Option<String>,
 
         /// Track of the lobby created by --lobby, by its key (the file name without .ron).
@@ -231,20 +270,20 @@ pub fn read() -> Settings {
         #[arg(long, default_value_t = DEFAULT_MIN_PLAYERS, requires = "lobby")]
         min_players: u8,
 
-        /// With --nickname, open the lobby creation dialog once connected.
-        #[arg(long, requires = "nickname", conflicts_with = "lobby")]
+        /// With --guest or --account, open the lobby creation dialog once connected.
+        #[arg(long, requires = "who", conflicts_with = "lobby")]
         create_dialog: bool,
 
-        /// With --nickname, go straight into a race, as the QUICK PLAY button does.
-        #[arg(long, requires = "nickname", conflicts_with_all = ["lobby", "create_dialog"])]
+        /// With --guest or --account, go straight into a race, as the QUICK PLAY button does.
+        #[arg(long, requires = "who", conflicts_with_all = ["lobby", "create_dialog"])]
         quick_play: bool,
 
-        /// With --nickname, enter the ranked queue, as the QUEUE FOR RANKED button does.
-        #[arg(long, requires = "nickname", conflicts_with_all = ["lobby", "create_dialog", "quick_play"])]
+        /// With --account, enter the ranked queue, as the QUEUE FOR RANKED button does.
+        #[arg(long, requires = "account", conflicts_with_all = ["lobby", "create_dialog", "quick_play"])]
         ranked: bool,
 
         /// Open the settings over the first screen.
-        #[arg(long, conflicts_with = "nickname")]
+        #[arg(long, conflicts_with = "who")]
         settings: bool,
 
         /// Player identity directory. Useful to run several clients on the same machine.
@@ -310,7 +349,7 @@ pub fn read() -> Settings {
         log: log_level(Some(args.log)),
         volume: args.volume.clamp(0.0, 1.0),
         script: Script {
-            nickname: args.nickname,
+            login: ScriptedLogin::of(args.guest, args.account, args.password, args.create),
             lobby: args.lobby.map(|name| ScriptedLobby {
                 name,
                 track: args.track,
@@ -372,7 +411,7 @@ pub fn read() -> Settings {
         log: log_level(get("log")),
         volume: number(get("volume"), DEFAULT_VOLUME).clamp(0.0, 1.0),
         script: Script {
-            nickname: get("nickname"),
+            login: ScriptedLogin::of(has("guest"), get("account"), get("password"), has("create")),
             lobby: get("lobby").map(|name| ScriptedLobby {
                 name,
                 track: get("track"),

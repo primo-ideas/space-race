@@ -15,10 +15,11 @@ use star_racer_sim::race::StartGrade;
 use star_racer_sim::track::TrackDescription;
 
 pub mod auth;
+pub mod names;
 pub mod ranked;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 25;
+pub const PROTOCOL_VERSION: u32 = 26;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -29,6 +30,11 @@ pub const WS_PATH: &str = "/ws";
 pub const MAX_MESSAGE_SIZE: usize = 64 * 1024;
 
 pub const MAX_NICKNAME_CHARS: usize = 24;
+
+/// A password is at least this long, in characters, and at most [`MAX_PASSWORD_CHARS`].
+pub const MIN_PASSWORD_CHARS: usize = 8;
+
+pub const MAX_PASSWORD_CHARS: usize = 128;
 
 pub const MAX_LOBBY_NAME_CHARS: usize = 32;
 
@@ -45,14 +51,19 @@ pub const MAX_INPUT_LEAD: u32 = 30;
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum ClientMessage {
-    /// First message after connecting.
+    /// First message after connecting. Whoever the player is, the device proves it holds the
+    /// private key of `public_key` (see [`ServerMessage::Challenge`]): it is a guest's identity,
+    /// and what keeps a device signed in to its account.
     Hello {
         protocol_version: u32,
-        nickname: String,
         public_key: PublicKey,
+        login: Login,
     },
     /// Signature of the nonce received in [`ServerMessage::Challenge`].
     ChallengeResponse { signature: SignatureBytes },
+    /// Signs this device out of its account: the server forgets the device, so the next
+    /// connection has to sign in again. Only while browsing; the server closes the connection.
+    SignOut,
     /// Creates a lobby and enters it. Only while browsing lobbies.
     CreateLobby(LobbySettings),
     /// Only while browsing lobbies.
@@ -96,6 +107,8 @@ pub enum ServerMessage {
     /// on.
     Welcome {
         tracks: Vec<TrackInfo>,
+        /// Who the server took them for.
+        identity: Identity,
     },
     /// Every lobby. Sent to a browsing player when they arrive and whenever a lobby changes.
     Lobbies(Vec<LobbySummary>),
@@ -135,10 +148,47 @@ pub enum RejectReason {
     ProtocolMismatch {
         server_version: u32,
     },
+    /// A name that is not a valid nickname, or, for a guest, not a generated one.
     InvalidNickname,
     AuthenticationFailed,
     /// The same identity is already connected, from another connection.
     AlreadyConnected,
+    /// [`Login::Device`] from a device no account knows, or no longer does: it has to sign in.
+    NotSignedIn,
+    /// No account has this name, or its password is another.
+    WrongPassword,
+    /// Creating an account under a name another account already has, whatever its case.
+    NameTaken,
+    /// Creating an account with a password shorter than [`MIN_PASSWORD_CHARS`] or longer than
+    /// [`MAX_PASSWORD_CHARS`].
+    InvalidPassword,
+}
+
+/// How a player comes in.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub enum Login {
+    /// Without an account, under a generated name (see [`names`]): everything but ranked.
+    Guest { name: String },
+    /// As the account this device last signed in to.
+    Device,
+    /// Signs in to an account, or creates it with `create`, and keeps this device signed in.
+    Password {
+        name: String,
+        password: String,
+        create: bool,
+    },
+}
+
+/// Who the server took a player for.
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+pub struct Identity {
+    pub name: String,
+    pub guest: bool,
+}
+
+/// Whether `password` is one an account can be created with.
+pub fn is_valid_password(password: &str) -> bool {
+    (MIN_PASSWORD_CHARS..=MAX_PASSWORD_CHARS).contains(&password.chars().count())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
@@ -150,6 +200,8 @@ pub enum JoinError {
     InvalidSettings,
     /// No track has this key.
     UnknownTrack,
+    /// Ranked is for players with an account: a guest asked to queue.
+    AccountRequired,
 }
 
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
@@ -218,6 +270,8 @@ pub enum LobbyStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OnlinePlayer {
     pub nickname: String,
+    /// Playing without an account.
+    pub guest: bool,
     pub presence: Presence,
 }
 
@@ -276,6 +330,8 @@ pub struct RatingChange {
 pub struct LobbyPlayer {
     pub car: CarId,
     pub nickname: String,
+    /// Playing without an account.
+    pub guest: bool,
     pub status: PlayerStatus,
     /// How well the player started the current or last race, once graded.
     pub start: Option<StartGrade>,
@@ -402,13 +458,24 @@ mod tests {
 
     #[test]
     fn message_round_trip() {
-        let hello = ClientMessage::Hello {
-            protocol_version: PROTOCOL_VERSION,
-            nickname: "Primo".into(),
-            public_key: [7; 32],
-        };
-
-        assert_eq!(decode::<ClientMessage>(&encode(&hello)).unwrap(), hello);
+        for login in [
+            Login::Guest {
+                name: "Neon Falcon".into(),
+            },
+            Login::Device,
+            Login::Password {
+                name: "Primo".into(),
+                password: "correct horse".into(),
+                create: true,
+            },
+        ] {
+            let hello = ClientMessage::Hello {
+                protocol_version: PROTOCOL_VERSION,
+                public_key: [7; 32],
+                login,
+            };
+            assert_eq!(decode::<ClientMessage>(&encode(&hello)).unwrap(), hello);
+        }
     }
 
     #[test]
@@ -477,6 +544,10 @@ mod tests {
                     ],
                 },
             }],
+            identity: Identity {
+                name: "Zoë".into(),
+                guest: false,
+            },
         };
         let lobby = ServerMessage::Lobby(LobbyState {
             phase: LobbyPhase::Results {
@@ -496,6 +567,7 @@ mod tests {
             players: vec![LobbyPlayer {
                 car: CarId(2),
                 nickname: "Zoë".into(),
+                guest: true,
                 status: PlayerStatus::Finished { time_ms: 61_250 },
                 start: Some(StartGrade::A),
                 rating: Some(1000),

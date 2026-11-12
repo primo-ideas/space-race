@@ -1,7 +1,7 @@
 //! Non-interactive test mode: takes a screenshot once the screen the command line leads to is
 //! shown and fully rendered, then exits.
 //!
-//! Without `--nickname` that screen is the login screen; with it, the lobby list, or the creation
+//! Without `--guest` or `--account` that screen is the first screen; with it, the lobby list, or the creation
 //! dialog with `--create-dialog`; with `--lobby`, the race. A connection that fails ends on the
 //! login screen, which says why: the screenshot shows it.
 
@@ -61,7 +61,7 @@ impl Plugin for CapturePlugin {
         let script = app.world().resource::<Script>();
         let target = if script.lobby.is_some() || script.quick_play || script.ranked {
             Target::Lobby
-        } else if script.nickname.is_some() {
+        } else if script.login.is_some() {
             Target::Lobbies
         } else {
             Target::Login

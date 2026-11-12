@@ -83,10 +83,12 @@ beating the favourite pays more than beating the outsider.
 | Odds | 400 points is ten to one |
 | Floor | 0 |
 
-A win among equals is worth 12 points once placed. Identity is the player's public key: a nickname
-can change and the rating stays, and the last nickname played under is what the leaderboard shows.
-In this alpha a player can start over with a new key, which is as much of a defence as a game with
-no accounts has.
+A win among equals is worth 12 points once placed. Since v0.1.38 **ranked is for accounts**: the
+ladder is kept by the account's identity, drawn when it was created, so the rating follows the
+player from device to device, and what the leaderboard shows is the account's name. A guest asking
+to queue is answered `JoinFailed(AccountRequired)`, and the first screen greys the button out for
+one, saying SIGN IN TO PLAY RANKED (see [Protocol](protocol.md#accounts-and-guests)). Before
+accounts, identity was the player's public key, and a player could start over with a new one.
 
 | Rating | Tier |
 | --- | --- |

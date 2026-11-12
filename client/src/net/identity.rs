@@ -51,6 +51,13 @@ mod platform {
             Ok(SigningKey::from_bytes(&bytes))
         }
 
+        /// Replaces the key with a new one: the device is a new one to the server.
+        pub fn replace(&self) -> Result<()> {
+            fs::create_dir_all(&self.0)?;
+            fs::write(self.0.join(KEY_FILE), auth::new_signing_key().to_bytes())?;
+            Ok(())
+        }
+
         /// What was written in `slot`, if anything ever was.
         pub fn read(&self, slot: &str) -> Option<String> {
             fs::read_to_string(self.0.join(slot)).ok()
@@ -102,6 +109,13 @@ mod platform {
                 .set_item(&self.0, &encode_hex(&key.to_bytes()))
                 .map_err(|error| anyhow!("cannot write local storage: {error:?}"))?;
             Ok(key)
+        }
+
+        /// Replaces the key with a new one: the device is a new one to the server.
+        pub fn replace(&self) -> Result<()> {
+            storage()?
+                .set_item(&self.0, &encode_hex(&auth::new_signing_key().to_bytes()))
+                .map_err(|error| anyhow!("cannot write local storage: {error:?}"))
         }
 
         /// What was written in `slot`, if anything ever was.
@@ -156,6 +170,11 @@ mod tests {
                 .load_or_create()
                 .expect("the key is read back")
                 .to_bytes(),
+            key.to_bytes()
+        );
+        store.replace().expect("the key is replaced");
+        assert_ne!(
+            store.load_or_create().expect("the new key is read").to_bytes(),
             key.to_bytes()
         );
 

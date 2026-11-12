@@ -1,8 +1,8 @@
 //! Server connection. It hands what the server says to Bevy as [`NetEvent`] messages, and sends
 //! what Bevy asks through [`Network::send`].
 //!
-//! The player connects from the login screen, and can disconnect to change nickname: the
-//! [`Network`] resource starts and ends sessions on demand. A session runs outside Bevy's
+//! The player connects from the first screen, as a guest or to their account, and can disconnect
+//! to come in another way: the [`Network`] resource starts and ends sessions on demand. A session runs outside Bevy's
 //! systems: on a thread of its own with a tokio runtime on native, on the page's event loop on the
 //! web, where there are no threads.
 
@@ -18,8 +18,9 @@ use futures_util::{SinkExt, StreamExt};
 use star_racer_protocol::auth;
 use star_racer_protocol::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
 use star_racer_protocol::{
-    self as protocol, CarId, ClientMessage, JoinError, LobbyId, LobbySettings, LobbyState,
-    LobbySummary, OnlinePlayer, PROTOCOL_VERSION, RejectReason, ServerMessage, Snapshot, TrackInfo,
+    self as protocol, CarId, ClientMessage, Identity, JoinError, LobbyId, LobbySettings,
+    LobbyState, LobbySummary, Login, OnlinePlayer, PROTOCOL_VERSION, RejectReason, ServerMessage,
+    Snapshot, TrackInfo,
 };
 use tokio::sync::{mpsc as async_mpsc, oneshot};
 use tokio_tungstenite_wasm::{Message, WebSocketStream};
@@ -41,6 +42,8 @@ pub struct NetPlugin {
 pub enum NetEvent {
     Welcome {
         tracks: Vec<TrackInfo>,
+        /// Who the server took the player for.
+        identity: Identity,
     },
     Lobbies(Vec<LobbySummary>),
     /// Everyone connected to the server, sent while browsing lobbies.
@@ -81,12 +84,14 @@ pub enum Connection {
     /// Not connected, and nothing went wrong.
     #[default]
     Offline,
+    /// Under this name: a guest's, or the account's being signed in to.
     Connecting {
         nickname: String,
     },
-    /// Authenticated.
+    /// Authenticated, under this name, as a guest or not.
     Online {
         nickname: String,
+        guest: bool,
     },
     Rejected(RejectReason),
     Disconnected {
@@ -102,6 +107,9 @@ pub struct Network {
     server: String,
     identity: IdentityStore,
     session: Option<Session>,
+    /// How to come back the way the server last welcomed the player: the same guest, or the
+    /// account this device is now signed in to, without its password.
+    resume: Option<(String, Login)>,
 }
 
 /// Bevy's ends of the channels to a running session.
@@ -128,8 +136,38 @@ impl Network {
         true
     }
 
-    /// Connects under `nickname`, ending any previous session.
-    pub fn connect(&mut self, nickname: String, connection: &mut Connection) {
+    /// Connects the way the server last welcomed the player, if it has. `false` if it never has.
+    pub fn resume(&mut self, connection: &mut Connection) -> bool {
+        let Some((nickname, login)) = self.resume.clone() else {
+            return false;
+        };
+        self.connect(nickname, login, connection);
+        true
+    }
+
+    /// Signs this device out of the account it is connected to, and ends the session: the server
+    /// forgets the device. Nothing comes back the way it came in.
+    pub fn sign_out(&mut self, connection: &mut Connection) {
+        self.send(ClientMessage::SignOut);
+        self.disconnect(connection);
+        self.forget();
+    }
+
+    /// Forgets how the player last came in.
+    pub fn forget(&mut self) {
+        self.resume = None;
+    }
+
+    /// Makes this device a new one: a new key, which no account knows and no guest has played
+    /// under. What signing out does when the server cannot be told.
+    pub fn new_device(&mut self) {
+        if let Err(error) = self.identity.replace() {
+            warn!(%error, "the device key could not be replaced");
+        }
+    }
+
+    /// Connects with `login`, showing `nickname` meanwhile, ending any previous session.
+    pub fn connect(&mut self, nickname: String, login: Login, connection: &mut Connection) {
         self.disconnect(connection);
 
         let (sender, receiver) = mpsc::channel();
@@ -147,7 +185,7 @@ impl Network {
                 outgoing,
                 shutdown,
             };
-            let reason = run_session(&server, nickname, &identity, channels)
+            let reason = run_session(&server, login, &identity, channels)
                 .await
                 .unwrap_or_else(|error| format!("{error:#}"));
             let _ = sender.send(NetEvent::Disconnected(reason));
@@ -209,6 +247,7 @@ impl Plugin for NetPlugin {
                 server,
                 identity: self.identity.clone(),
                 session: None,
+                resume: None,
             })
             .add_systems(First, forward_net_events);
 
@@ -249,7 +288,7 @@ struct Channels<'a> {
 /// disconnection reason.
 async fn run_session(
     server: &str,
-    nickname: String,
+    login: Login,
     identity: &IdentityStore,
     channels: Channels<'_>,
 ) -> Result<String> {
@@ -266,8 +305,8 @@ async fn run_session(
 
     let hello = ClientMessage::Hello {
         protocol_version: PROTOCOL_VERSION,
-        nickname,
         public_key: key.verifying_key().to_bytes(),
+        login,
     };
     send(&mut socket, &hello).await?;
 
@@ -283,7 +322,9 @@ async fn run_session(
                         send(&mut socket, &ClientMessage::ChallengeResponse { signature }).await?;
                         continue;
                     }
-                    ServerMessage::Welcome { tracks } => NetEvent::Welcome { tracks },
+                    ServerMessage::Welcome { tracks, identity } => {
+                        NetEvent::Welcome { tracks, identity }
+                    }
                     ServerMessage::Lobbies(lobbies) => NetEvent::Lobbies(lobbies),
                     ServerMessage::Players(players) => NetEvent::Players(players),
                     ServerMessage::JoinedLobby { lobby, car, settings } => {
@@ -313,6 +354,10 @@ async fn run_session(
             Some(message) = outgoing.recv() => send(&mut socket, &message).await?,
             // Also fires if the sender is dropped, which is just as much a reason to stop.
             _ = &mut shutdown => {
+                // What was asked for before is said first: signing out, for one.
+                while let Ok(message) = outgoing.try_recv() {
+                    send(&mut socket, &message).await?;
+                }
                 socket.close().await?;
                 return Ok("client quit".into());
             }
@@ -359,12 +404,21 @@ fn forward_net_events(
     for event in events {
         log_event(&event);
         match &event {
-            NetEvent::Welcome { .. } => {
-                if let Connection::Connecting { nickname } = &*connection {
+            NetEvent::Welcome { identity, .. } => {
+                if matches!(*connection, Connection::Connecting { .. }) {
                     *connection = Connection::Online {
-                        nickname: nickname.clone(),
+                        nickname: identity.name.clone(),
+                        guest: identity.guest,
                     };
                 }
+                let login = if identity.guest {
+                    Login::Guest {
+                        name: identity.name.clone(),
+                    }
+                } else {
+                    Login::Device
+                };
+                network.resume = Some((identity.name.clone(), login));
             }
             NetEvent::Rejected(reason) => *connection = Connection::Rejected(reason.clone()),
             NetEvent::Disconnected(reason) => {
@@ -419,7 +473,12 @@ fn close_on_exit(mut exits: MessageReader<AppExit>, network: Res<Network>) {
 
 fn log_event(event: &NetEvent) {
     match event {
-        NetEvent::Welcome { tracks } => info!(tracks = tracks.len(), "connected"),
+        NetEvent::Welcome { tracks, identity } => info!(
+            tracks = tracks.len(),
+            name = %identity.name,
+            guest = identity.guest,
+            "connected"
+        ),
         NetEvent::JoinedLobby {
             lobby,
             car,

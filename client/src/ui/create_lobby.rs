@@ -142,7 +142,7 @@ fn spawn_dialog(
     // and it grows wide instead, a phone in landscape having width to spare.
     let pick = |desk: f32, phone: f32| touchscreen.pick(desk, phone);
     let offered_name = match connection {
-        Connection::Online { nickname } => format!("{nickname}'s lobby"),
+        Connection::Online { nickname, .. } => format!("{nickname}'s lobby"),
         _ => "New lobby".into(),
     };
     let offered_name: String = offered_name.chars().take(MAX_LOBBY_NAME_CHARS).collect();

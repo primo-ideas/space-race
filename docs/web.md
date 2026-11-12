@@ -26,7 +26,7 @@ cargo run --release -p star-racer-client --target wasm32-unknown-unknown
 
 `.cargo/config.toml` sets `wasm-server-runner` as the runner for the wasm target: it generates the
 JavaScript bindings, serves the game on <http://127.0.0.1:1334> and stays up until stopped. Settings
-go in the page address, for example <http://127.0.0.1:1334/?nickname=Primo>.
+go in the page address, for example <http://127.0.0.1:1334/?guest>.
 
 This is the one build that uses `-p`: the server cannot compile to wasm, and the wasm target has a
 cache of its own, so it does not disturb the native builds. The first one compiles all of Bevy for
@@ -60,14 +60,15 @@ With no command line, the web client reads its settings from the page address:
 | Parameter | Native equivalent | Default |
 | --- | --- | --- |
 | `server=…` | `--server` | the page's own host (see below); natively `star-racer.xyz`. A host is enough: see [Protocol](protocol.md#the-servers-address) |
-| `nickname=…` | `--nickname` | none: the login screen |
+| `guest` | `--guest` | off: the first screen |
+| `account=…&password=…`, `create` | `--account`, `--password`, `--create` | none; for local checks only, a password in an address being written in the browser's history |
 | `lobby=…` | `--lobby` | none: the lobby list |
 | `track=…` | `--track` | the skyway |
 | `laps=…`, `min_players=…` | `--laps`, `--min-players` | 3, 2 |
 | `create_dialog` | `--create-dialog` | off |
 | `settings` | `--settings` | off; opens the settings over the first screen |
-| `quick_play` | `--quick-play` | off; with `nickname`, straight into a race |
-| `ranked` | `--ranked` | off; with `nickname`, straight into the ranked queue |
+| `quick_play` | `--quick-play` | off; with `guest` or `account`, straight into a race |
+| `ranked` | `--ranked` | off; with `account`, straight into the ranked queue |
 | `identity=…` | `--identity` | the browser's main identity |
 | `autopilot` | `--autopilot` | off |
 | `autopilot_drift` | `--autopilot-drift` | off |
@@ -76,7 +77,7 @@ With no command line, the web client reads its settings from the page address:
 | `latency` | `--latency` | off; F3 shows the figures anyway (see [Latency](latency.md)) |
 | `log=error\|warn\|info\|debug\|trace` | `--log` | `warn` (see below) |
 
-For example `?nickname=Primo&identity=second`. The interface has not been tried in a browser yet.
+For example `?guest&identity=second`. The interface has not been tried in a browser yet.
 `?touch` shows the phone interface in a desktop browser, which is the quickest way to see it.
 
 Without `server=`, a page served from a site connects to `wss://<the same host>/<its own

@@ -1,5 +1,5 @@
-//! Lifecycle of a player connection: handshake (version, nickname, authentication), then browsing
-//! lobbies and playing in them until the player leaves.
+//! Lifecycle of a player connection: handshake (version, device, then a guest's name or an
+//! account), then browsing lobbies and playing in them until the player leaves.
 
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -9,8 +9,8 @@ use axum::extract::ws::{Message, WebSocket};
 use star_racer_protocol::auth::{self, PublicKey};
 use star_racer_protocol::ranked::QueueStatus;
 use star_racer_protocol::{
-    self as protocol, ClientMessage, PROTOCOL_VERSION, RejectReason, ServerMessage,
-    is_valid_nickname,
+    self as protocol, ClientMessage, Identity, JoinError, Login, PROTOCOL_VERSION, RejectReason,
+    ServerMessage, is_valid_nickname, is_valid_password, names,
 };
 use tokio::sync::oneshot;
 use tokio::time::timeout;
@@ -27,7 +27,8 @@ use crate::lobby::Membership;
 /// costs a task until then.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Persistent player identity: their public key.
+/// Persistent player identity: a guest's public key, or the number an account was given when it was
+/// created.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlayerId(pub PublicKey);
 
@@ -44,10 +45,14 @@ impl fmt::Display for PlayerId {
 pub struct Player {
     pub id: PlayerId,
     pub nickname: String,
+    /// Without an account: no ranked.
+    pub guest: bool,
+    /// The public key of the device playing, which an account's sign-out forgets.
+    pub device: PublicKey,
 }
 
 pub async fn run(mut socket: WebSocket, directory: Directory) -> Result<()> {
-    let handshake = timeout(HANDSHAKE_TIMEOUT, handshake(&mut socket))
+    let handshake = timeout(HANDSHAKE_TIMEOUT, handshake(&mut socket, &directory))
         .await
         .context("handshake timed out")??;
     let Some(player) = handshake else {
@@ -58,7 +63,7 @@ pub async fn run(mut socket: WebSocket, directory: Directory) -> Result<()> {
     // this one will be in turn if the player connects again (see `Directory::connect`).
     let (online, mut replaced) = directory.connect(&player);
 
-    info!(player = %player.id, nickname = %player.nickname, "player connected");
+    info!(player = %player.id, nickname = %player.nickname, guest = player.guest, "player connected");
     // From here on, a dropped connection (crash, lost network) is an ordinary way to leave, not a
     // server failure: it is logged as the reason.
     let reason = connected(&mut socket, &directory, &player, &online, &mut replaced).await;
@@ -77,11 +82,15 @@ async fn close_replaced(socket: &mut WebSocket) -> String {
 }
 
 /// Returns `None` if the player was rejected.
-async fn handshake(socket: &mut WebSocket) -> Result<Option<Player>> {
+///
+/// What can be refused without work is refused first: the version, then a name or a password that
+/// could never do. Then the device proves it holds its key, and only then is an account looked up
+/// or a password hashed.
+async fn handshake(socket: &mut WebSocket, directory: &Directory) -> Result<Option<Player>> {
     let Some(ClientMessage::Hello {
         protocol_version,
-        nickname,
         public_key,
+        login,
     }) = receive(socket).await?
     else {
         bail!("expected Hello");
@@ -93,10 +102,22 @@ async fn handshake(socket: &mut WebSocket) -> Result<Option<Player>> {
         };
         return reject(socket, reason).await.map(|()| None);
     }
-    if !is_valid_nickname(&nickname) {
-        return reject(socket, RejectReason::InvalidNickname)
-            .await
-            .map(|()| None);
+    let early = match &login {
+        Login::Guest { name } if !is_valid_nickname(name) || !names::is_generated(name) => {
+            Some(RejectReason::InvalidNickname)
+        }
+        Login::Password { name, .. } if !is_valid_nickname(name) => {
+            Some(RejectReason::InvalidNickname)
+        }
+        Login::Password {
+            password,
+            create: true,
+            ..
+        } if !is_valid_password(password) => Some(RejectReason::InvalidPassword),
+        _ => None,
+    };
+    if let Some(reason) = early {
+        return reject(socket, reason).await.map(|()| None);
     }
 
     let nonce = auth::new_nonce();
@@ -110,10 +131,37 @@ async fn handshake(socket: &mut WebSocket) -> Result<Option<Player>> {
             .map(|()| None);
     }
 
-    Ok(Some(Player {
-        id: PlayerId(public_key),
-        nickname,
-    }))
+    let accounts = directory.accounts();
+    let signed_in = match login {
+        Login::Guest { name } => {
+            return Ok(Some(Player {
+                id: PlayerId(public_key),
+                nickname: name,
+                guest: true,
+                device: public_key,
+            }));
+        }
+        Login::Device => accounts
+            .device(&public_key)
+            .ok_or(RejectReason::NotSignedIn),
+        Login::Password {
+            name,
+            password,
+            create: true,
+        } => accounts.create(&name, &password, &public_key).await,
+        Login::Password { name, password, .. } => {
+            accounts.sign_in(&name, &password, &public_key).await
+        }
+    };
+    match signed_in {
+        Ok(account) => Ok(Some(Player {
+            id: account.id,
+            nickname: account.name,
+            guest: false,
+            device: public_key,
+        })),
+        Err(reason) => reject(socket, reason).await.map(|()| None),
+    }
 }
 
 /// Sends the welcome, then lets the player browse lobbies and play in them until the connection
@@ -127,6 +175,10 @@ async fn connected(
 ) -> String {
     let welcome = ServerMessage::Welcome {
         tracks: directory.tracks(),
+        identity: Identity {
+            name: player.nickname.clone(),
+            guest: player.guest,
+        },
     };
     if let Err(error) = send(socket, &welcome).await {
         return error.to_string();
@@ -225,6 +277,9 @@ async fn connected(
                 Ok(Some(ClientMessage::QuickPlay)) => {
                     directory.quick_play(player.clone()).await
                 }
+                Ok(Some(ClientMessage::QueueRanked)) if player.guest => {
+                    Err(JoinError::AccountRequired)
+                }
                 Ok(Some(ClientMessage::QueueRanked)) => {
                     queued = Some(directory.enqueue(player.clone()).await);
                     // Says so at once, and the size as soon as the directory has counted them in.
@@ -238,6 +293,14 @@ async fn connected(
                         return error.to_string();
                     }
                     continue;
+                }
+                Ok(Some(ClientMessage::SignOut)) => {
+                    if !player.guest {
+                        directory.accounts().sign_out(&player.device);
+                        info!(player = %player.id, nickname = %player.nickname, "signed out");
+                    }
+                    let _ = socket.send(Message::Close(None)).await;
+                    return "signed out".into();
                 }
                 // The round trip is the client's to time: answered before anything else.
                 Ok(Some(ClientMessage::Ping(number))) => {
@@ -294,12 +357,16 @@ async fn connected(
     }
 }
 
-/// Sends the player where they stand on the ladder, unless the server is stopping.
+/// Sends the player where they stand on the ladder, unless the server is stopping. A guest is not
+/// on it.
 async fn send_profile(
     socket: &mut WebSocket,
     directory: &Directory,
     player: &Player,
 ) -> Result<()> {
+    if player.guest {
+        return Ok(());
+    }
     match directory.profile(player.id).await {
         Some(profile) => send(socket, &ServerMessage::Profile(profile)).await,
         None => Ok(()),

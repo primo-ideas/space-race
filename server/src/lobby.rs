@@ -1029,6 +1029,7 @@ impl Lobby {
                 .map(|member| LobbyPlayer {
                     car: member.car_id,
                     nickname: member.player.nickname.clone(),
+                    guest: member.player.guest,
                     status: member.status,
                     start: member.start.grade(),
                     rating: self.ranked.as_ref().and_then(|ranked| {
@@ -1130,6 +1131,8 @@ mod tests {
         Player {
             id: PlayerId([number; 32]),
             nickname: format!("Player {number}"),
+            guest: false,
+            device: [number; 32],
         }
     }
 

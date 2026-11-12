@@ -20,6 +20,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{error, info};
 
+use crate::accounts::Accounts;
 use crate::content::{LoadedTrack, Tracks};
 use crate::lobby::{
     self, Entrant, InfoStatus, LobbyEvent, LobbyHandle, LobbyInfo, LobbyKind, Membership, Timings,
@@ -50,6 +51,7 @@ pub struct Directory {
     queue_size: watch::Receiver<u16>,
     tracks: Arc<Vec<TrackInfo>>,
     online: Online,
+    accounts: Accounts,
 }
 
 enum Command {
@@ -104,6 +106,7 @@ impl Directory {
         tuning: watch::Receiver<CarTuning>,
         timings: Timings,
         ratings: Ratings,
+        accounts: Accounts,
     ) -> Self {
         let (commands, command_receiver) = mpsc::channel(COMMAND_BUFFER);
         let (list, lobbies) = watch::channel(Arc::new(Vec::new()));
@@ -140,7 +143,13 @@ impl Directory {
             queue_size,
             tracks: Arc::new(track_infos),
             online: Online::default(),
+            accounts,
         }
+    }
+
+    /// Every player account.
+    pub fn accounts(&self) -> &Accounts {
+        &self.accounts
     }
 
     /// The best players, updated whenever a match changes them.
@@ -582,6 +591,7 @@ struct Connected {
 
 struct Session {
     nickname: String,
+    guest: bool,
     presence: Presence,
     /// Rank of arrival: the published list follows it, so nobody jumps around in it. A connection
     /// that takes another's place keeps it.
@@ -626,6 +636,7 @@ impl Online {
             player.id,
             Session {
                 nickname: player.nickname.clone(),
+                guest: player.guest,
                 presence: Presence::Browsing,
                 arrival,
                 connection,
@@ -676,6 +687,7 @@ impl Online {
             .into_iter()
             .map(|session| OnlinePlayer {
                 nickname: session.nickname.clone(),
+                guest: session.guest,
                 presence: session.presence,
             })
             .collect();

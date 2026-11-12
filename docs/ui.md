@@ -335,13 +335,17 @@ ready (see [Architecture](architecture.md#testing)):
 
 | Options | Screenshot |
 | --- | --- |
-| none | the login screen |
-| `--nickname N` | the lobby list, once received |
-| `--nickname N --create-dialog` | the creation dialog |
+| none | the first screen |
+| `--guest`, or `--account N --password P` | the lobby list, once received |
+| the same, with `--create-dialog` | the creation dialog |
 | `--settings` | the settings, over the first screen |
-| `--nickname N --quick-play` | the lobby quick play puts the player in |
-| `--nickname N --ranked` | the ranked match, once the queue has found one |
-| `--nickname N --lobby L` | the lobby, once its state and a car are displayed |
+| the same, with `--quick-play` | the lobby quick play puts the player in |
+| `--account N --password P --ranked` | the ranked match, once the queue has found one |
+| the same, with `--lobby L` | the lobby, once its state and a car are displayed |
+
+`--guest` comes in under a generated name; `--account N --password P` signs in to an account, and
+creates it first with `--create`. A login the server refuses ends on the first screen, on the tab it
+was tried on, saying why.
 
 `--touch --window-size 844x390` shows any of them as a phone held in landscape does, which is how
 the touch interface is looked at without a phone. `--safe-area 0,47,21,47` (top, right, bottom,

@@ -151,6 +151,7 @@ pub fn join_error_text(error: JoinError) -> &'static str {
         JoinError::LobbyFull => "This lobby is full.",
         JoinError::InvalidSettings => "The server refused these lobby settings.",
         JoinError::UnknownTrack => "The server does not have this track.",
+        JoinError::AccountRequired => "Ranked is for players with an account: sign in to play it.",
     }
 }
 
@@ -181,7 +182,7 @@ fn receive_lobby_events(
     let now = time.elapsed_secs_f64();
     for event in events.read() {
         match event {
-            NetEvent::Welcome { tracks: infos } => {
+            NetEvent::Welcome { tracks: infos, .. } => {
                 tracks.0.clear();
                 for info in infos {
                     match Track::build(&info.description) {

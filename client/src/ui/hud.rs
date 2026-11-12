@@ -50,6 +50,18 @@ const START_GRADE_SECONDS: f64 = 3.0;
 const NAMEPLATE_DISTANCE: f32 = 120.0;
 const NAMEPLATE_WIDTH: f32 = 220.0;
 
+/// The color a player's name is written in: the player's own stands out, and a guest's is
+/// dimmer than an account's, which is how a guest is told apart in a race.
+fn name_color(own: bool, guest: bool) -> Color {
+    if own {
+        theme::OWN
+    } else if guest {
+        theme::TEXT_DIM
+    } else {
+        theme::TEXT
+    }
+}
+
 pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
@@ -1099,7 +1111,8 @@ fn build_model(
                 model.shown.insert(Block::ResultRow(row));
                 let own = result.car == membership.car;
                 let position_color = if row == 0 { theme::AMBER } else { theme::TEXT };
-                let name_color = if own { theme::OWN } else { theme::TEXT };
+                let guest = membership.player(result.car).is_some_and(|player| player.guest);
+                let name_color = name_color(own, guest);
                 model.text(
                     Slot::ResultPosition(row),
                     ordinal(row + 1).to_uppercase(),
@@ -1160,7 +1173,7 @@ fn player_list(model: &mut HudModel, membership: &Membership) {
         model.text(
             Slot::StandingName(row),
             player.nickname.clone(),
-            if own { theme::OWN } else { theme::TEXT },
+            name_color(own, player.guest),
         );
         if own {
             model.text(Slot::StandingInfo(row), "YOU", theme::TEXT_FAINT);
@@ -1207,9 +1220,11 @@ fn race_standings(
     for (row, (car, standing)) in standings(membership, view).iter().take(ROWS).enumerate() {
         model.shown.insert(Block::StandingRow(row));
         let own = *car == membership.car;
-        let nickname = membership
+        let (nickname, guest) = membership
             .player(*car)
-            .map_or(String::new(), |player| player.nickname.clone());
+            .map_or((String::new(), false), |player| {
+                (player.nickname.clone(), player.guest)
+            });
         model.text(
             Slot::StandingPosition(row),
             (row + 1).to_string(),
@@ -1219,11 +1234,7 @@ fn race_standings(
                 theme::TEXT_DIM
             },
         );
-        model.text(
-            Slot::StandingName(row),
-            nickname,
-            if own { theme::OWN } else { theme::TEXT },
-        );
+        model.text(Slot::StandingName(row), nickname, name_color(own, guest));
         let (info, color) = match standing {
             RaceStanding::Finished { time_ms } => (race_time(*time_ms), theme::GREEN),
             RaceStanding::Racing { progress } => (
@@ -1279,7 +1290,7 @@ fn update_nameplates(
     track: Option<Res<CurrentTrack>>,
     ui_scale: Res<UiScale>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
-    mut plates: Query<(Entity, &Nameplate, &mut Node, &mut Text)>,
+    mut plates: Query<(Entity, &Nameplate, &mut Node, &mut Text, &mut TextColor)>,
 ) {
     let (Some(membership), Ok((camera, camera_transform)), Some(track)) =
         (&current.0, cameras.single(), track)
@@ -1287,7 +1298,7 @@ fn update_nameplates(
         return;
     };
     let followed = view.followed.map(|(car, _)| car);
-    let mut wanted: HashMap<CarId, (Vec2, String)> = HashMap::new();
+    let mut wanted: HashMap<CarId, (Vec2, String, bool)> = HashMap::new();
     for snapshot in &view.cars {
         if Some(snapshot.id) == followed {
             continue;
@@ -1300,31 +1311,34 @@ fn update_nameplates(
         let Ok(on_screen) = camera.world_to_viewport(camera_transform, above) else {
             continue;
         };
-        let nickname = membership
+        let (nickname, guest) = membership
             .player(snapshot.id)
-            .map_or(String::new(), |player| player.nickname.clone());
-        wanted.insert(snapshot.id, (on_screen / ui_scale.0, nickname));
+            .map_or((String::new(), false), |player| {
+                (player.nickname.clone(), player.guest)
+            });
+        wanted.insert(snapshot.id, (on_screen / ui_scale.0, nickname, guest));
     }
 
-    for (entity, plate, mut node, mut text) in &mut plates {
+    for (entity, plate, mut node, mut text, mut color) in &mut plates {
         match wanted.remove(&plate.0) {
-            Some((position, nickname)) => {
+            Some((position, nickname, guest)) => {
                 node.left = px(position.x - NAMEPLATE_WIDTH / 2.0);
                 node.top = px(position.y - 22.0);
                 if text.0 != nickname {
                     text.0 = nickname;
                 }
+                color.0 = name_color(false, guest);
             }
             None => commands.entity(entity).despawn(),
         }
     }
-    for (car, (position, nickname)) in wanted {
+    for (car, (position, nickname, guest)) in wanted {
         commands.spawn((
             Nameplate(car),
             DespawnOnExit(Screen::Lobby),
             Text::new(nickname),
             fonts.text(15.0, 600),
-            TextColor(theme::TEXT),
+            TextColor(name_color(false, guest)),
             theme::TEXT_SHADOW,
             TextLayout::justify(Justify::Center),
             Node {

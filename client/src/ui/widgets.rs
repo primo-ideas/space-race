@@ -33,6 +33,7 @@ impl Plugin for WidgetsPlugin {
                     style_fields,
                     style_selectables,
                     show_stepper_values,
+                    show_secrets,
                     show_hints,
                     hide_hints_on_touch,
                     size_for_thumbs,
@@ -287,6 +288,78 @@ pub fn text_field(
     )
 }
 
+/// A field whose text is never shown: a password. Its own text is drawn in no color, and a row of
+/// dots stands over it, one per character (Bevy's text field cannot mask yet).
+#[derive(Component)]
+pub struct Secret {
+    /// The text drawn over the field.
+    pub dots: Entity,
+}
+
+/// What stands over a [`Secret`] field: as many dots as it holds characters.
+#[derive(Component)]
+pub struct SecretDots;
+
+fn show_secrets(
+    fields: Query<(&EditableText, &Secret), Changed<EditableText>>,
+    mut dots: Query<&mut Text, With<SecretDots>>,
+) {
+    for (field, secret) in &fields {
+        if let Ok(mut text) = dots.get_mut(secret.dots) {
+            let shown = "•".repeat(field.value().to_string().chars().count());
+            if text.0 != shown {
+                text.0 = shown;
+            }
+        }
+    }
+}
+
+/// A password field: a [`text_field`] whose text is drawn in no color, with a row of dots over it
+/// in the same place. Returns the box holding both, to lay out, and the field, to read.
+pub fn secret_field(
+    commands: &mut Commands,
+    fonts: &Fonts,
+    name: &'static str,
+    max_chars: usize,
+) -> (Entity, Entity) {
+    let dots = commands
+        .spawn((
+            SecretDots,
+            Text::default(),
+            fonts.text(21.0, 500),
+            TextColor(theme::TEXT),
+            Pickable::IGNORE,
+            Node {
+                position_type: PositionType::Absolute,
+                // The field's padding and border, so the dots sit where its text would.
+                left: px(15.5),
+                top: px(10.5),
+                ..default()
+            },
+        ))
+        .id();
+    let field = commands
+        .spawn((text_field(fonts, name, "", max_chars), Secret { dots }))
+        .insert((
+            TextColor(Color::NONE),
+            TextCursorStyle {
+                color: Color::NONE,
+                selection_color: Color::NONE,
+                unfocused_selection_color: Color::NONE,
+                selected_text_color: Some(Color::NONE),
+            },
+        ))
+        .id();
+    let holder = commands
+        .spawn(Node {
+            flex_grow: 1.0,
+            ..default()
+        })
+        .add_children(&[field, dots])
+        .id();
+    (holder, field)
+}
+
 /// Replaces the whole text of a field.
 pub fn set_text(field: &mut EditableText, text: &str) {
     field.queue_edit(TextEdit::SelectAll);
@@ -300,15 +373,21 @@ pub fn set_text(field: &mut EditableText, text: &str) {
 fn type_on_touch(
     click: On<Pointer<Click>>,
     touchscreen: Res<Touchscreen>,
-    mut fields: Query<(&TextField, &mut EditableText)>,
+    mut fields: Query<(&TextField, &mut EditableText, Has<Secret>)>,
 ) {
     if !touchscreen.0 {
         return;
     }
-    let Ok((field, mut text)) = fields.get_mut(click.entity) else {
+    let Ok((field, mut text, secret)) = fields.get_mut(click.entity) else {
         return;
     };
-    let Some(typed) = ask_for_text(field.name, &text.value().to_string()) else {
+    // The browser's box shows what it is given in the clear: a password starts empty there.
+    let current = if secret {
+        String::new()
+    } else {
+        text.value().to_string()
+    };
+    let Some(typed) = ask_for_text(field.name, &current) else {
         return;
     };
     let typed: String = typed
