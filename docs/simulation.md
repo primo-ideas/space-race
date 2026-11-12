@@ -70,7 +70,10 @@ weight that shows. The first three are the simulation's, and every one of them i
   nose, half lock puts the nose 6 degrees off the travel instead of 3, and a turn let go of carries
   the travel on 11 degrees instead of 8. A drift is not affected: it goes where the stick says, as
   the user wanted it in v0.1.13. Breaking away by turning hard moved with the grip, from 5 degrees
-  to 9, so full lock at speed still breaks away and half lock still does not.
+  to 9, so full lock at speed still breaks away and half lock still does not. Since v0.1.32
+  the grip is 9 and the angle 7: the user found the car carried out too far and too fast (see
+  [Less carried out](#less-carried-out)).
+
 - **Momentum.** The car takes its time getting up to speed, `acceleration` down from 22 to 16:
   0 to 30 m/s in 3.5 s instead of 2.5, and to 95% of top speed in 7.5 s instead of 5.4. Above top
   speed it keeps its momentum, and a wall costs more (see [Accelerating](#accelerating-no-brake)
@@ -108,9 +111,10 @@ corner by as far as its travel lags its nose; this one does not.
   `drift_swing_rate`, and slows down the same way to stop on its angle, so it comes off the travel
   on the very tick the drift starts, slowly, then faster and faster, and never lunges, whether the
   drift starts, the stick eases or the drift ends. It brakes on a curve that allows for the tick,
-  so it lands on its angle instead of hunting around it. With the shipped 55 degrees, 450 degrees
-  per second per second and 110 per second, the body is 1 degree across after 50 ms, 11 after a
-  fifth of a second, 37 after 0.45 s and all 55 after three quarters of a second. When a drift
+  so it lands on its angle instead of hunting around it. With the shipped 42 degrees, 260 degrees
+  per second per second and 75 per second (since v0.1.32; 55, 450 and 110 before), the body is 9
+  degrees across after a quarter of a second, 27 after half a second and 41 after three quarters,
+  all 42 at 0.8 s. When a drift
   starts, the body takes over whatever slide the car had and the heading becomes the travel, so
   nothing on screen jumps.
 - **Turning.** The stick sets a **signed curvature**: fully to one side turns on
@@ -157,7 +161,7 @@ corner by as far as its travel lags its nose; this one does not.
 - **Losing it.** A drift that hits a wall ends at once and pays nothing. The body settles back
   into line on its own, and the button, still held, starts nothing until it is pressed again. A
   graze is forgiven: meeting the wall at less than `drift_wall_tolerance`, 3 m/s into it, keeps
-  the drift, though it charges nothing on the ticks it touches. The tail of a car swung 55 degrees
+  the drift, though it charges nothing on the ticks it touches. The tail of a car swung 42 degrees (55 then)
   across the road brushes a wall often, and losing two seconds of charge to it was a punishment
   out of proportion.
 
@@ -258,7 +262,7 @@ Four models came before this one, and each taught something.
 Measured at full lock from top speed on an open road, with the shipped tuning, tapping the button
 for a tenth of a second:
 
-| | 2026-09-20 | 2026-09-28 | Now | Rocket Racing, recorded |
+| | 2026-09-20 | 2026-09-28 | 2026-10-03 to v0.1.31 | Rocket Racing, recorded |
 | --- | --- | --- | --- | --- |
 | Into a drift | after 0.27 s of full lock | on the press | on the press | on the press |
 | Angle | 20 degrees, 26 held, after a second | 37 degrees at 0.25 s, 52 at 0.5 s | 1 degree at 50 ms, 15 at 0.25 s, 44 at 0.5 s, 55 at 0.75 s | 45 to 55, at 0.35 s |
@@ -267,6 +271,46 @@ for a tenth of a second:
 | Speed after 2 s | 5% lost, 9% held | none, 6% held | none, 7% held | none |
 | Back into line | 0.65 s after straightening | 0.5 s | 0.55 s | about 0.2 s |
 | Boost | to 52 m/s, 30% over | to 48 m/s, 20% over | to 48 m/s, 20% over | 21% over |
+
+Since v0.1.32 the angle is 42 degrees and slower to come: 9 at 0.25 s, 27 at 0.5 s, 41 at 0.75 s
+(see [Less carried out](#less-carried-out)).
+
+#### Less carried out
+
+On 2026-11-11 the user found that the car "déporte trop et trop vite quand on drift et/ou
+tourne", carried out too far and too fast, and asked to refine it, heavier still if need be
+(v0.1.32). Measured first, with a scratch tool outside the repository that steps the shipped car
+from top speed on an open road and laps the skyway, two things carried it out, and the weight was
+not one of them:
+
+- **Gripping, the travel trailed the nose too far.** At `grip` 6, three quarters lock ran the
+  travel 8.4 degrees off the nose, half lock 5.7: the car went wide of where it pointed. Full lock
+  took the slide past `drift_entry_angle` (9) in 0.45 s, and the car broke into a drift.
+- **Drifting, the body was thrown across.** The chase camera looks along the travel and the car is
+  drawn along its body, so the body swinging out is what the player sees as the car being carried
+  sideways: 15 degrees at 0.25 s, 43 at 0.5 s, 55 at 0.75 s, at up to 110 degrees per second.
+
+The path of a drift was not wide: it follows the stick, as it has since v0.1.3.
+
+| At top speed | Before | v0.1.32 |
+| --- | --- | --- |
+| Travel off the nose, half lock, after 1 s | 5.7 degrees | 3.7 |
+| Travel off the nose, three quarters lock, after 1 s | 8.4 degrees | 5.5 |
+| Full lock without the button breaks into a drift | after 0.45 s | after 0.52 s |
+| Body across the travel, a tap at full lock, at 0.25, 0.5, 0.75 s | 15, 43, 55 degrees | 9, 27, 41 |
+| The body's fastest swing | 110 degrees per second | 75 |
+| Skyway, gripping, live and six ticks late | 52.6 s, 52.8 s, clean | 51.1 s, 51.3 s, clean |
+| Skyway, drifting, live | 41.5 s, clean | 41.3 s, clean |
+| Skyway, drifting, six ticks late | 45.1 s, 35 ticks against a wall | 43.2 s, 3 ticks |
+
+The numbers: `grip` 6 to 9, `drift_entry_angle` 9 to 7 so that full lock still breaks away (the
+user's rule of 2026-09-20) and three quarters lock still does not, `drift_angle` 55 to 42,
+`drift_swing_acceleration` 450 to 260 and `drift_swing_rate` 110 to 75. Tried and left: more
+weight in the rotation, `yaw_acceleration` 250 to 225 or 200, barely changed the carry (half a
+degree) and made the late autopilot scrape 40 to 136 ticks; `grip` 10 kept full lock from ever
+breaking away. The rotation itself is unchanged: full lock still turns the drifting car at about
+87 degrees per second, and holding the button at 121. All of it is in `car.ron` and reloads while
+driving.
 
 #### What drifting is worth
 
@@ -469,8 +513,9 @@ its gripping lap stayed clean (40.8 s), but the drifting one scraped into every 
 against the walls in a lap. A drift decided on old information runs wider, and a bottleneck is
 where that shows. The skyway, 34 m wide and never pinched, is clean six ticks late in both styles:
 52.8 s gripping, 46.1 s drifting. Since the bigger boost and the turbo, the drifting lap six ticks
-late is 45.1 s with 35 ticks against the walls, three charges of turbo fired at 60 m/s on old
-information; the gripping one is still clean, and from live state the drifting one is too. Weight makes late information costlier: with the wheel slowed as
+late was 45.1 s with 35 ticks against the walls, three charges of turbo fired at 60 m/s on old
+information; the gripping one stayed clean, and from live state the drifting one too. Since v0.1.32
+(more grip, a smaller and slower swing) it is 43.2 s with 3 ticks against the walls. Weight makes late information costlier: with the wheel slowed as
 well as the rotation (`steering_rate` 10 or 8 rather than 14), the drifting autopilot six ticks
 late swung from wall to wall through the slaloms, 160 ticks against them in a lap.
 
