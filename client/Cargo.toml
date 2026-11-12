@@ -1,6 +1,6 @@
 [package]
 name = "star-racer-client"
-version = "0.1.30"
+version = "0.1.31"
 edition = "2024"
 license = "Unlicense"
 
@@ -70,6 +70,13 @@ bevy = { version = "0.19.1", default-features = false, features = ["png"] }
 clap = { version = "4.6.7", features = ["derive"] }
 directories = "6.0.0"
 tokio = { workspace = true, features = ["rt"] }
+# `wss://`, which is how the deployed server is reached: TLS by rustls, checking the server's real
+# certificate against Mozilla's root list compiled into the game, so it asks nothing of the
+# machine it runs on (docs/protocol.md#the-servers-address). rustls is named only to choose who
+# does its arithmetic: `ring`, which builds with the C compiler Rust already needs on Windows.
+# A browser does its own TLS, so none of this is in the web build.
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-tungstenite-wasm = { version = "0.9.0", features = ["rustls-tls-webpki-roots"] }
 
 # Web: settings from the page address, identity in local storage, networking on the page's event
 # loop. Bevy's `web` feature makes its clock and task pool use browser APIs; without it, the game

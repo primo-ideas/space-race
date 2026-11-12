@@ -25,10 +25,14 @@ use tokio::sync::{mpsc as async_mpsc, oneshot};
 use tokio_tungstenite_wasm::{Message, WebSocketStream};
 
 use self::identity::IdentityStore;
+use crate::preferences::StoredPreferences;
+use crate::settings::server_to_use;
 
 pub struct NetPlugin {
-    /// Server WebSocket URL (`ws://` locally, `wss://` in production).
-    pub server: String,
+    /// The server asked for on the command line or in the page address, as a WebSocket URL
+    /// (`ws://` locally, `wss://` in production). Without one, the host the player set in the
+    /// settings, or the default (see [`crate::settings::server_to_use`]).
+    pub server: Option<String>,
     pub identity: IdentityStore,
 }
 
@@ -113,6 +117,17 @@ impl Network {
         &self.server
     }
 
+    /// Plays on another server from now on. A player connected to the one before is not any
+    /// more: `true` if the server changed.
+    pub fn set_server(&mut self, server: String, connection: &mut Connection) -> bool {
+        if self.server == server {
+            return false;
+        }
+        self.disconnect(connection);
+        self.server = server;
+        true
+    }
+
     /// Connects under `nickname`, ending any previous session.
     pub fn connect(&mut self, nickname: String, connection: &mut Connection) {
         self.disconnect(connection);
@@ -176,10 +191,22 @@ impl Session {
 
 impl Plugin for NetPlugin {
     fn build(&self, app: &mut App) {
+        // The preferences are loaded by the time this is built: their plugin is added first.
+        let chosen = app
+            .world()
+            .get_resource::<StoredPreferences>()
+            .and_then(|preferences| preferences.get().host.clone());
+        let server = server_to_use(self.server.clone(), chosen.as_deref());
+
+        // rustls is told who does its arithmetic once, before the first `wss://` connection. A
+        // browser does its own TLS.
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
         app.add_message::<NetEvent>()
             .init_resource::<Connection>()
             .insert_resource(Network {
-                server: self.server.clone(),
+                server,
                 identity: self.identity.clone(),
                 session: None,
             })

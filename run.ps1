@@ -28,6 +28,9 @@ for ($i = 0; $i -lt $args.Count; $i++) {
 }
 
 $port = 8080
+# The client plays on the deployed server unless told otherwise: here it is told to play on the
+# server this script starts, unless the caller names another.
+if ($clientArgs -notcontains '--server') { $clientArgs = @('--server', '127.0.0.1') + $clientArgs }
 $log = 'target/server.log'
 $errLog = 'target/server.err.log'
 $serverExe = 'target/debug/star-racer-server.exe'

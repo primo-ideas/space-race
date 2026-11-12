@@ -77,6 +77,14 @@ struct FieldHelp;
 #[derive(Component)]
 struct Status;
 
+/// The server the game plays on, which the settings can change while this screen is up.
+#[derive(Component)]
+struct ServerLine;
+
+fn server_line(network: &Network) -> String {
+    format!("{}  ·  protocol {PROTOCOL_VERSION}", network.server())
+}
+
 fn spawn_login(
     mut commands: Commands,
     fonts: Res<Fonts>,
@@ -355,10 +363,8 @@ fn spawn_login(
                 },
                 children![
                     (
-                        Text::new(format!(
-                            "{}  ·  protocol {PROTOCOL_VERSION}",
-                            network.server()
-                        )),
+                        ServerLine,
+                        Text::new(server_line(&network)),
                         fonts.text(13.0, 400),
                         TextColor(theme::TEXT_FAINT),
                     ),
@@ -573,8 +579,12 @@ fn update_login(
         Query<(&mut Text, &mut TextColor), With<Status>>,
         Query<&mut Text, With<ButtonLabel>>,
         Query<(&mut Text, &mut TextColor), With<RankLine>>,
+        Query<&mut Text, With<ServerLine>>,
     )>,
 ) {
+    for mut text in &mut texts.p5() {
+        set(&mut text, server_line(&network));
+    }
     let Ok(field) = fields.single() else {
         return;
     };

@@ -118,7 +118,9 @@ snapshots, and both clients sharing the machine at 30 frames per second, input t
 
 Against the deployed server (2026-11-06), from the same Windows machine on a home connection: the
 native client cannot reach `wss://`, so it went through an SSH tunnel to the server's loopback
-port, which adds the tunnel to the ping. A drifting lap of the skyway: **ping 22 to 28 ms**,
+port, which adds the tunnel to the ping. (Since v0.1.31 the native client reaches `wss://` itself, and
+measured that way on 2026-11-12: ping 34 ms, input to screen 33 to 37 ms, 0.0 cm corrected; see
+[Protocol](protocol.md#tls-natively).) A drifting lap of the skyway: **ping 22 to 28 ms**,
 **input to screen 25 to 28 ms**, worst 37, **0.0 cm corrected**, a lead of 57 ms. Input to
 screen did not grow with the ping, which is what prediction is for. The input → server column was
 empty all race long: an input leaves the queue once it is on screen, which with prediction is

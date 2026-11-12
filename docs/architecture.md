@@ -331,6 +331,8 @@ included. On a slow machine, always build the same way, with `--workspace`.
   rather than hanging.
 - `--nickname`, `--lobby`, `--track`, `--laps`, `--min-players` and `--create-dialog` skip the
   login screen and the lobby list, so a client reaches a race with nobody at the keyboard.
+  Against a local server, they go with `--server 127.0.0.1`: the client's default is the deployed
+  server ([Protocol](protocol.md#the-servers-address)), which a check must not race on by accident.
 - `--autopilot` lets the shared autopilot drive the client's car, through the same input path as
   a player. With `--capture-delay`, it shows the car mid-lap, the camera behind it.
   `--autopilot-drift` uses the drifting style, so the capture catches a slide and the DRIFT gauge.
@@ -350,9 +352,6 @@ Diagnostics for what tests cannot judge:
 
 ## Known gaps
 
-- The native client cannot reach `wss://` yet: it needs a TLS feature of `tokio-tungstenite-wasm`
-  that verifies the real Let's Encrypt certificate. No self-signed certificates — if native TLS is
-  ever needed for local testing, it gets a proper local fake CA.
 - Cars do not collide with each other.
 - The lobby list does not scroll yet: lobbies beyond the height of its panel are cut off.
 - The native client leaves Nagle's algorithm on (see [Protocol](protocol.md#racing)).

@@ -17,14 +17,16 @@ The graphics are deliberately geometric.
 ```sh
 cargo build --workspace
 target/debug/star-racer-server
-target/debug/star-racer-client
+target/debug/star-racer-client --server 127.0.0.1
 ```
+
+Without `--server`, the client plays on the deployed server, `star-racer.xyz`.
 
 A debug build is enough to play: the dev profile optimizes every dependency, Bevy included.
 
 Building the whole workspace at once keeps a single set of dependency features: building the crates one by one recompiles part of Bevy each time.
 
-On Windows, `./run.ps1` builds everything, starts the server in the background (its log goes to `target/server.log`), runs the client, and stops the server when the client closes. Arguments go to the client.
+On Windows, `./run.ps1` builds everything, starts the server in the background (its log goes to `target/server.log`), runs the client, and stops the server when the client closes. Arguments go to the client. It points the client at that server; run on its own, the client plays on `star-racer.xyz`, the deployed server, unless told `--server 127.0.0.1` (or another host, also in SETTINGS on the first screen; see [docs/protocol.md](docs/protocol.md#the-servers-address)).
 
 Run both from the repository root: the server loads its tracks and car tuning from `server/data` (see [Game data](docs/architecture.md#game-data)). It listens in plain text on `127.0.0.1:8080`; in production, a reverse proxy terminates TLS and forwards WebSocket connections to it.
 

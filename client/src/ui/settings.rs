@@ -12,16 +12,21 @@
 
 use bevy::input_focus::{FocusCause, InputFocus};
 use bevy::prelude::*;
+use bevy::text::EditableText;
 use bevy::ui_widgets::Activate;
 
 use super::navigation::MenuInput;
 use super::theme::{self, Fonts};
 use super::touch::{TouchOptions, Touchscreen};
-use super::widgets::{ButtonKind, ButtonLabel, button, hint, hint_row, panel};
+use super::widgets::{
+    ButtonKind, ButtonLabel, button, hint, hint_row, panel, set_text, text_field,
+};
 use crate::bindings::{Action, Bindable, Bindings, Input};
+use crate::lobby::Ladder;
+use crate::net::{Connection, Network};
 use crate::preferences::{Preferences, StoredPreferences};
 use crate::screen::Screen;
-use crate::settings::Script;
+use crate::settings::{Script, default_host, server_url};
 
 pub struct SettingsPlugin;
 
@@ -129,6 +134,17 @@ impl Choice {
     }
 }
 
+/// Where the player types the server to play on.
+#[derive(Component)]
+struct HostField;
+
+/// What the game makes of what is typed there.
+#[derive(Component)]
+struct HostHelp;
+
+/// A server has at most this many characters: a host and a path, not an essay.
+const MAX_HOST_CHARS: usize = 80;
+
 /// The line under the table that says what to do next.
 #[derive(Component)]
 struct Help;
@@ -167,8 +183,13 @@ fn reset(
     _: On<Activate>,
     mut preferences: ResMut<StoredPreferences>,
     mut listening: ResMut<Listening>,
+    mut hosts: Query<&mut EditableText, With<HostField>>,
 ) {
     *listening = Listening::default();
+    // Taken up when the dialog closes, as anything typed there is.
+    for mut host in &mut hosts {
+        set_text(&mut host, &default_host());
+    }
     preferences.update(|preferences| {
         preferences.controls = Bindings::default();
         preferences.touch = TouchOptions::default();
@@ -294,16 +315,22 @@ fn show(
     fonts: Res<Fonts>,
     touchscreen: Res<Touchscreen>,
     roots: Query<Entity, With<SettingsRoot>>,
+    hosts: Query<&EditableText, With<HostField>>,
+    mut server: ServerChange,
     mut focus: ResMut<InputFocus>,
     mut opener: Local<Option<Entity>>,
 ) {
     match (dialog.open, roots.single()) {
         (true, Err(_)) => {
             *opener = focus.get();
-            let first = spawn_dialog(&mut commands, &fonts, *touchscreen);
+            let host = server.preferences.get().host.clone();
+            let first = spawn_dialog(&mut commands, &fonts, *touchscreen, host);
             focus.set(first, FocusCause::Navigated);
         }
         (false, Ok(root)) => {
+            if let Ok(host) = hosts.single() {
+                server.play_on(&host.value().to_string());
+            }
             commands.entity(root).despawn();
             // Back to the button that opened it, so a gamepad carries on from there.
             match opener.take() {
@@ -318,7 +345,12 @@ fn show(
 }
 
 /// Spawns the dialog and returns what takes the focus first.
-fn spawn_dialog(commands: &mut Commands, fonts: &Fonts, touchscreen: Touchscreen) -> Entity {
+fn spawn_dialog(
+    commands: &mut Commands,
+    fonts: &Fonts,
+    touchscreen: Touchscreen,
+    host: Option<String>,
+) -> Entity {
     let pick = |desk: f32, phone: f32| touchscreen.pick(desk, phone);
     let card = commands
         .spawn((
@@ -446,6 +478,42 @@ fn spawn_dialog(commands: &mut Commands, fonts: &Fonts, touchscreen: Touchscreen
         });
         let row = choice_row(commands, fonts, Choice::Vibration, touchscreen);
         commands.entity(card).add_child(row.0);
+
+        // The server: a host is enough. Not on a phone, whose page already came from its server.
+        let field = commands
+            .spawn((
+                HostField,
+                text_field(
+                    fonts,
+                    "Server",
+                    &host.unwrap_or_else(default_host),
+                    MAX_HOST_CHARS,
+                ),
+            ))
+            .id();
+        commands.entity(card).with_child((
+            Text::new("SERVER"),
+            fonts.caption(12.5),
+            theme::CAPTION_SPACING,
+            TextColor(theme::TEXT_FAINT),
+            Node {
+                margin: UiRect::top(px(8)),
+                ..default()
+            },
+        ));
+        commands.entity(card).add_child(field);
+        commands.entity(card).with_children(|card| {
+            card.spawn(Node {
+                min_height: px(18),
+                ..default()
+            })
+            .with_child((
+                HostHelp,
+                Text::default(),
+                fonts.text(13.5, 400),
+                TextColor(theme::TEXT_FAINT),
+            ));
+        });
     }
 
     commands.entity(card).with_children(|card| {
@@ -555,9 +623,20 @@ fn refresh(
     listening: Res<Listening>,
     binds: Query<(&BindButton, &Children)>,
     choices: Query<(&Choice, &Children)>,
-    mut labels: Query<&mut Text, (With<ButtonLabel>, Without<Help>)>,
-    mut help: Query<(&mut Text, &mut TextColor), With<Help>>,
+    mut labels: Query<&mut Text, (With<ButtonLabel>, Without<Help>, Without<HostHelp>)>,
+    mut help: Query<(&mut Text, &mut TextColor), (With<Help>, Without<HostHelp>)>,
+    hosts: Query<&EditableText, With<HostField>>,
+    mut host_help: Query<(&mut Text, &mut TextColor), With<HostHelp>>,
 ) {
+    if let Ok(host) = hosts.single() {
+        let (line, color) = host_line(&host.value().to_string());
+        for (mut text, mut text_color) in &mut host_help {
+            if text.0 != line {
+                text.0 = line.clone();
+            }
+            text_color.0 = color;
+        }
+    }
     let preferences = preferences.get();
     let waiting = listening.current.as_ref();
     let mut set = |children: &Children, value: &str| {
@@ -613,9 +692,64 @@ fn refresh(
     }
 }
 
+/// What the line under the server field says of what is typed in it.
+fn host_line(typed: &str) -> (String, Color) {
+    if typed.trim().is_empty() {
+        return (
+            format!("Empty is the default, {}.", default_host()),
+            theme::TEXT_FAINT,
+        );
+    }
+    match server_url(typed) {
+        Some(url) => (format!("Plays on {url}"), theme::TEXT_FAINT),
+        None => (
+            "Not an address: a host such as star-racer.xyz, or localhost.".to_owned(),
+            theme::AMBER,
+        ),
+    }
+}
+
+/// What changing the server takes: where it is remembered, the connection to move, and what the
+/// last server said of the player, which the next one knows nothing of.
+#[derive(bevy::ecs::system::SystemParam)]
+struct ServerChange<'w> {
+    preferences: ResMut<'w, StoredPreferences>,
+    network: ResMut<'w, Network>,
+    connection: ResMut<'w, Connection>,
+    ladder: ResMut<'w, Ladder>,
+}
+
+impl ServerChange<'_> {
+    /// Takes up what the player left in the server field. Something that is not an address
+    /// changes nothing; nothing at all, or the default typed out, is the default.
+    fn play_on(&mut self, typed: &str) {
+        let typed = typed.trim();
+        let chosen = (!typed.is_empty() && typed != default_host()).then(|| typed.to_owned());
+        let Some(url) = server_url(chosen.as_deref().unwrap_or(&default_host())) else {
+            return;
+        };
+        if self.preferences.get().host == chosen {
+            // Untouched: a server asked for on the command line stays the one played on.
+            return;
+        }
+        self.preferences
+            .update(|preferences| preferences.host = chosen);
+        if self.network.set_server(url, &mut self.connection) {
+            *self.ladder = Ladder::default();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_server_line_says_where_the_game_will_play() {
+        assert_eq!(host_line("localhost").0, "Plays on ws://localhost:8080/ws");
+        assert_eq!(host_line("not an address").1, theme::AMBER);
+        assert!(host_line("  ").0.starts_with("Empty is the default"));
+    }
 
     fn keys(keys: &[KeyCode]) -> impl Iterator<Item = KeyCode> {
         keys.to_vec().into_iter()

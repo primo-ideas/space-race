@@ -1,5 +1,5 @@
 //! What the client is asked to do: from the command line on native, from the page address on the
-//! web (`?server=ws://…&nickname=…&lobby=…&track=…&identity=…&volume=…&autopilot`,
+//! web (`?server=…&nickname=…&lobby=…&track=…&identity=…&volume=…&autopilot`,
 //! `&autopilot_drift`, `&quick_play`, `&ranked`, `&settings`, `&touch`, `&safe_area=…` or `&latency`).
 //!
 //! Without a nickname the game opens on the login screen. The other options skip screens, so the
@@ -13,8 +13,9 @@ use crate::preferences::{DEFAULT_LAPS, DEFAULT_MIN_PLAYERS};
 use crate::ui::safe_area::SafeArea;
 
 pub struct Settings {
-    /// Server WebSocket URL.
-    pub server: String,
+    /// The server asked for by `--server` or `?server=`, as a WebSocket URL. `None` leaves it to
+    /// the host the player set in the settings, or to the default (see [`server_to_use`]).
+    pub server: Option<String>,
     /// How much the game says for itself. Quiet by default: with nothing wrong, a browser
     /// console open on the game stays empty.
     pub log: bevy::log::Level,
@@ -69,32 +70,130 @@ pub struct ScriptedLobby {
 
 const DEFAULT_VOLUME: f32 = 0.7;
 
-fn default_server() -> String {
-    format!("ws://127.0.0.1:{DEFAULT_PORT}{WS_PATH}")
+/// Where the game plays when nobody says otherwise: the deployed server (the user's choice,
+/// 2026-11-11). A server on the same machine is `--server localhost`.
+#[cfg(not(target_arch = "wasm32"))]
+const DEFAULT_HOST: &str = "star-racer.xyz";
+
+/// The host the settings screen offers, and the game connects to, until the player names
+/// another.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn default_host() -> String {
+    DEFAULT_HOST.to_owned()
 }
 
-/// Where the web client connects when the page address says nothing: the same host the page came
-/// from, over TLS, at `<the page's directory>/ws`. The deployed game is served at
-/// `https://…/star-racer/` and reaches its server at `wss://…/star-racer/ws`, which the reverse
-/// proxy forwards (see `docs/deploy.md`), so a deployed page needs no `?server=` at all.
+/// The host the settings screen offers, and the game connects to, until the player names
+/// another: on the web, the one the page came from, with the page's directory, so the game
+/// served at `https://…/star-racer/` reaches its server at `wss://…/star-racer/ws`, which the
+/// reverse proxy forwards (see `docs/deploy.md`), and a deployed page needs no `?server=` at all.
 ///
 /// A page served from a development server on the local machine is the exception: there is no
-/// proxy there, so it falls back to the local server's own address.
+/// proxy there, so it names the local machine, whose server listens on its own port.
 #[cfg(target_arch = "wasm32")]
-fn server_of_the_page() -> String {
+pub fn default_host() -> String {
+    const LOCAL: &str = "127.0.0.1";
     let Some(location) = web_sys::window().map(|window| window.location()) else {
-        return default_server();
+        return LOCAL.to_owned();
     };
     let (Ok(host), Ok(path)) = (location.host(), location.pathname()) else {
-        return default_server();
+        return LOCAL.to_owned();
     };
     if host.starts_with("127.0.0.1") || host.starts_with("localhost") || host.is_empty() {
-        return default_server();
+        return LOCAL.to_owned();
     }
     // The page's directory: everything up to its last slash, so `/star-racer/index.html` and
     // `/star-racer/` both give `/star-racer`.
     let directory = path.rsplit_once('/').map_or("", |(before, _)| before);
-    format!("wss://{host}{directory}{WS_PATH}")
+    format!("{host}{directory}")
+}
+
+/// The WebSocket address of the server a player names, or `None` if what they typed cannot be
+/// one. They may type as little as a host:
+///
+/// - `star-racer.xyz` is `wss://star-racer.xyz/ws`: a host out on the network is reached over
+///   TLS, at the path every deployment serves.
+/// - `primo-ideas.xyz/star-racer` is `wss://primo-ideas.xyz/star-racer/ws`: a path is the
+///   directory the game is served from.
+/// - `localhost`, `127.0.0.1` or an address of the local network is `ws://…:8080/ws`: a server
+///   run by hand has no certificate and listens on its own port.
+/// - `https://…` and `http://…`, as pasted from a browser, say which of the two it is.
+/// - `ws://…` and `wss://…` are taken exactly as written.
+pub fn server_url(typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    if typed.is_empty() || typed.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    for scheme in ["ws://", "wss://"] {
+        if let Some(rest) = typed.strip_prefix(scheme) {
+            return valid_authority(rest.split('/').next()?).then(|| typed.to_owned());
+        }
+    }
+    let (secure, rest) = if let Some(rest) = typed.strip_prefix("https://") {
+        (Some(true), rest)
+    } else if let Some(rest) = typed.strip_prefix("http://") {
+        (Some(false), rest)
+    } else {
+        (None, typed)
+    };
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    if !valid_authority(authority) {
+        return None;
+    }
+    let local = is_local(authority);
+    let secure = secure.unwrap_or(!local);
+    let path = path.trim_end_matches('/');
+    let path = match path {
+        "" => WS_PATH.to_owned(),
+        path if format!("/{path}").ends_with(WS_PATH) => format!("/{path}"),
+        path => format!("/{path}{WS_PATH}"),
+    };
+    let scheme = if secure { "wss" } else { "ws" };
+    // A local server has no proxy in front of it: it is on the game's own port.
+    let port = if local && !has_port(authority) {
+        format!(":{DEFAULT_PORT}")
+    } else {
+        String::new()
+    };
+    Some(format!("{scheme}://{authority}{port}{path}"))
+}
+
+/// Whether this can be a host, with or without a port: something, made of what hosts are made of.
+fn valid_authority(authority: &str) -> bool {
+    !authority.is_empty()
+        && authority
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']' | '_'))
+        && authority.chars().any(|c| c.is_ascii_alphanumeric())
+}
+
+fn has_port(authority: &str) -> bool {
+    // After the bracket of an IPv6 address, if there is one.
+    let after = authority.rsplit_once(']').map_or(authority, |(_, after)| after);
+    after.contains(':')
+}
+
+/// Whether the host is this machine or one beside it: reached in plain text, on the game's port.
+fn is_local(authority: &str) -> bool {
+    let host = if authority.starts_with('[') {
+        authority.split(']').next().unwrap_or(authority)
+    } else {
+        authority.split(':').next().unwrap_or(authority)
+    };
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "[::1"
+        || host.starts_with("127.")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+}
+
+/// The address the game connects to: the one asked for on the command line or in the page
+/// address, then the host the player set in the settings, then the default.
+pub fn server_to_use(asked: Option<String>, chosen: Option<&str>) -> String {
+    asked
+        .or_else(|| chosen.and_then(server_url))
+        .or_else(|| server_url(&default_host()))
+        .unwrap_or_else(|| format!("ws://127.0.0.1:{DEFAULT_PORT}{WS_PATH}"))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,9 +205,11 @@ pub fn read() -> Settings {
 
     #[derive(Parser)]
     struct Args {
-        /// Server WebSocket URL.
-        #[arg(long, default_value_t = default_server())]
-        server: String,
+        /// The server: a host such as star-racer.xyz, `localhost` for one run on this machine, or
+        /// a whole ws:// or wss:// address. Without it, the host set in the settings, or
+        /// star-racer.xyz.
+        #[arg(long, value_parser = server)]
+        server: Option<String>,
 
         /// Connect at once under this nickname, skipping the login screen.
         #[arg(long)]
@@ -230,6 +331,14 @@ pub fn read() -> Settings {
     }
 }
 
+/// A server named on the command line, as the address to connect to.
+#[cfg(not(target_arch = "wasm32"))]
+fn server(value: &str) -> Result<String, String> {
+    server_url(value).ok_or_else(|| {
+        format!("expected a host such as star-racer.xyz or localhost, or a ws:// address, not {value}")
+    })
+}
+
 /// A window size written `WIDTHxHEIGHT`.
 #[cfg(not(target_arch = "wasm32"))]
 fn window_size(value: &str) -> Result<(u32, u32), String> {
@@ -258,7 +367,7 @@ pub fn read() -> Settings {
     }
 
     Settings {
-        server: get("server").unwrap_or_else(server_of_the_page),
+        server: get("server").and_then(|server| server_url(&server)),
         identity: IdentityStore::named(get("identity").as_deref()),
         log: log_level(get("log")),
         volume: number(get("volume"), DEFAULT_VOLUME).clamp(0.0, 1.0),
@@ -320,5 +429,95 @@ fn autopilot_style(grip: bool, drift: bool) -> Option<Style> {
         Some(Style::Grip)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_host_out_on_the_network_is_reached_over_tls() {
+        assert_eq!(
+            server_url("star-racer.xyz").as_deref(),
+            Some("wss://star-racer.xyz/ws")
+        );
+        assert_eq!(
+            server_url("  star-racer.xyz/ ").as_deref(),
+            Some("wss://star-racer.xyz/ws")
+        );
+        // A path is the directory the game is served from.
+        assert_eq!(
+            server_url("primo-ideas.xyz/star-racer").as_deref(),
+            Some("wss://primo-ideas.xyz/star-racer/ws")
+        );
+        assert_eq!(
+            server_url("primo-ideas.xyz/star-racer/ws").as_deref(),
+            Some("wss://primo-ideas.xyz/star-racer/ws")
+        );
+        assert_eq!(
+            server_url("example.org:8443").as_deref(),
+            Some("wss://example.org:8443/ws")
+        );
+    }
+
+    #[test]
+    fn a_local_server_is_reached_in_plain_text_on_the_games_port() {
+        for (typed, url) in [
+            ("localhost", "ws://localhost:8080/ws"),
+            ("127.0.0.1", "ws://127.0.0.1:8080/ws"),
+            ("127.0.0.1:9000", "ws://127.0.0.1:9000/ws"),
+            ("192.168.1.20", "ws://192.168.1.20:8080/ws"),
+            ("[::1]", "ws://[::1]:8080/ws"),
+            ("[::1]:9000", "ws://[::1]:9000/ws"),
+        ] {
+            assert_eq!(server_url(typed).as_deref(), Some(url), "{typed}");
+        }
+    }
+
+    #[test]
+    fn an_address_pasted_from_a_browser_says_whether_it_is_secure() {
+        assert_eq!(
+            server_url("https://star-racer.xyz/").as_deref(),
+            Some("wss://star-racer.xyz/ws")
+        );
+        assert_eq!(
+            server_url("http://example.org:8081").as_deref(),
+            Some("ws://example.org:8081/ws")
+        );
+    }
+
+    #[test]
+    fn a_websocket_address_is_taken_as_written() {
+        for url in ["ws://127.0.0.1:8080/ws", "wss://example.org/anything"] {
+            assert_eq!(server_url(url).as_deref(), Some(url));
+        }
+    }
+
+    #[test]
+    fn what_cannot_be_a_host_is_refused() {
+        for typed in ["", "   ", "not an address", "ws://", "/ws", "...", "a b.xyz"] {
+            assert_eq!(server_url(typed), None, "{typed:?}");
+        }
+    }
+
+    /// The command line first, then the settings, then the default.
+    #[test]
+    fn the_server_asked_for_wins_over_the_one_chosen() {
+        let asked = Some("ws://127.0.0.1:8080/ws".to_owned());
+        assert_eq!(
+            server_to_use(asked, Some("example.org")),
+            "ws://127.0.0.1:8080/ws"
+        );
+        assert_eq!(
+            server_to_use(None, Some("example.org")),
+            "wss://example.org/ws"
+        );
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            assert_eq!(server_to_use(None, None), "wss://star-racer.xyz/ws");
+            // A stored host that is not one any more falls back to the default.
+            assert_eq!(server_to_use(None, Some("no good")), "wss://star-racer.xyz/ws");
+        }
     }
 }

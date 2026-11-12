@@ -1,6 +1,6 @@
 //! What the player chose in the menus, kept between runs: their nickname, the settings of the
 //! lobby creation dialog, and what the settings screen holds (`ui/settings.rs`): their controls,
-//! how the touch controls are laid out and whether anything vibrates.
+//! how the touch controls are laid out, whether anything vibrates, and the server they play on.
 //! They are stored beside the player's key (see
 //! [`crate::net::identity`]), so `--identity` gives each player on a machine their own.
 //!
@@ -54,6 +54,9 @@ pub struct Preferences {
     pub touch: TouchOptions,
     /// Whether a gamepad rumbles and a phone buzzes on hits, drifts and boosts.
     pub vibration: bool,
+    /// The server the player typed in the settings, as they typed it. None while they keep the
+    /// default (see [`crate::settings::server_url`]).
+    pub host: Option<String>,
 }
 
 impl Default for Preferences {
@@ -64,6 +67,7 @@ impl Default for Preferences {
             controls: Bindings::default(),
             touch: TouchOptions::default(),
             vibration: true,
+            host: None,
         }
     }
 }
@@ -98,6 +102,9 @@ impl Preferences {
     fn checked(mut self) -> Self {
         self.nickname = self.nickname.filter(|nickname| is_valid_nickname(nickname));
         self.lobby.name = self.lobby.name.filter(|name| is_valid_lobby_name(name));
+        self.host = self
+            .host
+            .filter(|host| crate::settings::server_url(host).is_some());
         let lobby = &mut self.lobby;
         lobby.laps = lobby.laps.clamp(1, MAX_LAPS);
         lobby.max_players = lobby.max_players.clamp(1, MAX_LOBBY_PLAYERS);
@@ -188,6 +195,7 @@ mod tests {
                 min_players: 3,
                 max_players: 4,
             },
+            host: Some("localhost".into()),
             vibration: false,
             ..default()
         };
@@ -206,6 +214,7 @@ mod tests {
                 min_players: 12,
                 max_players: 3,
             },
+            host: Some("not an address".into()),
             ..default()
         }
         .checked();
@@ -217,6 +226,7 @@ mod tests {
         assert_eq!(broken.lobby.laps, MAX_LAPS);
         assert_eq!(broken.lobby.max_players, 3);
         assert_eq!(broken.lobby.min_players, 3);
+        assert_eq!(broken.host, None);
     }
 
     #[test]

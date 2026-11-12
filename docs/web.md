@@ -59,7 +59,7 @@ With no command line, the web client reads its settings from the page address:
 
 | Parameter | Native equivalent | Default |
 | --- | --- | --- |
-| `server=ws://…` | `--server` | the page's own host (see below) |
+| `server=…` | `--server` | the page's own host (see below); natively `star-racer.xyz`. A host is enough: see [Protocol](protocol.md#the-servers-address) |
 | `nickname=…` | `--nickname` | none: the login screen |
 | `lobby=…` | `--lobby` | none: the lobby list |
 | `track=…` | `--track` | the skyway |

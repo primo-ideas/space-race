@@ -195,7 +195,9 @@ A page served from the site connects to `wss://<the same host>/<its own director
 address says otherwise. Served at `/star-racer/index.html`, it reaches `/star-racer/ws`, which the
 proxy forwards to the game server: a deployed page needs no `?server=` at all. A page served from
 `127.0.0.1` is the exception — there is no proxy in front of a development server — and falls back
-to `ws://127.0.0.1:8080/ws`. `?server=` still overrides both.
+to `ws://127.0.0.1:8080/ws`. `?server=` still overrides both, and so does a server typed in the
+settings. The native client plays on `star-racer.xyz` by default, over `wss://` like a page (see
+[Protocol](protocol.md#the-servers-address)).
 
 ## Day to day
 

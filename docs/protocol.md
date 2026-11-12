@@ -20,6 +20,51 @@ mismatch is answered with `Rejected(ProtocolMismatch { server_version })`. The r
 server's version so the client can tell the player which of the two sides is out of date, instead
 of just failing.
 
+## The server's address
+
+The player names a server by its host, in the settings on the first screen or with `--server`, and
+the client works out the WebSocket address (`settings::server_url`):
+
+| Typed | Connects to | Why |
+| --- | --- | --- |
+| `star-racer.xyz` | `wss://star-racer.xyz/ws` | a host out on the network is behind the proxy, over TLS, at the path every deployment serves |
+| `primo-ideas.xyz/star-racer` | `wss://primo-ideas.xyz/star-racer/ws` | a path is the directory the game is served from |
+| `localhost`, `127.0.0.1`, `192.168.…`, `10.…`, `[::1]` | `ws://…:8080/ws` | a server run by hand has no proxy and no certificate, and listens on its own port |
+| `https://…`, `http://…` | `wss://…`, `ws://…` | pasted from a browser, the scheme says which |
+| `ws://…`, `wss://…` | as written | |
+
+Natively the default is **`star-racer.xyz`** (the user's choice, 2026-11-11): the game plays where
+everyone else does. What wins: `--server` (or `?server=`), then the host typed in the settings,
+then the default. A host typed in the settings is remembered with the other menu choices, and
+changing it disconnects from the server before: the next button pressed connects to the new one.
+The login screen's bottom line says which server the game is on.
+
+**Local development keeps reaching its own server by saying so**: `run.ps1` passes
+`--server 127.0.0.1` unless it is given a `--server` of its own, and every unattended check against
+a local server names it (`--server 127.0.0.1`). `127.0.0.1` rather than `localhost`: on Windows
+`localhost` tries `::1` first, where the server does not listen, before falling back. The tests do
+not go through the address at all; the integration tests start the server and connect to its port.
+
+**The web page** keeps finding its server from its own address (see [Deployment](deploy.md#the-web-client-finds-its-own-server)):
+the host and directory it was served from, which is also what its settings show. Its server field
+is not offered on a phone, whose page already came from its server; on a desktop browser it is,
+the host typed there being reached as above.
+
+### TLS natively
+
+A browser does its own TLS; the native client brings its own: `tokio-tungstenite-wasm` with its
+`rustls-tls-webpki-roots` feature, native only, so nothing of it reaches the web build. The
+server's certificate is checked against Mozilla's list of roots compiled into the game
+(`webpki-roots`), so it asks nothing of the machine and behaves the same on Windows, Linux and a
+fresh install, and Let's Encrypt is in it. rustls is named once in `client/Cargo.toml` only to pick
+its arithmetic, `ring`, which builds with the toolchain Rust already needs; `net.rs` installs it as
+the process's provider before the first connection. No certificate is ever accepted unchecked, and
+there is no self-signed certificate anywhere: a server run locally is reached in plain `ws://`.
+
+Measured on 2026-11-12, the native client in debug on the Windows machine against the deployed
+server, on a home connection: welcomed, then a quick play race on the drifting autopilot at ping
+34 ms (27 to 51), input to screen 33 to 37 ms, 0.0 cm corrected.
+
 ## Handshake
 
 The server allows 2 minutes (`HANDSHAKE_TIMEOUT`) for the whole exchange. That is far more than
