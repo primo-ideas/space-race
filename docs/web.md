@@ -184,6 +184,27 @@ Two build settings are easy to miss and do not show up as compilation errors:
 - `getrandom`'s **`wasm_js` feature** (in `protocol/Cargo.toml`), so key generation and nonces use
   the Web Crypto API.
 
+## Shaders compiled mid-race
+
+A render pipeline is made the first time something drawn needs it. Natively Bevy compiles it on
+another thread and the frame goes on without the newcomer; in a browser there is no other thread,
+and the page stops until the shader is compiled. On 2026-11-13 (v0.1.46) the user reported a
+freeze "a few seconds after playing in the warm-up before the race": the first drift of a run. The
+green arc of a drift's charge (`drift_meter.rs`) is the one mesh of a race laid out unlike the rest
+(a `Cuboid`, with texture coordinates, where every mesh the game builds carries colors instead), and
+it stays hidden until the player drifts, so its pipelines were made then.
+
+Found natively with `--log info`, which now says when a frame took over 66 ms (`long frame`) or the
+race on screen stopped moving while frames went on (`the race on screen stalled`), and `--log debug`,
+which lists every pipeline as it is made (`latency::PipelineWatchPlugin`): two warm-up runs made the
+arc's pipelines 13 and 14 seconds into the lobby, at the autopilot's first drift. Now the arc is
+drawn for its first ten frames in a lobby inside the road's slab, 12 m ahead of the car, where the
+camera looks and the road hides it: every pipeline of a race is made on entering the lobby, with all
+the others, and none in the 40 seconds of racing that followed. Under the car, the first place
+tried, the arc was outside the camera's view, culled before anything was compiled for it.
+
+Not seen in a browser since: the fix was measured natively, by when the pipelines are made.
+
 ## Size
 
 The module is downloaded whole before the first frame, so its size is the wait of a first visit.

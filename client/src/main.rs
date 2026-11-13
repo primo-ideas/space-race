@@ -96,6 +96,7 @@ fn main() {
     .insert_resource(settings.script)
     .insert_resource(ui::touch::Touchscreen(settings.touch))
     .insert_resource(latency::LatencyOverlay(settings.latency))
+    .add_plugins(latency::PipelineWatchPlugin)
     .add_plugins((
         preferences::PreferencesPlugin {
             store: settings.identity.clone(),

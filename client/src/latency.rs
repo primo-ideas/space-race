@@ -54,7 +54,7 @@ impl Plugin for LatencyPlugin {
         app.init_resource::<Latency>()
             .init_resource::<LatencyOverlay>()
             .add_systems(OnEnter(Screen::Lobby), forget_the_last_lobby)
-            .add_systems(Update, (ping.run_if(online), receive, toggle_overlay))
+            .add_systems(Update, (ping.run_if(online), receive, toggle_overlay, report_long_frames, report_stalls))
             .add_systems(
                 Update,
                 (displayed, log_figures)
@@ -459,5 +459,105 @@ mod tests {
         latency.pong(1, after(start, 523));
         assert_eq!(latency.ping.mean(), Some(23.0));
         assert_eq!(latency.pings.len(), 1);
+    }
+}
+
+/// A frame longer than this, in seconds, is a hitch the player sees: four frames at 60 Hz.
+const LONG_FRAME: f32 = 0.066;
+
+/// Says so when a frame took long enough to be seen as a freeze, with where the game was, so a
+/// hitch someone reports can be found in the log (`--log info`).
+fn report_long_frames(
+    time: Res<Time<Real>>,
+    screen: Res<State<Screen>>,
+    current: Res<CurrentLobby>,
+    view: Res<RaceView>,
+) {
+    let frame = time.delta_secs();
+    if frame > LONG_FRAME && time.elapsed_secs() > 5.0 {
+        let phase = current
+            .0
+            .as_ref()
+            .and_then(|membership| membership.state.as_ref())
+            .map(|state| format!("{:?}", state.phase).chars().take(40).collect::<String>());
+        warn!(
+            frame_ms = (frame * 1000.0).round(),
+            screen = ?screen.get(),
+            phase = ?phase,
+            tick = ?view.tick.map(|tick| tick.round()),
+            "long frame"
+        );
+    }
+}
+
+/// Says so when the race on screen stops moving while frames go on: the displayed tick, or the
+/// player's own predicted one, advancing by less than half of the real time that passed over
+/// [`STALL_WINDOW`]. A hitch of that kind is no long frame, so `report_long_frames` cannot see it.
+const STALL_WINDOW: f64 = 0.25;
+
+fn report_stalls(
+    time: Res<Time<Real>>,
+    view: Res<RaceView>,
+    mut since: Local<Option<(f64, f64, Option<f64>)>>,
+) {
+    let now = time.elapsed_secs_f64();
+    let (Some(tick), own) = (view.tick, view.own_tick) else {
+        *since = None;
+        return;
+    };
+    let own: Option<f64> = own;
+    let Some((start, start_tick, start_own)) = *since else {
+        *since = Some((now, tick, own));
+        return;
+    };
+    if now - start < STALL_WINDOW {
+        return;
+    }
+    let expected = (now - start) / f64::from(TICK_SECONDS);
+    let shown = tick - start_tick;
+    let predicted = own.zip(start_own).map(|(own, start)| own - start);
+    if shown < expected / 2.0 || predicted.is_some_and(|ticks| ticks < expected / 2.0) {
+        warn!(
+            over_ms = ((now - start) * 1000.0).round(),
+            shown_ticks = shown.round(),
+            predicted_ticks = ?predicted.map(f64::round),
+            expected_ticks = expected.round(),
+            "the race on screen stalled"
+        );
+    }
+    *since = Some((now, tick, own));
+}
+
+/// Lists every render pipeline as it is made, at debug level (`--log debug`). A pipeline is made the
+/// first time something drawn needs it; natively off the main thread, in a browser on it, where a
+/// new one in the middle of a race freezes the page while its shader compiles. This is how the
+/// first drift's was found (see `drift_meter.rs`): anything that shows up here once a lobby is
+/// under way is the next one to warm up beforehand.
+pub struct PipelineWatchPlugin;
+
+impl Plugin for PipelineWatchPlugin {
+    fn build(&self, app: &mut App) {
+        use bevy::render::render_resource::{PipelineCache, PipelineDescriptor};
+        use bevy::render::{Render, RenderApp, RenderSystems};
+
+        fn watch(cache: Res<PipelineCache>, mut seen: Local<usize>) {
+            let pipelines: Vec<_> = cache.pipelines().collect();
+            for pipeline in pipelines.iter().skip(*seen) {
+                match &pipeline.descriptor {
+                    PipelineDescriptor::RenderPipelineDescriptor(descriptor) => debug!(
+                        label = ?descriptor.label,
+                        defs = ?descriptor.vertex.shader_defs,
+                        "render pipeline made"
+                    ),
+                    PipelineDescriptor::ComputePipelineDescriptor(descriptor) => {
+                        debug!(label = ?descriptor.label, "compute pipeline made")
+                    }
+                }
+            }
+            *seen = pipelines.len();
+        }
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render.add_systems(Render, watch.in_set(RenderSystems::Cleanup));
+        }
     }
 }

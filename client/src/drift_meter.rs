@@ -104,17 +104,54 @@ fn remove_meter(mut commands: Commands, meters: Query<Entity, With<DriftMeter>>)
     }
 }
 
+/// How many frames the arc is drawn out of sight once the player has a car, before any drift.
+const WARM_UP_FRAMES: u32 = 10;
+
+/// Where the arc is drawn while it warms up: ahead of the car, where the chase camera looks, and
+/// inside the road's slab, 1.5 m thick, which hides it. Under the car it was out of the camera's
+/// view, culled before anything was compiled for it.
+const WARM_UP_AHEAD: f32 = 12.0;
+const WARM_UP_DEPTH: f32 = 0.8;
+
 /// Puts the arc under the player's own car while it drifts, lit as far as the drift has charged.
+///
+/// Before the first drift, it is drawn for a few frames under the road, out of sight, both its
+/// materials at once. Its segments are the one mesh of a race laid out unlike the rest, so they
+/// need render pipelines of their own, and a pipeline is only made the first time something drawn
+/// needs it. Natively that happens out of the way; in a browser it is compiled there and then, and
+/// the first drift of a run froze the page for seconds (the user's report on 2026-11-13: a freeze
+/// a few seconds into the warm-up before a race). Drawn once out of sight, it costs that at the
+/// lobby's entry instead, with everything else that is compiled then.
 fn show_charge(
     view: Res<RaceView>,
     track: Option<Res<CurrentTrack>>,
     assets: Res<MeterAssets>,
     mut meters: Query<(&mut Transform, &mut Visibility), With<DriftMeter>>,
     mut segments: Query<(&Segment, &mut MeshMaterial3d<StandardMaterial>)>,
+    mut warmed: Local<u32>,
 ) {
     let Ok((mut transform, mut visibility)) = meters.single_mut() else {
         return;
     };
+    if *warmed < WARM_UP_FRAMES
+        && let (Some(snapshot), Some(track)) = (view.own_snapshot, track.as_ref())
+    {
+        *warmed += 1;
+        let car = snapshot.car;
+        let ahead = car.position + car.forward() * WARM_UP_AHEAD;
+        let surface: Surface = track.0.surface(ahead);
+        *transform =
+            Transform::from_translation(world::position(ahead, surface.height - WARM_UP_DEPTH));
+        *visibility = Visibility::Inherited;
+        for (segment, mut material) in &mut segments {
+            material.0 = if segment.0 % 2 == 0 {
+                assets.lit.clone()
+            } else {
+                assets.unlit.clone()
+            };
+        }
+        return;
+    }
     let drifting = view
         .own_snapshot
         .filter(|snapshot| snapshot.car.is_drifting());
