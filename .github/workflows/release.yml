@@ -1,0 +1,119 @@
+# A GitHub release for every version tag: the desktop client built for Windows, Linux and macOS,
+# attached under names that never change, so the site's download page can link to
+# releases/latest/download/<name> and always hand out the newest one. Claude pushes a tag
+# `vX.Y.Z` each time a version is deployed (docs/releases.md); a run can also be started by hand
+# for an existing tag.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The version tag to build and release, such as v0.1.41
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: star-racer-windows-x86_64.zip
+            binary: star-racer-client.exe
+          - os: ubuntu-latest
+            asset: star-racer-linux-x86_64.tar.gz
+            binary: star-racer-client
+          - os: macos-latest
+            asset: star-racer-macos-arm64.tar.gz
+            binary: star-racer-client
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      # What Bevy needs to link on Linux (see build-client-native.yml).
+      - name: Install Bevy's Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: release-${{ matrix.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: release-${{ matrix.os }}-
+
+      # The client alone, optimized: one file, its fonts inside it, playing on star-racer.xyz unless
+      # told otherwise.
+      - run: cargo build --locked --release -p star-racer-client
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p package/star-racer
+          cp "target/release/${{ matrix.binary }}" package/star-racer/
+          cp LICENSE package/star-racer/
+          cp client/assets/fonts/OFL.txt package/star-racer/FONT-LICENSE.txt
+          cd package
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "../${{ matrix.asset }}" star-racer
+          else
+            tar czf "../${{ matrix.asset }}" star-racer
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      # The notes are the version's commit message, which says what changed and why.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+          path: source
+      - name: Write the notes
+        run: git -C source log -1 --format=%B "$TAG" > notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" assets/* \
+            --repo "${{ github.repository }}" \
+            --title "Star Racer $TAG" \
+            --notes-file notes.md \
+            --latest \
+          || gh release upload "$TAG" assets/* --repo "${{ github.repository }}" --clobber

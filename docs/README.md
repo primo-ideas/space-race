@@ -16,4 +16,5 @@ the current status; these pages explain *why* the code looks the way it does.
 - [Latency](latency.md) — where the time between a press and the car's answer goes, and how it is measured.
 - [Web build](web.md) — building and serving the browser client, what differs from native.
 - [Deployment](deploy.md) — setting the machine up once, and the two ways a build goes online.
+- [Releases and downloads](releases.md) — a GitHub release for every deployed version, and the download page.
 - [Continuous integration](ci.md) — the four checks, the deployment, and why it could not exist before.

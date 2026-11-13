@@ -1,7 +1,8 @@
 # Continuous integration
 
-Five GitHub workflows in `.github/workflows/`, each with a badge of its own in the README. Four
-check a commit; the fifth puts it online.
+Six GitHub workflows in `.github/workflows/`, each with a badge of its own in the README. Four
+check a commit; the fifth puts it online; the sixth, `release.yml`, builds the desktop client for a
+version tag and publishes it as a GitHub release (see [Releases](releases.md)).
 
 | Workflow | What it proves |
 | --- | --- |
@@ -10,6 +11,7 @@ check a commit; the fifth puts it online.
 | `build-client-native.yml` | The desktop client compiles on Linux, tests included. It is the one workflow that installs system packages: Bevy links against ALSA, udev, Wayland, xkbcommon and X11, and a runner image carries none of their `-dev` halves. |
 | `build-client-wasm.yml` | The client compiles for the browser. |
 | `deploy.yml` | The commit is playable at <https://primo-ideas.xyz/star-racer/> (see [Deploying](#deploying)). |
+| `release.yml` | On a `v*` tag: the client for Windows, Linux and macOS, released for download (see [Releases](releases.md)). |
 
 The four checks run on every push to `main`, on every pull request, and by hand. They build the
 **dev profile** with `CARGO_PROFILE_DEV_DEBUG=0`: a check only needs to know the code compiles,

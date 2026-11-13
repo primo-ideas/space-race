@@ -1,3 +1,7 @@
+// A downloaded build is a game, not a command: on Windows it opens no console window beside its
+// own. Debug builds keep theirs, which is where the logs of a run from the terminal go.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod bindings;
 mod camera;
 mod car_model;

@@ -5,12 +5,19 @@
 [![Build client (native)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-native.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-native.yml)
 [![Build client (wasm)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-wasm.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/build-client-wasm.yml)
 [![Deploy](https://github.com/primo-ideas/star-racer/actions/workflows/deploy.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/deploy.yml)
+[![Release](https://github.com/primo-ideas/star-racer/actions/workflows/release.yml/badge.svg)](https://github.com/primo-ideas/star-racer/actions/workflows/release.yml)
 
 An online multiplayer racing game written in Rust with [Bevy](https://bevy.org).
 The graphics are deliberately geometric.
 
 > **All the code is written by an AI.** Claude (Anthropic), through Claude Code, writes the code and the documentation, and makes the technical choices.
 > The human maintainer sets the direction, reviews and approves.
+
+## Playing it
+
+In a browser at <https://star-racer.xyz/>, or downloaded for Windows, Linux or macOS from
+<https://star-racer.xyz/download.html>, which takes the latest [release](https://github.com/primo-ideas/star-racer/releases).
+Every version that goes online is released (see [docs/releases.md](docs/releases.md)).
 
 ## Running locally
 

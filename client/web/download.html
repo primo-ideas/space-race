@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download Star Racer</title>
+  <meta name="description" content="Star Racer for Windows, Linux and macOS: an online arcade racing game of drifting hovercraft.">
+  <link rel="icon" href="/favicon.png">
+  <style>
+    /* The menus' colors (client/src/ui/theme.rs): a dark translucent panel, neon blue. */
+    :root {
+      --background: #000;
+      --panel: rgba(10, 12, 18, 0.88);
+      --border: rgba(40, 140, 255, 0.35);
+      --neon: #1a9bff;
+      --text: #eef2ff;
+      --dim: #99a6bd;
+      --faint: #66708a;
+      --magenta: #ff3d8b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background:
+        radial-gradient(ellipse at 70% 10%, rgba(140, 30, 160, 0.35), transparent 55%),
+        linear-gradient(to bottom, #000 0%, #02040c 60%, #000 100%);
+      color: var(--text);
+      /* The page asks nothing of anyone else's server, as the game does not: the system's font. */
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px;
+    }
+    h1 {
+      font-style: italic;
+      font-weight: 800;
+      font-size: clamp(44px, 9vw, 84px);
+      margin: 0;
+      letter-spacing: -1px;
+      text-shadow: 4px 4px 0 rgba(26, 155, 255, 0.8);
+    }
+    .tagline {
+      color: var(--neon);
+      letter-spacing: 5px;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 4px 0 36px;
+      text-align: center;
+    }
+    .card {
+      width: min(560px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .play {
+      display: block;
+      text-align: center;
+      background: var(--neon);
+      color: #041020;
+      font-weight: 700;
+      font-size: 24px;
+      letter-spacing: 1px;
+      padding: 16px;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    .play:hover { background: #59c7ff; }
+    .caption {
+      color: var(--faint);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      margin-top: 10px;
+    }
+    a.download {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      border: 1.5px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      text-decoration: none;
+    }
+    a.download:hover { border-color: var(--neon); background: rgba(26, 155, 255, 0.08); }
+    a.download.yours { border-color: var(--neon); }
+    a.download strong { font-size: 19px; }
+    a.download span { color: var(--dim); font-size: 14px; }
+    .note { color: var(--dim); font-size: 14px; line-height: 1.5; margin: 6px 0 0; }
+    .note code { color: var(--text); }
+    .footer { margin-top: 28px; color: var(--faint); font-size: 13px; text-align: center; }
+    .footer a { color: var(--dim); }
+  </style>
+</head>
+<body>
+  <h1>STAR RACER</h1>
+  <div class="tagline">ONLINE ARCADE RACING · ALPHA</div>
+  <div class="card">
+    <a class="play" href="./">PLAY IN THE BROWSER</a>
+    <div class="caption">OR DOWNLOAD THE GAME</div>
+    <!-- Every link names an asset of the latest release, which the Release workflow attaches under
+         the same name every time (.github/workflows/release.yml). -->
+    <a class="download" data-os="windows"
+       href="https://github.com/primo-ideas/star-racer/releases/latest/download/star-racer-windows-x86_64.zip">
+      <strong>Windows</strong><span>64-bit · .zip</span>
+    </a>
+    <a class="download" data-os="linux"
+       href="https://github.com/primo-ideas/star-racer/releases/latest/download/star-racer-linux-x86_64.tar.gz">
+      <strong>Linux</strong><span>x86-64 · .tar.gz</span>
+    </a>
+    <a class="download" data-os="macos"
+       href="https://github.com/primo-ideas/star-racer/releases/latest/download/star-racer-macos-arm64.tar.gz">
+      <strong>macOS</strong><span>Apple silicon · .tar.gz</span>
+    </a>
+    <p class="note">
+      One file to run, nothing to install: unpack it and start <code>star-racer-client</code>.
+      It plays on the same server as this page, with a gamepad, a keyboard or both.
+      The builds are not signed: Windows asks before running it the first time ("More info", then
+      "Run anyway"), and on macOS it opens from a right click, "Open". Linux needs ALSA and udev,
+      which every desktop has.
+    </p>
+  </div>
+  <div class="footer">
+    <a href="https://github.com/primo-ideas/star-racer/releases">Every release, with what changed</a>
+    · <a href="https://github.com/primo-ideas/star-racer">Source</a>
+  </div>
+  <script>
+    // The visitor's own system stands out.
+    const agent = navigator.userAgent;
+    const os = /Windows/.test(agent) ? "windows"
+      : /Mac OS X|Macintosh/.test(agent) ? "macos"
+      : /Linux|X11/.test(agent) ? "linux" : null;
+    if (os) {
+      document.querySelector(`a.download[data-os="${os}"]`)?.classList.add("yours");
+    }
+  </script>
+</body>
+</html>

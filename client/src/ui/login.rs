@@ -537,6 +537,13 @@ fn spawn_login(
                         .insert(small(120.0))
                         .observe(quit);
                 }
+                // In its place on the web, the page that offers the game to download (see
+                // docs/releases.md); a phone has no use for it.
+                if cfg!(target_arch = "wasm32") && !touchscreen.0 {
+                    row.spawn(button(&fonts, ButtonKind::Secondary, "DOWNLOAD"))
+                        .insert(small(150.0))
+                        .observe(open_downloads);
+                }
                 // In its place on a phone's browser, the way to the whole screen.
                 if full_screen_wanted(*touchscreen) {
                     row.spawn((
@@ -948,6 +955,18 @@ fn reroll_shortcut(
         for entity in &buttons {
             commands.trigger(Activate { entity });
         }
+    }
+}
+
+/// Opens the download page beside the game, in a tab of its own.
+fn open_downloads(_: On<Activate>) {
+    #[cfg(target_arch = "wasm32")]
+    if let Some(window) = web_sys::window()
+        && window
+            .open_with_url_and_target("download.html", "_blank")
+            .is_err()
+    {
+        warn!("the download page could not be opened");
     }
 }
 
