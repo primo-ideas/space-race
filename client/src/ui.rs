@@ -4,6 +4,7 @@
 mod back;
 mod backdrop;
 mod create_lobby;
+mod garage;
 pub mod hud;
 pub mod leaderboard;
 mod lobbies;
@@ -49,6 +50,7 @@ impl Plugin for UiPlugin {
             back::BackPlugin,
             leaderboard::LeaderboardPlugin,
             settings::SettingsPlugin,
+            garage::GaragePlugin,
         ))
         .add_systems(PreUpdate, scale_to_window);
     }

@@ -18,7 +18,7 @@ use futures_util::{SinkExt, StreamExt};
 use star_racer_protocol::auth;
 use star_racer_protocol::ranked::{LeaderboardEntry, QueueStatus, RankedProfile};
 use star_racer_protocol::{
-    self as protocol, CarId, ClientMessage, Identity, JoinError, LobbyId, LobbySettings,
+    self as protocol, CarId, CarLook, ClientMessage, Identity, JoinError, LobbyId, LobbySettings,
     LobbyState, LobbySummary, Login, OnlinePlayer, PROTOCOL_VERSION, RejectReason, ServerMessage,
     Snapshot, TrackInfo,
 };
@@ -110,6 +110,8 @@ pub struct Network {
     /// How to come back the way the server last welcomed the player: the same guest, or the
     /// account this device is now signed in to, without its password.
     resume: Option<(String, Login)>,
+    /// How the player's car looks, said in every `Hello` and whenever it changes.
+    look: CarLook,
 }
 
 /// Bevy's ends of the channels to a running session.
@@ -153,6 +155,15 @@ impl Network {
         self.forget();
     }
 
+    /// The player's car looks like this from now on: the server is told at once if connected,
+    /// and in every connection's `Hello`.
+    pub fn set_look(&mut self, look: CarLook) {
+        if self.look != look {
+            self.look = look;
+            self.send(ClientMessage::SetLook(look));
+        }
+    }
+
     /// Forgets how the player last came in.
     pub fn forget(&mut self) {
         self.resume = None;
@@ -175,6 +186,7 @@ impl Network {
         let (shutdown_sender, shutdown) = oneshot::channel();
         let server = self.server.clone();
         let identity = self.identity.clone();
+        let look = self.look;
         *connection = Connection::Connecting {
             nickname: nickname.clone(),
         };
@@ -185,7 +197,7 @@ impl Network {
                 outgoing,
                 shutdown,
             };
-            let reason = run_session(&server, login, &identity, channels)
+            let reason = run_session(&server, login, look, &identity, channels)
                 .await
                 .unwrap_or_else(|error| format!("{error:#}"));
             let _ = sender.send(NetEvent::Disconnected(reason));
@@ -230,10 +242,9 @@ impl Session {
 impl Plugin for NetPlugin {
     fn build(&self, app: &mut App) {
         // The preferences are loaded by the time this is built: their plugin is added first.
-        let chosen = app
-            .world()
-            .get_resource::<StoredPreferences>()
-            .and_then(|preferences| preferences.get().host.clone());
+        let preferences = app.world().get_resource::<StoredPreferences>();
+        let chosen = preferences.and_then(|preferences| preferences.get().host.clone());
+        let look = preferences.map_or(CarLook::default(), |preferences| preferences.get().car_look());
         let server = server_to_use(self.server.clone(), chosen.as_deref());
 
         // rustls is told who does its arithmetic once, before the first `wss://` connection. A
@@ -248,6 +259,7 @@ impl Plugin for NetPlugin {
                 identity: self.identity.clone(),
                 session: None,
                 resume: None,
+                look,
             })
             .add_systems(First, forward_net_events);
 
@@ -289,6 +301,7 @@ struct Channels<'a> {
 async fn run_session(
     server: &str,
     login: Login,
+    look: CarLook,
     identity: &IdentityStore,
     channels: Channels<'_>,
 ) -> Result<String> {
@@ -307,6 +320,7 @@ async fn run_session(
         protocol_version: PROTOCOL_VERSION,
         public_key: key.verifying_key().to_bytes(),
         login,
+        look,
     };
     send(&mut socket, &hello).await?;
 

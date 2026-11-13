@@ -1030,6 +1030,7 @@ impl Lobby {
                     car: member.car_id,
                     nickname: member.player.nickname.clone(),
                     guest: member.player.guest,
+                    look: member.player.look,
                     status: member.status,
                     start: member.start.grade(),
                     rating: self.ranked.as_ref().and_then(|ranked| {
@@ -1133,6 +1134,7 @@ mod tests {
             nickname: format!("Player {number}"),
             guest: false,
             device: [number; 32],
+            look: Default::default(),
         }
     }
 

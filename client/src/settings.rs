@@ -1,7 +1,7 @@
 //! What the client is asked to do: from the command line on native, from the page address on the
 //! web (`?server=…&guest&lobby=…&track=…&identity=…&volume=…&autopilot`, or
 //! `&account=…&password=…&create` in place of `&guest`, `&autopilot_drift`, `&quick_play`,
-//! `&ranked`, `&settings`, `&touch`, `&safe_area=…` or `&latency`).
+//! `&ranked`, `&settings`, `&garage`, `&touch`, `&safe_area=…` or `&latency`).
 //!
 //! Without `--guest` or `--account` the game opens on the first screen. The other options skip
 //! screens, so the game can reach a lobby and drive with nobody at the keyboard.
@@ -56,6 +56,8 @@ pub struct Script {
     pub ranked: bool,
     /// Open the settings over the first screen, to look at them.
     pub settings: bool,
+    /// Open the garage, to look at it.
+    pub garage: bool,
     /// Let the autopilot drive, in this style.
     pub autopilot: Option<Style>,
 }
@@ -286,6 +288,10 @@ pub fn read() -> Settings {
         #[arg(long, conflicts_with = "who")]
         settings: bool,
 
+        /// Open the garage, where the pod is chosen and painted.
+        #[arg(long, conflicts_with_all = ["who", "settings"])]
+        garage: bool,
+
         /// Player identity directory. Useful to run several clients on the same machine.
         #[arg(long)]
         identity: Option<PathBuf>,
@@ -360,6 +366,7 @@ pub fn read() -> Settings {
             quick_play: args.quick_play,
             ranked: args.ranked,
             settings: args.settings,
+            garage: args.garage,
             autopilot: autopilot_style(args.autopilot, args.autopilot_drift),
         },
         touch: args.touch,
@@ -422,6 +429,7 @@ pub fn read() -> Settings {
             quick_play: has("quick_play"),
             ranked: has("ranked"),
             settings: has("settings"),
+            garage: has("garage"),
             autopilot: autopilot_style(has("autopilot"), has("autopilot_drift")),
         },
         touch: has("touch") || touchscreen(),

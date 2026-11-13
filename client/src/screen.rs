@@ -28,6 +28,8 @@ pub enum Screen {
     Lobbies,
     /// In a lobby: driving, racing or spectating.
     Lobby,
+    /// Choosing and painting a pod, from the first screen.
+    Garage,
 }
 
 /// What the player asked for on the login screen, to carry out once connected.

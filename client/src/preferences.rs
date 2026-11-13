@@ -14,7 +14,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use star_racer_protocol::{
-    LobbySettings, MAX_LAPS, MAX_LOBBY_PLAYERS, is_valid_lobby_name, is_valid_nickname,
+    CarLook, LobbySettings, MAX_LAPS, MAX_LOBBY_PLAYERS, is_valid_lobby_name, is_valid_nickname,
 };
 
 use crate::bindings::Bindings;
@@ -36,7 +36,12 @@ pub struct PreferencesPlugin {
 
 impl Plugin for PreferencesPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(StoredPreferences::load(self.store.clone()));
+        let mut preferences = StoredPreferences::load(self.store.clone());
+        // A first run gets a car of its own at random, kept from then on.
+        if preferences.get().look.is_none() {
+            preferences.update(|chosen| chosen.look = Some(LookPreference::of(CarLook::random())));
+        }
+        app.insert_resource(preferences);
     }
 }
 
@@ -58,6 +63,9 @@ pub struct Preferences {
     pub touch: TouchOptions,
     /// Whether a gamepad rumbles and a phone buzzes on hits, drifts and boosts.
     pub vibration: bool,
+    /// How their car looks, as chosen in the garage. None until the game has given them one,
+    /// which it does at random the first time it runs.
+    pub look: Option<LookPreference>,
     /// The server the player typed in the settings, as they typed it. None while they keep the
     /// default (see [`crate::settings::server_url`]).
     pub host: Option<String>,
@@ -72,8 +80,43 @@ impl Default for Preferences {
             controls: Bindings::default(),
             touch: TouchOptions::default(),
             vibration: true,
+            look: None,
             host: None,
         }
+    }
+}
+
+/// A car's look, as the preferences file writes it.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LookPreference {
+    pub model: u8,
+    pub paint: u8,
+    pub neon: u8,
+}
+
+impl LookPreference {
+    pub fn look(self) -> CarLook {
+        CarLook {
+            model: self.model,
+            paint: self.paint,
+            neon: self.neon,
+        }
+        .checked()
+    }
+
+    pub fn of(look: CarLook) -> Self {
+        Self {
+            model: look.model,
+            paint: look.paint,
+            neon: look.neon,
+        }
+    }
+}
+
+impl Preferences {
+    /// The look of the player's car.
+    pub fn car_look(&self) -> CarLook {
+        self.look.map_or(CarLook::default(), LookPreference::look)
     }
 }
 

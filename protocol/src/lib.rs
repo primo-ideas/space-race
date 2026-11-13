@@ -19,7 +19,7 @@ pub mod names;
 pub mod ranked;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 26;
+pub const PROTOCOL_VERSION: u32 = 27;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -58,9 +58,14 @@ pub enum ClientMessage {
         protocol_version: u32,
         public_key: PublicKey,
         login: Login,
+        /// How the player's car looks, as chosen in the garage.
+        look: CarLook,
     },
     /// Signature of the nonce received in [`ServerMessage::Challenge`].
     ChallengeResponse { signature: SignatureBytes },
+    /// The player chose another look for their car in the garage. Only while browsing: it is what
+    /// the next lobby they enter sees.
+    SetLook(CarLook),
     /// Signs this device out of its account: the server forgets the device, so the next
     /// connection has to sign in again. Only while browsing; the server closes the connection.
     SignOut,
@@ -177,6 +182,46 @@ pub enum Login {
         password: String,
         create: bool,
     },
+}
+
+/// How many pods there are to choose from, paints and neon colors. The client names and draws
+/// them (`car_model.rs`); the wire only carries which.
+pub const CAR_MODELS: u8 = 4;
+pub const CAR_PAINTS: u8 = 10;
+pub const CAR_NEONS: u8 = 8;
+
+/// How a player's car looks: which pod, and its paint and neon, each an index into the client's
+/// lists. Purely what is drawn: every pod drives the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Encode, Decode)]
+pub struct CarLook {
+    pub model: u8,
+    pub paint: u8,
+    pub neon: u8,
+}
+
+impl CarLook {
+    /// A look picked at random, for a player who has never been to the garage: a grid of players
+    /// who never chose is not a grid of the same car.
+    pub fn random() -> Self {
+        let mut bytes = [0; 3];
+        getrandom::fill(&mut bytes).expect("OS random generator unavailable");
+        Self {
+            model: bytes[0],
+            paint: bytes[1],
+            neon: bytes[2],
+        }
+        .checked()
+    }
+
+    /// The same look with anything out of range brought back in, so a peer cannot ask for a pod
+    /// that does not exist.
+    pub fn checked(self) -> Self {
+        Self {
+            model: self.model % CAR_MODELS,
+            paint: self.paint % CAR_PAINTS,
+            neon: self.neon % CAR_NEONS,
+        }
+    }
 }
 
 /// Who the server took a player for.
@@ -332,6 +377,8 @@ pub struct LobbyPlayer {
     pub nickname: String,
     /// Playing without an account.
     pub guest: bool,
+    /// How their car looks.
+    pub look: CarLook,
     pub status: PlayerStatus,
     /// How well the player started the current or last race, once graded.
     pub start: Option<StartGrade>,
@@ -457,6 +504,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_look_out_of_range_is_brought_back() {
+        let look = CarLook {
+            model: CAR_MODELS + 1,
+            paint: 255,
+            neon: CAR_NEONS,
+        }
+        .checked();
+        assert!(look.model < CAR_MODELS && look.paint < CAR_PAINTS && look.neon < CAR_NEONS);
+        assert_eq!(look.model, 1);
+        assert_eq!(look.neon, 0);
+    }
+
+    #[test]
     fn message_round_trip() {
         for login in [
             Login::Guest {
@@ -473,6 +533,11 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION,
                 public_key: [7; 32],
                 login,
+                look: CarLook {
+                    model: 2,
+                    paint: 7,
+                    neon: 3,
+                },
             };
             assert_eq!(decode::<ClientMessage>(&encode(&hello)).unwrap(), hello);
         }
@@ -568,6 +633,11 @@ mod tests {
                 car: CarId(2),
                 nickname: "Zoë".into(),
                 guest: true,
+                look: CarLook {
+                    model: 3,
+                    paint: 1,
+                    neon: 5,
+                },
                 status: PlayerStatus::Finished { time_ms: 61_250 },
                 start: Some(StartGrade::A),
                 rating: Some(1000),

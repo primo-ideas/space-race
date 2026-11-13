@@ -5,18 +5,18 @@
 //! [`INTERPOLATION_DELAY`], so there is almost always a snapshot on each side of the displayed
 //! moment to interpolate between.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::f32::consts::{PI, TAU};
 
 use bevy::light::NotShadowCaster;
 use bevy::platform::time::Instant;
 use bevy::prelude::*;
-use star_racer_protocol::{CarId, CarSnapshot, Snapshot};
+use star_racer_protocol::{CarId, CarLook, CarSnapshot, Snapshot};
 use star_racer_sim::TICK_SECONDS;
 use star_racer_sim::car::Car;
 use star_racer_sim::track::Surface;
 
-use crate::car_model::{self, Livery};
+use crate::car_model::{self, Livery, Nozzle};
 use crate::lobby::CurrentLobby;
 use crate::net::NetEvent;
 use crate::prediction::{Prediction, predict};
@@ -114,12 +114,17 @@ impl Spectated {
 #[derive(Component)]
 pub struct CarVisual(pub CarId);
 
+/// The look a car is drawn in, so a car whose player's look arrives late is drawn again.
+#[derive(Component)]
+struct ShownLook(CarLook);
+
+/// What every car is drawn with: its meshes, one set per look, made the first time a look is
+/// seen, and the materials they share.
 #[derive(Resource)]
-struct CarAssets {
-    own: LiveryAssets,
-    other: LiveryAssets,
-    hull_flames: Handle<Mesh>,
-    pod_flames: Handle<Mesh>,
+pub struct CarAssets {
+    liveries: HashMap<CarLook, LiveryAssets>,
+    /// One thruster's flame, scaled to each nozzle.
+    flame: Handle<Mesh>,
     /// Lit, colored by the meshes' own vertex colors.
     hull_material: Handle<StandardMaterial>,
     /// Unlit: the neon and the thrusters shine by themselves.
@@ -132,11 +137,29 @@ struct CarAssets {
     shadow_material: Handle<StandardMaterial>,
 }
 
-/// The meshes painted in one livery.
+/// The meshes of one look.
+#[derive(Clone)]
 struct LiveryAssets {
     hull: Handle<Mesh>,
     lights: Handle<Mesh>,
     under_glow: Handle<Mesh>,
+}
+
+impl CarAssets {
+    fn livery(&mut self, look: CarLook, meshes: &mut Assets<Mesh>) -> LiveryAssets {
+        let look = look.checked();
+        self.liveries
+            .entry(look)
+            .or_insert_with(|| {
+                let livery = Livery::of(look);
+                LiveryAssets {
+                    hull: meshes.add(car_model::hull_geometry(&livery).into_mesh()),
+                    lights: meshes.add(car_model::lights_geometry(&livery).into_mesh()),
+                    under_glow: meshes.add(car_model::under_glow_geometry(&livery).into_mesh()),
+                }
+            })
+            .clone()
+    }
 }
 
 fn create_car_assets(
@@ -144,18 +167,9 @@ fn create_car_assets(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut livery = |livery: &Livery| LiveryAssets {
-        hull: meshes.add(car_model::hull_geometry(livery).into_mesh()),
-        lights: meshes.add(car_model::lights_geometry(livery).into_mesh()),
-        under_glow: meshes.add(car_model::under_glow_geometry(livery).into_mesh()),
-    };
-    let own = livery(&Livery::OWN);
-    let other = livery(&Livery::OTHER);
     commands.insert_resource(CarAssets {
-        own,
-        other,
-        hull_flames: meshes.add(car_model::hull_flames_geometry().into_mesh()),
-        pod_flames: meshes.add(car_model::pod_flames_geometry().into_mesh()),
+        liveries: HashMap::new(),
+        flame: meshes.add(car_model::flame_geometry().into_mesh()),
         shadow: meshes.add(car_model::shadow_geometry().into_mesh()),
         shadow_material: materials.add(StandardMaterial {
             unlit: true,
@@ -178,6 +192,74 @@ fn create_car_assets(
             ..default()
         }),
     });
+}
+
+/// Spawns a car drawn in `look` under `root`, and returns it: its body, which sways in a race
+/// (`racing`), with the hull, the lights and a flame at every nozzle, and on the road under it the
+/// shadow and the light. `car` is the race's car whose speed the flames follow; without one they
+/// burn as at rest. The garage shows its pod with this too.
+pub fn spawn_car(
+    commands: &mut Commands,
+    assets: &mut CarAssets,
+    meshes: &mut Assets<Mesh>,
+    look: CarLook,
+    car: Option<CarId>,
+    racing: bool,
+    root: impl Bundle,
+) -> Entity {
+    let livery = assets.livery(look, meshes);
+    let model = Livery::of(look).model;
+    let body = commands
+        .spawn((Transform::default(), Visibility::default()))
+        .id();
+    if racing {
+        commands.entity(body).insert(CarBody);
+    }
+    let resting = car_model::flame_length(0.0, false, 0.0);
+    commands.entity(body).with_children(|parts| {
+        parts.spawn((
+            Mesh3d(livery.hull.clone()),
+            MeshMaterial3d(assets.hull_material.clone()),
+        ));
+        parts.spawn((
+            Mesh3d(livery.lights.clone()),
+            MeshMaterial3d(assets.lights_material.clone()),
+            NotShadowCaster,
+        ));
+        for nozzle in car_model::nozzles(model) {
+            parts.spawn((
+                Thrusters {
+                    car,
+                    nozzle: *nozzle,
+                },
+                Mesh3d(assets.flame.clone()),
+                MeshMaterial3d(assets.added_material.clone()),
+                Transform::from_translation(car_model::flame_origin(nozzle))
+                    .with_scale(car_model::flame_scale(nozzle, resting)),
+                NotShadowCaster,
+            ));
+        }
+    });
+    // On the road rather than on the body: the shadow and the light stay where the road is while
+    // the body sways over it.
+    let shadow = commands
+        .spawn((
+            Mesh3d(assets.shadow.clone()),
+            MeshMaterial3d(assets.shadow_material.clone()),
+            NotShadowCaster,
+        ))
+        .id();
+    let glow = commands
+        .spawn((
+            Mesh3d(livery.under_glow.clone()),
+            MeshMaterial3d(assets.added_material.clone()),
+            NotShadowCaster,
+        ))
+        .id();
+    commands
+        .spawn((root, ShownLook(look.checked())))
+        .add_children(&[body, shadow, glow])
+        .id()
 }
 
 fn forget_race(
@@ -243,10 +325,11 @@ fn display_cars(
     current: Res<CurrentLobby>,
     spectated: Res<Spectated>,
     prediction: Res<Prediction>,
-    assets: Res<CarAssets>,
+    mut assets: ResMut<CarAssets>,
+    mut meshes: ResMut<Assets<Mesh>>,
     time: Res<Time<Real>>,
     track: Option<Res<CurrentTrack>>,
-    mut visuals: Query<(Entity, &CarVisual, &mut Transform)>,
+    mut visuals: Query<(Entity, &CarVisual, &ShownLook, &mut Transform)>,
 ) {
     let own_id = current.0.as_ref().map(|membership| membership.car);
     let now = time
@@ -299,9 +382,19 @@ fn display_cars(
         .map(|time| time / f64::from(TICK_SECONDS));
     view.own_tick = prediction.own_tick();
 
+    // Each player's look, as the lobby says it; a car seen before its player is drawn as the
+    // first pod, and again once the look arrives.
+    let look_of = |id: CarId| {
+        current
+            .0
+            .as_ref()
+            .and_then(|membership| membership.player(id))
+            .map_or(CarLook::default(), |player| player.look.checked())
+    };
     let mut displayed = Vec::new();
-    for (entity, visual, mut transform) in &mut visuals {
+    for (entity, visual, shown, mut transform) in &mut visuals {
         match cars.iter().find(|car| car.id == visual.0) {
+            Some(car) if shown.0 != look_of(car.id) => commands.entity(entity).despawn(),
             Some(car) => {
                 *transform = car_transform(&car.car, surface(&car.car));
                 displayed.push(visual.0);
@@ -314,65 +407,31 @@ fn display_cars(
         if displayed.contains(id) {
             continue;
         }
-        let livery = if Some(*id) == own_id {
-            &assets.own
-        } else {
-            &assets.other
-        };
-        let flames = |mesh: &Handle<Mesh>, origin: Vec3| {
+        spawn_car(
+            &mut commands,
+            &mut assets,
+            &mut meshes,
+            look_of(*id),
+            Some(*id),
+            true,
             (
-                Thrusters(*id),
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(assets.added_material.clone()),
-                Transform::from_translation(origin),
-                NotShadowCaster,
-            )
-        };
-        commands.spawn((
-            CarVisual(*id),
-            Sway::default(),
-            car_transform(car, surface(car)),
-            Visibility::default(),
-            children![
-                (
-                    CarBody,
-                    Transform::default(),
-                    Visibility::default(),
-                    children![
-                        (
-                            Mesh3d(livery.hull.clone()),
-                            MeshMaterial3d(assets.hull_material.clone()),
-                        ),
-                        (
-                            Mesh3d(livery.lights.clone()),
-                            MeshMaterial3d(assets.lights_material.clone()),
-                            NotShadowCaster,
-                        ),
-                        flames(&assets.hull_flames, car_model::hull_flames_origin()),
-                        flames(&assets.pod_flames, car_model::pod_flames_origin()),
-                    ],
-                ),
-                // On the road rather than on the body: the shadow and the light stay where the
-                // road is while the body sways over it.
-                (
-                    Mesh3d(assets.shadow.clone()),
-                    MeshMaterial3d(assets.shadow_material.clone()),
-                    NotShadowCaster,
-                ),
-                (
-                    Mesh3d(livery.under_glow.clone()),
-                    MeshMaterial3d(assets.added_material.clone()),
-                    NotShadowCaster,
-                ),
-            ],
-        ));
+                CarVisual(*id),
+                Sway::default(),
+                car_transform(car, surface(car)),
+                Visibility::default(),
+            ),
+        );
     }
     view.cars = cars;
 }
 
-/// A car's thruster flames, which stretch with its speed and roar out on a boost.
+/// A thruster's flame, which stretches with its car's speed and roars out on a boost. Without a
+/// car, as in the garage, it burns as at rest.
 #[derive(Component)]
-struct Thrusters(CarId);
+struct Thrusters {
+    car: Option<CarId>,
+    nozzle: Nozzle,
+}
 
 /// How fast a car goes, for its flames, as a share of this speed: a car at top speed burns at full.
 const FLAME_FULL_SPEED: f32 = 58.0;
@@ -386,14 +445,17 @@ fn light_thrusters(
 ) {
     let now = time.elapsed_secs();
     for (thrusters, mut transform) in &mut flames {
-        let Some(car) = view.cars.iter().find(|car| car.id == thrusters.0) else {
+        let Some(id) = thrusters.car else {
+            continue;
+        };
+        let Some(car) = view.cars.iter().find(|car| car.id == id) else {
             continue;
         };
         let speed = car.car.velocity.length() / FLAME_FULL_SPEED;
-        let beat = f32::from(thrusters.0.0) * 1.7;
+        let beat = f32::from(id.0) * 1.7;
         let flicker = (now * 31.0 + beat).sin() * 0.6 + (now * 53.0 + beat * 2.3).sin() * 0.4;
         let length = car_model::flame_length(speed, car.car.is_boosting(), flicker);
-        transform.scale = Vec3::new(length, 1.0, 1.0);
+        transform.scale = car_model::flame_scale(&thrusters.nozzle, length);
     }
 }
 

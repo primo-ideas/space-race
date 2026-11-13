@@ -9,7 +9,7 @@ use axum::extract::ws::{Message, WebSocket};
 use star_racer_protocol::auth::{self, PublicKey};
 use star_racer_protocol::ranked::QueueStatus;
 use star_racer_protocol::{
-    self as protocol, ClientMessage, Identity, JoinError, Login, PROTOCOL_VERSION, RejectReason,
+    self as protocol, CarLook, ClientMessage, Identity, JoinError, Login, PROTOCOL_VERSION, RejectReason,
     ServerMessage, is_valid_nickname, is_valid_password, names,
 };
 use tokio::sync::oneshot;
@@ -49,13 +49,15 @@ pub struct Player {
     pub guest: bool,
     /// The public key of the device playing, which an account's sign-out forgets.
     pub device: PublicKey,
+    /// How their car looks, as last chosen.
+    pub look: CarLook,
 }
 
 pub async fn run(mut socket: WebSocket, directory: Directory) -> Result<()> {
     let handshake = timeout(HANDSHAKE_TIMEOUT, handshake(&mut socket, &directory))
         .await
         .context("handshake timed out")??;
-    let Some(player) = handshake else {
+    let Some(mut player) = handshake else {
         return Ok(());
     };
     // Held until the connection ends, however it ends. It also carries where the player is, for
@@ -66,7 +68,7 @@ pub async fn run(mut socket: WebSocket, directory: Directory) -> Result<()> {
     info!(player = %player.id, nickname = %player.nickname, guest = player.guest, "player connected");
     // From here on, a dropped connection (crash, lost network) is an ordinary way to leave, not a
     // server failure: it is logged as the reason.
-    let reason = connected(&mut socket, &directory, &player, &online, &mut replaced).await;
+    let reason = connected(&mut socket, &directory, &mut player, &online, &mut replaced).await;
     info!(player = %player.id, nickname = %player.nickname, %reason, "player disconnected");
     Ok(())
 }
@@ -91,6 +93,7 @@ async fn handshake(socket: &mut WebSocket, directory: &Directory) -> Result<Opti
         protocol_version,
         public_key,
         login,
+        look,
     }) = receive(socket).await?
     else {
         bail!("expected Hello");
@@ -139,6 +142,7 @@ async fn handshake(socket: &mut WebSocket, directory: &Directory) -> Result<Opti
                 nickname: name,
                 guest: true,
                 device: public_key,
+                look: look.checked(),
             }));
         }
         Login::Device => accounts
@@ -159,6 +163,7 @@ async fn handshake(socket: &mut WebSocket, directory: &Directory) -> Result<Opti
             nickname: account.name,
             guest: false,
             device: public_key,
+            look: look.checked(),
         })),
         Err(reason) => reject(socket, reason).await.map(|()| None),
     }
@@ -169,7 +174,7 @@ async fn handshake(socket: &mut WebSocket, directory: &Directory) -> Result<Opti
 async fn connected(
     socket: &mut WebSocket,
     directory: &Directory,
-    player: &Player,
+    player: &mut Player,
     online: &OnlineGuard,
     replaced: &mut Replaced,
 ) -> String {
@@ -292,6 +297,10 @@ async fn connected(
                     if let Err(error) = send(socket, &ServerMessage::Queue(None)).await {
                         return error.to_string();
                     }
+                    continue;
+                }
+                Ok(Some(ClientMessage::SetLook(look))) => {
+                    player.look = look.checked();
                     continue;
                 }
                 Ok(Some(ClientMessage::SignOut)) => {
@@ -432,6 +441,9 @@ async fn play(socket: &mut WebSocket, membership: Membership, replaced: &mut Rep
                 Ok(Some(ClientMessage::LeaveLobby)) => break Ending::Left,
                 // Sent before the client knew it was in a match: it was in the queue a moment ago.
                 Ok(Some(ClientMessage::LeaveQueue | ClientMessage::QueueRanked)) => {}
+                // The garage is reached from the menus only; one sent from a lobby waits for the
+                // next.
+                Ok(Some(ClientMessage::SetLook(_))) => {}
                 Ok(Some(_)) => break Ending::Lost("unexpected message".into()),
                 Ok(None) => break Ending::Lost("connection closed".into()),
                 Err(error) => break Ending::Lost(error.to_string()),

@@ -28,6 +28,7 @@ impl Plugin for BackdropPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(Screen::Login), show)
             .add_systems(OnEnter(Screen::Lobbies), show)
+            .add_systems(OnEnter(Screen::Garage), show)
             .add_systems(OnEnter(Screen::Lobby), hide)
             .add_systems(
                 Update,

@@ -146,7 +146,7 @@ The client module layout follows the path of the data:
 | `lobby` | The server's tracks, the lobby list and the lobby the player is in. |
 | `track` | Builds the lobby's track with the shared code, and its meshes. |
 | `race` | Snapshot buffer, interpolation, car entities, `RaceView` (the cars and the followed one). |
-| `car_model` | What a car looks like: its hull, lights, flames and the light under it, in two liveries. |
+| `car_model` | What a car looks like: four pods, ten paints and eight neons, their hulls, lights, flames and the light under them. |
 | `weight` | The cars' bodies on their springs, and how the followed car is pushed, for the camera. |
 | `drift_meter` | The drift charge drawn on the road around the back of the player's car, as Rocket Racing draws it. |
 | `controls` | Gamepad, keyboard, touch or autopilot input (accelerate, drift, steer), sent on change and numbered. |
@@ -198,9 +198,31 @@ bubble on its back, two engine pods slung beside it on a rear wing, each wearing
 under the nose and a white stripe down the middle. It is built from the same flat-shaded,
 vertex-colored triangles as the circuit, from cross-sections of eight points lofted along the car,
 about 4.5 m long and 2.8 m wide, a little more than the simulation's 2.4 m collision circle, and
-its underside clears the road by a quarter of a meter: nothing holds it up. Its livery says whose
-it is: the player's own orange, lined with orange neon, every other blue, lined with magenta. Three
-meshes per livery, one shared by all, and four materials, shared by every car:
+its underside clears the road by a quarter of a meter: nothing holds it up. Until v0.1.39 its
+livery said whose it was: the player's own orange, lined with orange neon, every other blue, lined
+with magenta.
+
+**Since v0.1.40 (protocol 27) each player chooses their car in the garage** (see
+[Interface](ui.md#screens)): one of four pods, all built the same way, all 4.4 to 4.9 m long and
+2.5 to 3.1 m wide, all hovering a quarter of a meter up, all driving the same:
+
+- **Arrow**, the one above;
+- **Lance**, a needle 4.9 m long with a delta wing at its tail, a fin at each wing tip, canards near
+  the nose, one big thruster and two small ones at the wing tips;
+- **Twin**, a catamaran, two slim hulls joined by two bridges, the cockpit on a nacelle between
+  them with a fin, a thruster in each hull and one in the nacelle;
+- **Manta**, a flying wing 3.1 m across, its whole edge lined in neon, two tail fins, three
+  thrusters across its back.
+
+A paint (ten, `PAINTS`) covers the tops of the hull and pods, a neon (eight, `NEONS`) lines it and
+lights the road under it. On the wire a look is three numbers, `CarLook { model, paint, neon }`,
+said in `Hello`, changed with `SetLook` while browsing, kept by the server on the player and listed
+with every `LobbyPlayer`; both ends bring a number out of range back in (`CarLook::checked`). The
+player's own car is no longer told apart by its colors: the chase camera follows it, and every
+other has its name over it. The meshes of a look are made the first time a car in it is drawn
+(`race::CarAssets`), and a car whose player's look arrives after its first snapshot is drawn again
+in it. Three meshes per look, one flame mesh scaled to each nozzle (`car_model::nozzles`), one
+shadow shared by all, and four materials, shared by every car:
 
 - **the hull**, lit, roughness 0.42, casting the car's shadow;
 - **the lights**, unlit and brighter than white so the bloom haloes them: the thruster nozzles,

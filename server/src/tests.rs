@@ -14,7 +14,7 @@ use futures_util::{SinkExt, StreamExt};
 use star_racer_protocol::auth::{self, SigningKey};
 use star_racer_protocol::ranked::{QueueStatus, RankedProfile};
 use star_racer_protocol::{
-    self as protocol, CarId, ClientMessage, Identity, JoinError, LobbyId, LobbyPhase,
+    self as protocol, CarId, CarLook, ClientMessage, Identity, JoinError, LobbyId, LobbyPhase,
     LobbySettings, LobbyState, LobbyStatus, LobbySummary, Login, OnlinePlayer, PROTOCOL_VERSION,
     PlayerStatus, Presence, RejectReason, ServerMessage, Snapshot, TrackInfo, WS_PATH,
 };
@@ -129,6 +129,7 @@ fn hello(protocol_version: u32, login: Login, key: &SigningKey) -> ClientMessage
         protocol_version,
         public_key: key.verifying_key().to_bytes(),
         login,
+        look: CarLook::default(),
     }
 }
 
@@ -741,6 +742,39 @@ async fn a_guest_plays_everything_but_ranked() {
     enter(&mut socket, ClientMessage::QuickPlay)
         .await
         .expect("a guest could not quick play");
+}
+
+/// The look chosen in the garage is what every player in the next lobby sees, and one out of range
+/// is brought back in.
+#[tokio::test]
+async fn a_chosen_look_is_seen_in_the_lobby() {
+    let url = start_server().await;
+    let (mut socket, _, _) = browse(&url).await;
+    let look = CarLook {
+        model: 2,
+        paint: 7,
+        neon: 3,
+    };
+    send(&mut socket, &ClientMessage::SetLook(look)).await;
+    enter(&mut socket, ClientMessage::QuickPlay)
+        .await
+        .expect("quick play failed");
+    let state = next_state(&mut socket).await;
+    assert_eq!(state.players[0].look, look);
+
+    let (mut other, _, _) = browse(&url).await;
+    let wild = CarLook {
+        model: 250,
+        paint: 250,
+        neon: 250,
+    };
+    send(&mut other, &ClientMessage::SetLook(wild)).await;
+    enter(&mut other, ClientMessage::QuickPlay)
+        .await
+        .expect("quick play failed");
+    let state = next_state(&mut other).await;
+    let seen = state.players.iter().map(|player| player.look).collect::<Vec<_>>();
+    assert!(seen.contains(&wild.checked()), "{seen:?}");
 }
 
 /// An account is created once, comes back on its device without its password, signs in with it

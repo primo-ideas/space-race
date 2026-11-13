@@ -47,6 +47,7 @@ struct CaptureSettings {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Target {
     Login,
+    Garage,
     Lobbies,
     Lobby,
 }
@@ -63,6 +64,8 @@ impl Plugin for CapturePlugin {
             Target::Lobby
         } else if script.login.is_some() {
             Target::Lobbies
+        } else if script.garage {
+            Target::Garage
         } else {
             Target::Login
         };
@@ -119,6 +122,7 @@ fn capture_when_rendered(
     );
     let settled = match settings.target {
         Target::Login => *screen.get() == Screen::Login,
+        Target::Garage => *screen.get() == Screen::Garage,
         Target::Lobbies => *screen.get() == Screen::Lobbies && list.loaded,
         Target::Lobby => {
             *screen.get() == Screen::Lobby

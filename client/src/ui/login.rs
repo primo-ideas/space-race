@@ -524,7 +524,10 @@ fn spawn_login(
                 ))
                 .insert(small(170.0))
                 .observe(ask_for_leaderboard);
-                // Needs nobody to come in as and no server: it is always there.
+                // Needs nobody to come in as and no server: always there, as the settings are.
+                row.spawn(button(&fonts, ButtonKind::Secondary, "GARAGE"))
+                    .insert(small(120.0))
+                    .observe(open_garage);
                 row.spawn(button(&fonts, ButtonKind::Secondary, "SETTINGS"))
                     .insert(small(130.0))
                     .observe(open_settings);
@@ -921,6 +924,10 @@ fn reroll(
         return;
     }
     guest_name.0 = nickname::generate(Some(&guest_name.0));
+}
+
+fn open_garage(_: On<Activate>, mut next: ResMut<NextState<Screen>>) {
+    next.set(Screen::Garage);
 }
 
 fn open_settings(_: On<Activate>, mut settings: ResMut<SettingsDialog>) {

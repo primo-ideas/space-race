@@ -10,6 +10,9 @@ no extra crate.
         ┌────── quick play, a ranked match ──────┐
         │                                        ▼
       Login ──browse lobbies──▶ Lobbies ──join──▶ Lobby (race view and HUD)
+        │ ▲
+        ▼ │ done
+      Garage
 ```
 
 `screen::Screen` is a Bevy state. The first screen is the hub: everything starts from it and
@@ -26,12 +29,22 @@ ranked match. Each screen's entities despawn when it is left.
   opens, even with a gamepad, which cannot type; Enter in the field is quick play. While queued,
   the ranked button counts the time and cancels. The dice button rolls another nickname. The last
   nickname is saved next to the identity key when the player presses a button. Under the card:
-  BROWSE LOBBIES, LEADERBOARD (a dialog with the ten best, `leaderboard.rs`), SETTINGS (see
+  BROWSE LOBBIES, LEADERBOARD (a dialog with the ten best, `leaderboard.rs`), GARAGE (below),
+  SETTINGS (see
   [Settings](#settings)) and QUIT, which closes
   the game: the window's close button does the same, but a gamepad cannot reach it. QUIT has no
   shortcut, Escape and B being "back" on every other screen, where pressing them once too often
   must not close the game; and the web has no such button, since a page cannot close the tab it is
   in.
+- **Garage** (`garage.rs`, since v0.1.40, the user's request "fais trois nouvelles
+  voitures/pods ainsi qu'un choix et customization de voiture"): the player's pod standing over the
+  menu's neon grid, turning slowly under a light of its own, beside a card of three rows stepped
+  with left and right, the arrows or a click: **POD** (Arrow, Lance, Twin, Manta, each with a line
+  about it), **PAINT** (ten, with a swatch) and **NEON** (eight, with a swatch). DONE, Escape or B
+  keeps the choice, tells the server if connected (`SetLook`), and goes back to the first screen.
+  It needs no connection. Every pod drives the same, and the card says so: the look is drawn,
+  never simulated (see [Architecture](architecture.md#displaying-the-race)). `--garage` opens it,
+  to capture it.
 - **Lobbies** (`lobbies.rs`): every lobby, live, with its track, players and a status badge; the
   focused lobby's details beside the list (track thumbnail, what joining means right now, who is
   in). A header shows the player's nickname, HOME back to the first screen, and the button to
@@ -98,7 +111,9 @@ identity key, so `--identity` gives each player on a machine their own: a file
 has edited it; someone who plays under what was offered gets a new one at the next launch, which is
 the point of generating one. The lobby name works the same way, since it is offered as
 "*nickname*'s lobby". Everything else in the creation dialog — track, laps, players to start,
-maximum players — is remembered as soon as a lobby is created with it. So is everything the
+maximum players — is remembered as soon as a lobby is created with it. The car's look is too,
+when the garage is left; a first run is given one at random (`CarLook::random`) and keeps it, so a
+grid of players who never visited the garage is not a grid of the same car. So is everything the
 [settings](#settings) hold: the bindings, the layout of the touch controls, and vibration.
 
 Anything read back is checked before it is used: a nickname that is no longer valid, a lap count

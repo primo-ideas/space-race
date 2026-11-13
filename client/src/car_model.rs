@@ -1,28 +1,104 @@
-//! The cars, as drawn: low, wide racing hovercraft in the spirit of F-Zero's machines, built from
+//! The cars, as drawn: low racing hovercraft in the spirit of F-Zero's machines, built from
 //! flat-shaded triangles like everything else in the game.
 //!
-//! A car is a long wedge of a hull with a pointed nose, a cockpit bubble on its back, and two
-//! engine pods slung beside it on a rear wing, each pod wearing a fin. It floats above the road on
-//! nothing: its underside clears it by a quarter of a meter, a soft shadow sits it over the
-//! road, and colored light spilling out from under its edge says it hovers. Its thrusters glow
-//! at the back, and their flames lengthen with its speed and roar out on a boost.
+//! There are four pods to choose from in the garage, every one of them driving the same, since the
+//! handling is the simulation's and the simulation knows nothing of looks:
 //!
-//! Every car shares the same shape; its livery says whose it is: the player's own in orange, lined
-//! with orange neon, every other in blue lined with magenta. The neon and the thrusters are drawn
-//! brighter than white, so the bloom gives them a halo.
+//! - **Arrow**, the first: a long wedge of a hull with a pointed nose, a cockpit bubble on its back,
+//!   and two engine pods slung beside it on a rear wing, each wearing a fin.
+//! - **Lance**: a needle, longer and slimmer, a delta wing at its tail with a fin at each tip, a
+//!   pair of canards near the nose, and one big thruster.
+//! - **Twin**: a catamaran, two slim hulls joined by a bridge, the cockpit on a nacelle between them.
+//! - **Manta**: a flying wing, wide and flat, its edge drawn in neon, two tail fins and three
+//!   thrusters across its back.
 //!
-//! The model is written along `+x`, the direction of a zero heading, `y` up and `z` to the right,
-//! its origin on the road under the middle of the car, where the simulation places it. It is about
-//! 4.5 m long and 2.8 m wide, a little more than the 2.4 m circle the simulation collides.
+//! Each floats above the road on nothing: its underside clears it by a quarter of a meter, a soft
+//! shadow sits it over the road, and colored light spilling out from under its edge says it
+//! hovers. Its thrusters glow at the back, and their flames lengthen with its speed and roar out
+//! on a boost. The player picks its paint, which covers the tops of the hull and pods, and its
+//! neon, which lines it and lights the road under it (see [`PAINTS`], [`NEONS`]); the neon and the
+//! thrusters are drawn brighter than white, so the bloom gives them a halo.
+//!
+//! The models are written along `+x`, the direction of a zero heading, `y` up and `z` to the right,
+//! their origin on the road under the middle of the car, where the simulation places it. They are
+//! 4.4 to 4.9 m long and 2.5 to 3.1 m wide, about the 2.4 m circle the simulation collides.
 
 use bevy::color::LinearRgba;
 use bevy::prelude::*;
+use star_racer_protocol::CarLook;
 
 use crate::geometry::{Frame, Geometry};
 
-/// How a car is painted.
-#[derive(Debug, Clone, Copy)]
+/// The pods, in the order the garage offers them and the wire numbers them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CarModel {
+    Arrow,
+    Lance,
+    Twin,
+    Manta,
+}
+
+impl CarModel {
+    pub const ALL: [Self; 4] = [Self::Arrow, Self::Lance, Self::Twin, Self::Manta];
+
+    /// The pod numbered `index` on the wire; an unknown one is the first.
+    pub fn of(index: u8) -> Self {
+        Self::ALL
+            .get(usize::from(index))
+            .copied()
+            .unwrap_or(Self::Arrow)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Arrow => "ARROW",
+            Self::Lance => "LANCE",
+            Self::Twin => "TWIN",
+            Self::Manta => "MANTA",
+        }
+    }
+
+    /// A line about it, for the garage.
+    pub fn blurb(self) -> &'static str {
+        match self {
+            Self::Arrow => "The first pod: a wedge between two engines.",
+            Self::Lance => "A needle with a delta wing and one big thruster.",
+            Self::Twin => "Two hulls, a bridge, and the cockpit between them.",
+            Self::Manta => "A flying wing, flat and wide, lined in neon.",
+        }
+    }
+}
+
+/// The paints, in the order the wire numbers them, with their names.
+pub const PAINTS: [(&str, Color); 10] = [
+    ("ORANGE", Color::srgb(0.95, 0.36, 0.08)),
+    ("BLUE", Color::srgb(0.14, 0.36, 0.86)),
+    ("CRIMSON", Color::srgb(0.78, 0.07, 0.12)),
+    ("LIME", Color::srgb(0.45, 0.80, 0.12)),
+    ("GOLD", Color::srgb(0.95, 0.70, 0.12)),
+    ("VIOLET", Color::srgb(0.46, 0.18, 0.82)),
+    ("TEAL", Color::srgb(0.05, 0.60, 0.60)),
+    ("PEARL", Color::srgb(0.85, 0.86, 0.90)),
+    ("ROSE", Color::srgb(0.95, 0.30, 0.60)),
+    ("CARBON", Color::srgb(0.20, 0.21, 0.24)),
+];
+
+/// The neon colors, brighter than white so they bloom, with their names.
+pub const NEONS: [(&str, LinearRgba); 8] = [
+    ("ORANGE", LinearRgba::new(3.2, 0.95, 0.15, 1.0)),
+    ("MAGENTA", LinearRgba::new(2.4, 0.35, 2.6, 1.0)),
+    ("CYAN", LinearRgba::new(0.2, 2.4, 3.2, 1.0)),
+    ("GREEN", LinearRgba::new(0.4, 3.0, 0.6, 1.0)),
+    ("RED", LinearRgba::new(3.2, 0.25, 0.25, 1.0)),
+    ("YELLOW", LinearRgba::new(3.0, 2.6, 0.3, 1.0)),
+    ("PURPLE", LinearRgba::new(1.6, 0.5, 3.2, 1.0)),
+    ("WHITE", LinearRgba::new(2.6, 2.6, 2.8, 1.0)),
+];
+
+/// How a car is built and painted.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Livery {
+    pub model: CarModel,
     /// The hull's top and the pods' tops.
     pub body: Color,
     /// The neon lines along the hull and the light under it.
@@ -30,16 +106,15 @@ pub struct Livery {
 }
 
 impl Livery {
-    /// The player's own car.
-    pub const OWN: Self = Self {
-        body: Color::srgb(0.95, 0.36, 0.08),
-        accent: LinearRgba::new(3.2, 0.95, 0.15, 1.0),
-    };
-    /// Everyone else's.
-    pub const OTHER: Self = Self {
-        body: Color::srgb(0.14, 0.36, 0.86),
-        accent: LinearRgba::new(2.4, 0.35, 2.6, 1.0),
-    };
+    /// What a look on the wire draws, anything out of range brought back in.
+    pub fn of(look: CarLook) -> Self {
+        let look = look.checked();
+        Self {
+            model: CarModel::of(look.model),
+            body: PAINTS[usize::from(look.paint)].1,
+            accent: NEONS[usize::from(look.neon)].1,
+        }
+    }
 }
 
 /// The dark parts: the hull's flanks under the neon, the pods' sides, the wings.
@@ -75,9 +150,25 @@ const fn section(x: f32, half_width: f32, bottom: f32, top: f32) -> Section {
     }
 }
 
+/// A thruster: where the middle of its mouth is, and its half width (along `z`) and half height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Nozzle {
+    pub at: Vec3,
+    pub half: Vec2,
+}
+
+const fn nozzle(x: f32, y: f32, z: f32, half_z: f32, half_y: f32) -> Nozzle {
+    Nozzle {
+        at: Vec3::new(x, y, z),
+        half: Vec2::new(half_z, half_y),
+    }
+}
+
+// Arrow.
+
 /// The hull, from its tail to the tip of its nose: widest just ahead of the tail, where the wing
 /// joins it, and drawn out to a point.
-const HULL: [Section; 6] = [
+const ARROW_HULL: [Section; 6] = [
     section(-1.95, 0.60, 0.34, 0.74),
     section(-1.55, 0.74, 0.28, 0.86),
     section(-0.40, 0.78, 0.26, 0.86),
@@ -86,32 +177,124 @@ const HULL: [Section; 6] = [
     section(2.40, 0.07, 0.33, 0.39),
 ];
 
-/// An engine pod, either side of the hull, `POD_OFFSET` meters out.
-const POD: [Section; 4] = [
+/// An engine pod, either side of the hull, `ARROW_POD_OFFSET` meters out.
+const ARROW_POD: [Section; 4] = [
     section(-2.15, 0.26, 0.30, 0.66),
     section(-1.80, 0.30, 0.26, 0.72),
     section(-0.20, 0.27, 0.27, 0.66),
     section(0.80, 0.08, 0.37, 0.47),
 ];
-const POD_OFFSET: f32 = 1.2;
+const ARROW_POD_OFFSET: f32 = 1.2;
 
 /// The cockpit, a bubble on the hull's back.
-const COCKPIT: [Section; 4] = [
+const ARROW_COCKPIT: [Section; 4] = [
     section(-0.85, 0.20, 0.82, 0.87),
     section(-0.40, 0.34, 0.84, 1.13),
     section(0.35, 0.32, 0.79, 1.06),
     section(0.95, 0.09, 0.70, 0.76),
 ];
 
-/// Where the thrusters' flames start, at the back of the hull and of the pods.
-pub const HULL_NOZZLE_X: f32 = -1.97;
-pub const POD_NOZZLE_X: f32 = -2.17;
-/// The two nozzles of the hull, either side of its middle, and their half size.
-const HULL_NOZZLE_Z: f32 = 0.34;
-const HULL_NOZZLE_HALF: Vec2 = Vec2::new(0.15, 0.09);
-const HULL_NOZZLE_Y: f32 = 0.55;
-const POD_NOZZLE_HALF: Vec2 = Vec2::new(0.15, 0.13);
-const POD_NOZZLE_Y: f32 = 0.48;
+const ARROW_NOZZLES: [Nozzle; 4] = [
+    nozzle(-1.97, 0.55, -0.34, 0.15, 0.09),
+    nozzle(-1.97, 0.55, 0.34, 0.15, 0.09),
+    nozzle(-2.17, 0.48, -ARROW_POD_OFFSET, 0.15, 0.13),
+    nozzle(-2.17, 0.48, ARROW_POD_OFFSET, 0.15, 0.13),
+];
+
+// Lance.
+
+const LANCE_HULL: [Section; 5] = [
+    section(-2.20, 0.50, 0.32, 0.80),
+    section(-1.70, 0.58, 0.27, 0.88),
+    section(-0.20, 0.50, 0.27, 0.78),
+    section(1.30, 0.32, 0.29, 0.58),
+    section(2.70, 0.05, 0.35, 0.40),
+];
+
+const LANCE_COCKPIT: [Section; 4] = [
+    section(-1.25, 0.16, 0.84, 0.89),
+    section(-0.85, 0.28, 0.86, 1.12),
+    section(-0.15, 0.26, 0.79, 1.03),
+    section(0.35, 0.08, 0.70, 0.76),
+];
+
+/// How far out the tips of the delta wing are, either side.
+const LANCE_SPAN: f32 = 1.38;
+
+const LANCE_NOZZLES: [Nozzle; 3] = [
+    nozzle(-2.22, 0.56, 0.0, 0.30, 0.19),
+    nozzle(-2.02, 0.47, -LANCE_SPAN, 0.07, 0.06),
+    nozzle(-2.02, 0.47, LANCE_SPAN, 0.07, 0.06),
+];
+
+// Twin.
+
+/// Each of the two hulls, `TWIN_OFFSET` meters either side of the middle.
+const TWIN_HULL: [Section; 5] = [
+    section(-2.10, 0.34, 0.30, 0.70),
+    section(-1.70, 0.40, 0.26, 0.78),
+    section(0.20, 0.38, 0.26, 0.74),
+    section(1.50, 0.24, 0.28, 0.58),
+    section(2.35, 0.05, 0.33, 0.38),
+];
+const TWIN_OFFSET: f32 = 0.92;
+
+/// The nacelle between the hulls, which carries the cockpit.
+const TWIN_NACELLE: [Section; 4] = [
+    section(-1.40, 0.22, 0.44, 0.70),
+    section(-0.90, 0.30, 0.42, 0.84),
+    section(0.50, 0.28, 0.42, 0.78),
+    section(1.45, 0.06, 0.50, 0.56),
+];
+
+const TWIN_COCKPIT: [Section; 4] = [
+    section(-0.70, 0.16, 0.81, 0.85),
+    section(-0.30, 0.25, 0.83, 1.07),
+    section(0.40, 0.22, 0.77, 0.98),
+    section(0.85, 0.06, 0.72, 0.76),
+];
+
+const TWIN_NOZZLES: [Nozzle; 3] = [
+    nozzle(-2.12, 0.50, -TWIN_OFFSET, 0.20, 0.13),
+    nozzle(-2.12, 0.50, TWIN_OFFSET, 0.20, 0.13),
+    nozzle(-1.42, 0.57, 0.0, 0.12, 0.08),
+];
+
+// Manta.
+
+/// The wing, one wide flat body: broadest at the back, swept to a blunt point.
+const MANTA_WING: [Section; 5] = [
+    section(-1.90, 1.40, 0.30, 0.52),
+    section(-1.45, 1.55, 0.27, 0.60),
+    section(-0.30, 1.25, 0.26, 0.66),
+    section(0.95, 0.68, 0.27, 0.56),
+    section(2.15, 0.10, 0.31, 0.37),
+];
+
+const MANTA_COCKPIT: [Section; 4] = [
+    section(-0.60, 0.18, 0.62, 0.66),
+    section(-0.20, 0.30, 0.64, 0.92),
+    section(0.50, 0.26, 0.60, 0.86),
+    section(0.95, 0.07, 0.56, 0.60),
+];
+
+const MANTA_FIN: f32 = 0.72;
+
+const MANTA_NOZZLES: [Nozzle; 3] = [
+    nozzle(-1.92, 0.42, -0.85, 0.22, 0.08),
+    nozzle(-1.92, 0.42, 0.0, 0.22, 0.08),
+    nozzle(-1.92, 0.42, 0.85, 0.22, 0.08),
+];
+
+/// Where a pod's thrusters are, whose flames are drawn from them.
+pub fn nozzles(model: CarModel) -> &'static [Nozzle] {
+    match model {
+        CarModel::Arrow => &ARROW_NOZZLES,
+        CarModel::Lance => &LANCE_NOZZLES,
+        CarModel::Twin => &TWIN_NOZZLES,
+        CarModel::Manta => &MANTA_NOZZLES,
+    }
+}
 
 /// The eight points round a section, in order, as `(z, y)`: the top, the shoulder, the widest
 /// point, the lower flank, the keel, and back up the other side.
@@ -142,6 +325,15 @@ fn ring(section: &Section) -> [Vec2; 8] {
 /// in `upper`, the lower flanks in `flank`, the underside in `under`.
 fn face_colors(upper: Color, flank: Color, under: Color) -> [Color; 8] {
     [upper, upper, flank, under, under, flank, upper, upper]
+}
+
+/// The painted body colors: the paint on top, graphite flanks, the dark underside.
+fn painted(livery: &Livery) -> [Color; 8] {
+    face_colors(livery.body, GRAPHITE, UNDERSIDE)
+}
+
+fn glass() -> [Color; 8] {
+    face_colors(GLASS_SHEEN, GLASS, GLASS)
 }
 
 /// Builds a closed body through `sections`, `z` meters to the side of the car's middle, its faces
@@ -190,87 +382,191 @@ fn loft(
     }
 }
 
-/// Everything of a car that takes the light: hull, cockpit, pods, wings and fins.
-pub fn hull_geometry(livery: &Livery) -> Geometry {
-    let mut geometry = Geometry::default();
-    let frame = Frame::new(Vec3::ZERO, Vec3::X, Vec3::Z);
-
-    loft(
-        &mut geometry,
-        &HULL,
-        0.0,
-        face_colors(livery.body, GRAPHITE, UNDERSIDE),
-        GRAPHITE,
-        livery.body,
-    );
-    loft(
-        &mut geometry,
-        &COCKPIT,
-        0.0,
-        face_colors(GLASS_SHEEN, GLASS, GLASS),
-        GLASS,
-        GLASS,
-    );
-    for side in [-1.0, 1.0] {
-        loft(
-            &mut geometry,
-            &POD,
-            side * POD_OFFSET,
-            face_colors(livery.body, GRAPHITE, UNDERSIDE),
-            GRAPHITE,
-            GRAPHITE,
-        );
-        // A fin on each pod, raked back and narrowing as it rises.
-        geometry.tapered_block(
-            &frame,
-            Vec3::new(-2.05, 0.66, side * POD_OFFSET - 0.035),
-            Vec3::new(-1.35, 1.08, side * POD_OFFSET + 0.035),
-            0.35,
-            GRAPHITE,
-        );
-    }
-
-    // The rear wing the pods hang from, through the hull, and a splitter under the nose.
-    geometry.block(
-        &frame,
-        Vec3::new(-1.75, 0.44, -POD_OFFSET),
-        Vec3::new(-0.55, 0.52, POD_OFFSET),
-        GRAPHITE,
-    );
-    geometry.block(
-        &frame,
-        Vec3::new(1.05, 0.25, -0.95),
-        Vec3::new(1.85, 0.29, 0.95),
-        GRAPHITE,
-    );
-
-    // A white stripe down the middle of the hull, just over its top.
+/// A white stripe down the middle of a body, just over its top, along each of `runs`.
+fn stripe(geometry: &mut Geometry, sections: &[Section], z: f32, runs: &[(f32, f32)]) {
     let top_at = |x: f32| {
-        let pair = HULL
+        let pair = sections
             .windows(2)
             .find(|pair| x >= pair[0].x && x <= pair[1].x)
-            .expect("the stripe stays on the hull");
+            .expect("the stripe stays on the body");
         let share = (x - pair[0].x) / (pair[1].x - pair[0].x);
         pair[0].top + (pair[1].top - pair[0].top) * share + 0.006
     };
-    let stripe_runs = [(-1.9, -0.9), (0.95, 2.1)];
-    for (from, to) in stripe_runs {
+    for &(from, to) in runs {
         let steps = 4;
         for step in 0..steps {
             let a = from + (to - from) * step as f32 / steps as f32;
             let b = from + (to - from) * (step + 1) as f32 / steps as f32;
             geometry.quad_facing_up(
                 [
-                    Vec3::new(a, top_at(a), -0.09),
-                    Vec3::new(b, top_at(b), -0.09),
-                    Vec3::new(b, top_at(b), 0.09),
-                    Vec3::new(a, top_at(a), 0.09),
+                    Vec3::new(a, top_at(a), z - 0.09),
+                    Vec3::new(b, top_at(b), z - 0.09),
+                    Vec3::new(b, top_at(b), z + 0.09),
+                    Vec3::new(a, top_at(a), z + 0.09),
                 ],
                 STRIPE,
             );
         }
     }
+}
+
+/// Everything of a car that takes the light: hulls, cockpit, pods, wings and fins.
+pub fn hull_geometry(livery: &Livery) -> Geometry {
+    let mut geometry = Geometry::default();
+    let frame = Frame::new(Vec3::ZERO, Vec3::X, Vec3::Z);
+    let g = &mut geometry;
+    match livery.model {
+        CarModel::Arrow => {
+            loft(g, &ARROW_HULL, 0.0, painted(livery), GRAPHITE, livery.body);
+            loft(g, &ARROW_COCKPIT, 0.0, glass(), GLASS, GLASS);
+            for side in [-1.0, 1.0] {
+                let z = side * ARROW_POD_OFFSET;
+                loft(g, &ARROW_POD, z, painted(livery), GRAPHITE, GRAPHITE);
+                // A fin on each pod, raked back and narrowing as it rises.
+                g.tapered_block(
+                    &frame,
+                    Vec3::new(-2.05, 0.66, z - 0.035),
+                    Vec3::new(-1.35, 1.08, z + 0.035),
+                    0.35,
+                    GRAPHITE,
+                );
+            }
+            // The rear wing the pods hang from, through the hull, and a splitter under the nose.
+            g.block(
+                &frame,
+                Vec3::new(-1.75, 0.44, -ARROW_POD_OFFSET),
+                Vec3::new(-0.55, 0.52, ARROW_POD_OFFSET),
+                GRAPHITE,
+            );
+            g.block(
+                &frame,
+                Vec3::new(1.05, 0.25, -0.95),
+                Vec3::new(1.85, 0.29, 0.95),
+                GRAPHITE,
+            );
+            stripe(g, &ARROW_HULL, 0.0, &[(-1.9, -0.9), (0.95, 2.1)]);
+        }
+        CarModel::Lance => {
+            loft(g, &LANCE_HULL, 0.0, painted(livery), GRAPHITE, livery.body);
+            loft(g, &LANCE_COCKPIT, 0.0, glass(), GLASS, GLASS);
+            // The delta wing: a plate swept back, wider at its trailing edge, in paint.
+            for side in [-1.0f32, 1.0] {
+                let tip = side * LANCE_SPAN;
+                let root = side * 0.45;
+                let (low, high) = (0.42, 0.48);
+                // Top, bottom and the swept leading edge.
+                let corners = |y: f32| {
+                    [
+                        Vec3::new(-2.05, y, root),
+                        Vec3::new(-2.05, y, tip),
+                        Vec3::new(-1.75, y, tip),
+                        Vec3::new(-0.35, y, root),
+                    ]
+                };
+                let inside = Vec3::new(-1.3, (low + high) / 2.0, side * 0.8);
+                let top = corners(high);
+                let bottom = corners(low);
+                g.quad_facing_away(top, inside, livery.body);
+                g.quad_facing_away(bottom, inside, UNDERSIDE);
+                for edge in 0..4 {
+                    let next = (edge + 1) % 4;
+                    g.quad_facing_away(
+                        [bottom[edge], bottom[next], top[next], top[edge]],
+                        inside,
+                        GRAPHITE,
+                    );
+                }
+                // A fin standing at each wing tip.
+                g.tapered_block(
+                    &frame,
+                    Vec3::new(-2.05, 0.48, tip - 0.035),
+                    Vec3::new(-1.55, 0.98, tip + 0.035),
+                    0.4,
+                    GRAPHITE,
+                );
+            }
+            // Canards near the nose.
+            g.tapered_block(
+                &frame,
+                Vec3::new(0.95, 0.40, -0.78),
+                Vec3::new(1.45, 0.44, 0.78),
+                0.9,
+                GRAPHITE,
+            );
+            stripe(g, &LANCE_HULL, 0.0, &[(-2.1, -1.3), (0.4, 2.4)]);
+        }
+        CarModel::Twin => {
+            for side in [-1.0, 1.0] {
+                let z = side * TWIN_OFFSET;
+                loft(g, &TWIN_HULL, z, painted(livery), GRAPHITE, livery.body);
+                stripe(g, &TWIN_HULL, z, &[(0.3, 2.1)]);
+            }
+            loft(g, &TWIN_NACELLE, 0.0, painted(livery), GRAPHITE, GRAPHITE);
+            loft(g, &TWIN_COCKPIT, 0.0, glass(), GLASS, GLASS);
+            // The bridges between the hulls, fore and aft, and a fin on the nacelle.
+            for (from, to) in [(0.25, 0.95), (-1.75, -0.95)] {
+                g.block(
+                    &frame,
+                    Vec3::new(from, 0.48, -TWIN_OFFSET),
+                    Vec3::new(to, 0.55, TWIN_OFFSET),
+                    GRAPHITE,
+                );
+            }
+            g.tapered_block(
+                &frame,
+                Vec3::new(-1.35, 0.70, -0.035),
+                Vec3::new(-0.75, 1.15, 0.035),
+                0.35,
+                GRAPHITE,
+            );
+        }
+        CarModel::Manta => {
+            loft(g, &MANTA_WING, 0.0, painted(livery), GRAPHITE, livery.body);
+            loft(g, &MANTA_COCKPIT, 0.0, glass(), GLASS, GLASS);
+            for side in [-1.0, 1.0] {
+                let z = side * MANTA_FIN;
+                g.tapered_block(
+                    &frame,
+                    Vec3::new(-1.90, 0.55, z - 0.035),
+                    Vec3::new(-1.20, 1.02, z + 0.035),
+                    0.35,
+                    GRAPHITE,
+                );
+            }
+            stripe(g, &MANTA_WING, 0.0, &[(-1.85, -0.75), (1.0, 1.9)]);
+        }
+    }
     geometry
+}
+
+/// A thruster's glowing mouth, just behind the tail it sits in.
+fn nozzle_light(geometry: &mut Geometry, frame: &Frame, nozzle: &Nozzle) {
+    let Nozzle { at, half } = *nozzle;
+    geometry.block(
+        frame,
+        Vec3::new(at.x - 0.02, at.y - half.y, at.z - half.x),
+        Vec3::new(at.x + 0.03, at.y + half.y, at.z + half.x),
+        Color::LinearRgba(THRUSTER),
+    );
+}
+
+/// A neon line through `points`.
+fn neon(geometry: &mut Geometry, frame: &Frame, points: &[Vec3], width: f32, color: Color) {
+    for pair in points.windows(2) {
+        geometry.bar(frame, pair[0], pair[1], width, color);
+    }
+}
+
+/// The line along the widest point of a body, on one side, from its tail toward its nose, leaving
+/// out its last `skip` sections.
+fn widest_line(sections: &[Section], z: f32, side: f32, skip: usize) -> Vec<Vec3> {
+    sections[..sections.len() - skip]
+        .iter()
+        .map(|section| {
+            let widest = ring(section)[2];
+            Vec3::new(section.x, widest.y, z + side * (widest.x + 0.01))
+        })
+        .collect()
 }
 
 /// The parts that shine by themselves: the thrusters' insides and the neon lines along the hull,
@@ -278,66 +574,62 @@ pub fn hull_geometry(livery: &Livery) -> Geometry {
 pub fn lights_geometry(livery: &Livery) -> Geometry {
     let mut geometry = Geometry::default();
     let frame = Frame::new(Vec3::ZERO, Vec3::X, Vec3::Z);
-    let thruster = Color::LinearRgba(THRUSTER);
     let accent = Color::LinearRgba(livery.accent);
-
+    let g = &mut geometry;
+    for nozzle in nozzles(livery.model) {
+        nozzle_light(g, &frame, nozzle);
+    }
     for side in [-1.0, 1.0] {
-        // The hull's two nozzles and the pod's one, just behind their tails.
-        let hull_z = side * HULL_NOZZLE_Z;
-        geometry.block(
-            &frame,
-            Vec3::new(
-                HULL_NOZZLE_X - 0.02,
-                HULL_NOZZLE_Y - HULL_NOZZLE_HALF.y,
-                hull_z - HULL_NOZZLE_HALF.x,
-            ),
-            Vec3::new(
-                HULL_NOZZLE_X + 0.03,
-                HULL_NOZZLE_Y + HULL_NOZZLE_HALF.y,
-                hull_z + HULL_NOZZLE_HALF.x,
-            ),
-            thruster,
-        );
-        let pod_z = side * POD_OFFSET;
-        geometry.block(
-            &frame,
-            Vec3::new(
-                POD_NOZZLE_X - 0.02,
-                POD_NOZZLE_Y - POD_NOZZLE_HALF.y,
-                pod_z - POD_NOZZLE_HALF.x,
-            ),
-            Vec3::new(
-                POD_NOZZLE_X + 0.03,
-                POD_NOZZLE_Y + POD_NOZZLE_HALF.y,
-                pod_z + POD_NOZZLE_HALF.x,
-            ),
-            thruster,
-        );
-
-        // A neon line along the widest point of the hull, from the tail toward the nose.
-        let line: Vec<Vec3> = HULL[..5]
-            .iter()
-            .map(|section| {
-                let widest = ring(section)[2];
-                Vec3::new(section.x, widest.y, side * (widest.x + 0.01))
-            })
-            .collect();
-        for pair in line.windows(2) {
-            geometry.bar(&frame, pair[0], pair[1], 0.045, accent);
+        match livery.model {
+            CarModel::Arrow => {
+                neon(g, &frame, &widest_line(&ARROW_HULL, 0.0, side, 1), 0.045, accent);
+                // And one along the top of each pod.
+                let pod_line: Vec<Vec3> = ARROW_POD[..3]
+                    .iter()
+                    .map(|section| {
+                        Vec3::new(section.x, section.top + 0.01, side * ARROW_POD_OFFSET)
+                    })
+                    .collect();
+                neon(g, &frame, &pod_line, 0.04, accent);
+            }
+            CarModel::Lance => {
+                neon(g, &frame, &widest_line(&LANCE_HULL, 0.0, side, 1), 0.045, accent);
+                // Along the swept leading edge of the wing.
+                neon(
+                    g,
+                    &frame,
+                    &[
+                        Vec3::new(-0.40, 0.49, side * 0.47),
+                        Vec3::new(-1.74, 0.49, side * LANCE_SPAN),
+                    ],
+                    0.04,
+                    accent,
+                );
+            }
+            CarModel::Twin => {
+                // Along the outer flank of each hull.
+                let line = widest_line(&TWIN_HULL, side * TWIN_OFFSET, side, 1);
+                neon(g, &frame, &line, 0.045, accent);
+            }
+            CarModel::Manta => {
+                // The whole edge of the wing, nose to tail, is the neon.
+                neon(g, &frame, &widest_line(&MANTA_WING, 0.0, side, 0), 0.05, accent);
+            }
         }
-        // And one along the top of each pod.
-        let pod_line: Vec<Vec3> = POD[..3]
+    }
+    if livery.model == CarModel::Twin {
+        // Down the nacelle's back.
+        let line: Vec<Vec3> = TWIN_NACELLE[..3]
             .iter()
-            .map(|section| Vec3::new(section.x, section.top + 0.01, side * POD_OFFSET))
+            .map(|section| Vec3::new(section.x, section.top + 0.01, 0.0))
             .collect();
-        for pair in pod_line.windows(2) {
-            geometry.bar(&frame, pair[0], pair[1], 0.04, accent);
-        }
+        neon(g, &frame, &line, 0.04, accent);
     }
     geometry
 }
 
-/// The hull's outline on the road, as an oval: half its length and half its width, pods included.
+/// A pod's outline on the road, as an oval: half its length and half its width, about the same for
+/// every pod.
 /// The light and the shadow under the car are drawn in multiples of it.
 const FOOTPRINT: Vec2 = Vec2::new(2.25, 1.35);
 
@@ -425,54 +717,38 @@ pub fn shadow_geometry() -> Geometry {
 /// How dark the shadow is at its darkest, from 0 to 1.
 const SHADOW: f32 = 0.7;
 
-/// Two thrusters' flames, either side of the middle `z` meters out, each one meter long and
-/// pointing back from the origin: the entity they hang from stands at the nozzles and stretches
-/// them along `x` to the length the speed calls for. Their color fades from the nozzle to nothing
-/// at the tip, and they are added to what is behind them.
-fn flames_geometry(z: f32, half: Vec2) -> Geometry {
+/// One thruster's flame, one meter long and pointing back from the origin, its mouth a unit square
+/// either side of it: the entity it hangs from stands at the nozzle, scales it across to the
+/// nozzle's size and along `x` to the length the speed calls for (see [`flame_scale`]). Its color
+/// fades from the mouth to nothing at the tip, and it is added to what is behind it.
+pub fn flame_geometry() -> Geometry {
     let mut geometry = Geometry::default();
     let base = Color::LinearRgba(FLAME);
     let tip_color = Color::LinearRgba(LinearRgba::BLACK);
-    for side in [-1.0, 1.0] {
-        let middle = Vec3::new(0.0, 0.0, side * z);
-        let tip = middle - Vec3::X;
-        let corners = [
-            middle + Vec3::new(0.0, -half.y, -half.x),
-            middle + Vec3::new(0.0, -half.y, half.x),
-            middle + Vec3::new(0.0, half.y, half.x),
-            middle + Vec3::new(0.0, half.y, -half.x),
-        ];
-        let inside = middle - Vec3::X * 0.3;
-        for face in 0..4 {
-            let a = corners[face];
-            let b = corners[(face + 1) % 4];
-            geometry.quad_facing_away_shaded(
-                [a, b, tip, tip],
-                inside,
-                [base, base, tip_color, tip_color],
-            );
-        }
+    let tip = -Vec3::X;
+    let corners = [
+        Vec3::new(0.0, -1.0, -1.0),
+        Vec3::new(0.0, -1.0, 1.0),
+        Vec3::new(0.0, 1.0, 1.0),
+        Vec3::new(0.0, 1.0, -1.0),
+    ];
+    let inside = -Vec3::X * 0.3;
+    for face in 0..4 {
+        let a = corners[face];
+        let b = corners[(face + 1) % 4];
+        geometry.quad_facing_away_shaded([a, b, tip, tip], inside, [base, base, tip_color, tip_color]);
     }
     geometry
 }
 
-/// The flames of the hull's two thrusters.
-pub fn hull_flames_geometry() -> Geometry {
-    flames_geometry(HULL_NOZZLE_Z, HULL_NOZZLE_HALF * 0.9)
+/// Where a nozzle's flame hangs from: just behind its mouth.
+pub fn flame_origin(nozzle: &Nozzle) -> Vec3 {
+    nozzle.at - Vec3::X * 0.02
 }
 
-/// The flames of the pods' thrusters.
-pub fn pod_flames_geometry() -> Geometry {
-    flames_geometry(POD_OFFSET, POD_NOZZLE_HALF * 0.9)
-}
-
-/// Where the hull's flames hang from, and the pods'.
-pub fn hull_flames_origin() -> Vec3 {
-    Vec3::new(HULL_NOZZLE_X - 0.02, HULL_NOZZLE_Y, 0.0)
-}
-
-pub fn pod_flames_origin() -> Vec3 {
-    Vec3::new(POD_NOZZLE_X - 0.02, POD_NOZZLE_Y, 0.0)
+/// How a nozzle's flame is scaled across: a little inside its mouth.
+pub fn flame_scale(nozzle: &Nozzle, length: f32) -> Vec3 {
+    Vec3::new(length, nozzle.half.y * 0.9, nozzle.half.x * 0.9)
 }
 
 /// How long a car's flames are, in meters: a short blue tongue at rest, longer with the speed, and
@@ -482,6 +758,7 @@ pub fn flame_length(speed_share: f32, boosting: bool, flicker: f32) -> f32 {
     let roar = if boosting { 0.85 } else { 0.0 };
     (steady + roar) * (1.0 + 0.08 * flicker.clamp(-1.0, 1.0))
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -494,35 +771,63 @@ mod tests {
         )
     }
 
-    /// The car is about as big as what the simulation collides, it hovers clear of the road, and
+    fn livery(model: CarModel) -> Livery {
+        Livery {
+            model,
+            body: PAINTS[0].1,
+            accent: NEONS[1].1,
+        }
+    }
+
+    /// Every pod is about as big as what the simulation collides, it hovers clear of the road, and
     /// its nose points forward.
     #[test]
-    fn the_car_is_the_size_of_its_collisions_and_hovers() {
-        let hull = hull_geometry(&Livery::OWN);
-        let (min, max) = bounds(&hull);
-        assert!(max.x > 2.3 && max.x < 2.5, "{max}");
-        assert!(min.x > -2.3, "{min}");
-        assert!(max.z < 1.6 && min.z > -1.6, "{min} {max}");
-        assert!(min.y > 0.2, "the underside clears the road: {min}");
-        assert!(max.y < 1.2, "{max}");
-        // The tip of the nose is on the middle of the car.
-        let tip = hull.positions().max_by(|a, b| a.x.total_cmp(&b.x)).unwrap();
-        assert!(tip.z.abs() < 0.1, "{tip}");
+    fn every_pod_is_the_size_of_its_collisions_and_hovers() {
+        for model in CarModel::ALL {
+            let hull = hull_geometry(&livery(model));
+            let (min, max) = bounds(&hull);
+            assert!(max.x > 2.1 && max.x < 2.75, "{model:?} {max}");
+            assert!(min.x > -2.3, "{model:?} {min}");
+            assert!(max.z < 1.65 && min.z > -1.65, "{model:?} {min} {max}");
+            assert!(min.y > 0.2, "{model:?}: the underside clears the road: {min}");
+            assert!(max.y < 1.2, "{model:?} {max}");
+            // The tip of the nose is on the middle of the car, or of each hull for the Twin.
+            let tip = hull.positions().max_by(|a, b| a.x.total_cmp(&b.x)).unwrap();
+            let middle = if model == CarModel::Twin { TWIN_OFFSET } else { 0.0 };
+            assert!((tip.z.abs() - middle).abs() < 0.1, "{model:?} {tip}");
+        }
+    }
+
+    /// Every pod's thrusters are at the back, the Twin's middle one at the end of its nacelle, and
+    /// the flames hang behind them.
+    #[test]
+    fn the_thrusters_are_at_the_tail() {
+        for model in CarModel::ALL {
+            let (min, _) = bounds(&hull_geometry(&livery(model)));
+            for nozzle in nozzles(model) {
+                assert!(nozzle.at.x - min.x < 0.8, "{model:?} {nozzle:?} {min}");
+                assert!(flame_origin(nozzle).x < nozzle.at.x);
+            }
+        }
     }
 
     #[test]
-    fn the_car_stays_light_to_draw() {
-        let triangles = hull_geometry(&Livery::OWN).triangles()
-            + lights_geometry(&Livery::OWN).triangles()
-            + under_glow_geometry(&Livery::OWN).triangles()
-            + shadow_geometry().triangles()
-            + hull_flames_geometry().triangles()
-            + pod_flames_geometry().triangles();
-        // A few thousand for a full grid of eight, against the 155,000 of the skyway and its city.
-        assert!(triangles < 1000, "{triangles}");
+    fn every_pod_stays_light_to_draw() {
+        for model in CarModel::ALL {
+            let livery = livery(model);
+            let triangles = hull_geometry(&livery).triangles()
+                + lights_geometry(&livery).triangles()
+                + under_glow_geometry(&livery).triangles()
+                + shadow_geometry().triangles()
+                + flame_geometry().triangles() * nozzles(model).len();
+            // A few thousand for a full grid of eight, against the 155,000 of the skyway and its
+            // city.
+            assert!(triangles < 1000, "{model:?} {triangles}");
+        }
     }
 
-    /// The neon and the thrusters are brighter than white, so they bloom; the hull is not.
+    /// The neon and the thrusters are brighter than white, so they bloom; the hull is not, whatever
+    /// its paint.
     #[test]
     fn the_lights_glow_and_the_hull_does_not() {
         let brightest = |geometry: Geometry| {
@@ -531,8 +836,42 @@ mod tests {
                 .map(|[r, g, b, _]| r.max(g).max(b))
                 .fold(0.0f32, f32::max)
         };
-        assert!(brightest(lights_geometry(&Livery::OTHER)) > 2.0);
-        assert!(brightest(hull_geometry(&Livery::OTHER)) <= 1.0);
+        for model in CarModel::ALL {
+            for paint in 0..PAINTS.len() {
+                let livery = Livery::of(CarLook {
+                    model: model as u8,
+                    paint: paint as u8,
+                    neon: 0,
+                });
+                assert!(brightest(hull_geometry(&livery)) <= 1.0);
+            }
+            for neon in 0..NEONS.len() {
+                let livery = Livery::of(CarLook {
+                    model: model as u8,
+                    paint: 0,
+                    neon: neon as u8,
+                });
+                assert!(brightest(lights_geometry(&livery)) > 2.0, "{model:?} {neon}");
+            }
+        }
+    }
+
+    /// The lists match what the wire allows, and every look on it draws.
+    #[test]
+    fn every_look_on_the_wire_draws() {
+        use star_racer_protocol::{CAR_MODELS, CAR_NEONS, CAR_PAINTS};
+        assert_eq!(CarModel::ALL.len(), usize::from(CAR_MODELS));
+        assert_eq!(PAINTS.len(), usize::from(CAR_PAINTS));
+        assert_eq!(NEONS.len(), usize::from(CAR_NEONS));
+        for (index, model) in CarModel::ALL.into_iter().enumerate() {
+            assert_eq!(CarModel::of(index as u8), model);
+        }
+        let wild = Livery::of(CarLook {
+            model: 200,
+            paint: 200,
+            neon: 200,
+        });
+        assert!(CarModel::ALL.contains(&wild.model));
     }
 
     /// The light and the shadow under the car are ovals around it, fading to nothing at their rim,
@@ -546,7 +885,7 @@ mod tests {
                 .map(|point| (point.x / FOOTPRINT.x).hypot(point.z / FOOTPRINT.y))
                 .fold(0.0f32, f32::max)
         };
-        let glow = under_glow_geometry(&Livery::OWN);
+        let glow = under_glow_geometry(&livery(CarModel::Arrow));
         let shadow = shadow_geometry();
         // Round: every point of the rim is as far out, in the oval's own measure.
         for geometry in [&glow, &shadow] {
