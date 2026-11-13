@@ -12,7 +12,8 @@
     // Per second: how quickly speed above top_speed fades, as a share of the excess. At 0.5 a dive
     // carries the car past top speed and a boost lingers; at 4 the excess is gone in about a
     // second; 0 keeps it for good.
-    overspeed_drag: 0.5,
+    // 0.5 until v0.1.43; at 0.35 the car holds what it was given longer, which is weight.
+    overspeed_drag: 0.35,
 
     // Turning radius at full lock, in meters: when slow, and at top speed. 32 at top speed until
     // v0.1.36; at 58 m/s that turned and slid so hard that half lock broke into a drift.
@@ -32,14 +33,19 @@
     // gathering steadily from the very tick the steering moves and dying away the same way when the
     // stick lets go, so the car carries on round a little. Small corrections never meet it; a full
     // turn of the wheel and a slalom do. Higher is lighter: from about 1500 it holds nothing back.
-    yaw_acceleration: 250.0,
+    // 250 until v0.1.43; at 200 the rotation takes a quarter longer to gather and to die.
+    yaw_acceleration: 200.0,
     // Per second: how quickly sliding dies out while gripping. Lower lets the car's weight carry it
     // further to the outside of a turn before it follows its nose. Drifting is not affected: a
     // drift goes where the stick says. At 11.6 the travel trails the nose by 3.4 degrees at half
     // lock at top speed. A faster car slides further at the same grip, so it rose with the top
     // speed: 9 at 45 m/s (v0.1.32 to v0.1.35); at 6 (v0.1.14 to v0.1.31) the travel trailed 8.4
     // degrees at three quarters lock and 40 m/s, which carried the car out.
-    grip: 11.6,
+    // Since v0.1.44 the grip is high on purpose, 30: the travel trails the nose by 1.1 degrees at
+    // half lock where it trailed 3.4 at 11.6, so the car goes where it points instead of being
+    // carried out. What the player sees of a hard turn is the nose unscrewing (grip_swing_angle),
+    // not the car drifting wide.
+    grip: 30.0,
     // Pull down the slopes of the road, in m/s² (9.81 is Earth's): it slows a climb, speeds a dive
     // and draws the car to the inside of a banked turn. 0 makes the relief and the banking purely
     // visual.
@@ -52,15 +58,17 @@
     // the drift, ends it and turns the charge into a boost.
     // Slowest speed a drift starts or keeps going at (m/s).
     drift_min_speed: 12.0,
-    // How far off its axis of travel a gripping car must come to break into a drift without the
-    // button, in degrees: at top speed full lock takes the slide past 5 degrees in 0.35 s and three
-    // quarters lock in 0.52 s, half lock never does. It goes with grip: more grip, less slide, a
-    // lower angle. At 7 (v0.1.32 and v0.1.33) only full lock broke away, after 0.52 s. 4.5 broke
-    // away sooner still, and a client's autopilot six ticks late then scraped every wall.
-    drift_entry_angle: 5.0,
+    // How far a gripping car's nose must unscrew into a turn to break into a drift without the
+    // button, in degrees, and how far it unscrews at full lock at top speed while it still grips
+    // (grip_swing_angle): the body swings off the travel, tail out, in proportion to how hard the
+    // car turns, carrying it nowhere. With 11 and 16, half lock unscrews 8 degrees and holds;
+    // three quarters lock breaks away after 0.53 s and full lock after 0.47 s. Before v0.1.44 the
+    // car broke away when its real slide passed 5 degrees, which carried it out on the way there.
+    drift_entry_angle: 11.0,
     // How far back into line the body must come, with the stick keeping it there, for a drift to
     // end, in degrees. Holding the button keeps the drift alive whatever the body does.
     drift_exit_angle: 8.0,
+    grip_swing_angle: 16.0,
     // How far the body swings across the travel with the steering fully into the drift, in
     // degrees, most of it with the first half of the steering. 55 (measured on Rocket Racing) threw
     // the car across too far for the user, and 42 (v0.1.32 and v0.1.33) still carried it across
@@ -76,7 +84,7 @@
     // 0.5 s, 23 at 0.75 s and 29 at 1 s, and a drift ends 0.8 s after the stick straightens.
     // Without the knee (v0.1.35) it was 6, 17, 28 and 36; at 260 and 75 (v0.1.32 and v0.1.33) 10,
     // 29 and 41 at 0.75 s, ending in 0.6 s; at 450 and 110 (v0.1.12 to v0.1.31) 15, 43 and 55.
-    drift_swing_acceleration: 150.0,
+    drift_swing_acceleration: 120.0,
     drift_swing_rate: 45.0,
     drift_swing_knee: 15.0,
     drift_swing_knee_rate: 0.5,

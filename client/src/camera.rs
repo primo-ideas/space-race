@@ -37,7 +37,7 @@ const LOOK_AHEAD: f32 = 6.0;
 const LOOK_HEIGHT: f32 = 1.0;
 /// How quickly the camera swings back behind the car when it turns, per second. The slight lag
 /// shows the car turning, instead of the whole world rotating around a fixed car.
-const HEADING_FOLLOW: f32 = 6.0;
+const HEADING_FOLLOW: f32 = 5.0;
 /// The field of view widens with speed, up to `FOV_FAST` at `FOV_FULL_SPEED` m/s.
 const FOV_SLOW: f32 = 65.0 * PI / 180.0;
 const FOV_FAST: f32 = 78.0 * PI / 180.0;

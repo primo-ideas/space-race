@@ -27,17 +27,19 @@ const GRAVITY: f32 = 9.81;
 
 /// The body pitching about the car's width: nose up as it gathers speed, down as it loses it.
 const PITCH: Spring = Spring {
-    frequency: 1.5,
+    frequency: 1.2,
     damping: 0.35,
     gain: 0.12 * PI / 180.0,
-    limit: 5.0 * PI / 180.0,
+    limit: 6.0 * PI / 180.0,
 };
-/// The body rolling about the car's length, to the outside of a turn.
+/// The body rolling about the car's length, to the outside of a turn. Heavier since v0.1.44, at
+/// the user's word for more weight: slower to lean and to come back (1 Hz, 1.3 before), and
+/// further, 9 degrees where 6 was already reached at half lock at 209 km/h.
 const ROLL: Spring = Spring {
-    frequency: 1.3,
+    frequency: 1.0,
     damping: 0.4,
     gain: 0.1 * PI / 180.0,
-    limit: 6.0 * PI / 180.0,
+    limit: 9.0 * PI / 180.0,
 };
 /// The body sinking toward the road when it is pressed into it, and rising when it is lightened,
 /// in meters. Stiffer than the rest: a banking transition taken off the centerline lifts the car

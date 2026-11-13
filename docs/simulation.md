@@ -396,6 +396,50 @@ speed it scrapes: unattended checks on the client still finish their laps, but t
 client has is the gripping one. The server's autopilot, which drives a finished car, sees the car
 live and is clean.
 
+#### Unscrewing, not carried out
+
+On 2026-11-13 the user asked for a big pass on the handling (v0.1.44, protocol 29): "je veux + de
+lourdeur, de devissement plus que de déportement". Until then a gripping car showed a hard turn
+one way only: its travel trailed its nose (`Car::slip`), which is the car being carried wide, and
+that same slide passing `drift_entry_angle` was what broke it into a drift. Carrying the car out
+was how it unscrewed.
+
+Now the two are apart while gripping, as they have been in a drift since v0.1.3:
+
+- **The nose unscrews, drawn and not driven.** While the car grips, the body swings off the
+  travel, tail out, toward `grip_swing_angle` (16 degrees) times the share its sideways
+  acceleration is of full lock's at top speed, with the same swing as a drift's: gathering speed at
+  `drift_swing_acceleration`, never lunging. It moves the car nowhere.
+- **The travel stays where the car points.** `grip` 11.6 to 30: the travel trails the nose by 1.1
+  degrees at half lock where it trailed 3.4.
+- **Breaking away is the nose going too far.** A drift starts without the button when the body is
+  past `drift_entry_angle` (11 degrees) and still asked beyond it, on the same side, so a body
+  left across by a wall or a drift just ended starts nothing. Half lock unscrews 8 degrees and
+  holds; three quarters lock breaks away after 0.53 s, full lock after 0.47 s. The drift carries on
+  from the angle the nose already had.
+- **Weight.** `yaw_acceleration` 250 to 200, the rotation a quarter slower to gather and to die;
+  `drift_swing_acceleration` 150 to 120, the unscrewing gathering more slowly (a tap at full lock:
+  5, 15, 23 and 28 degrees at 0.25, 0.5, 0.75 and 1 s); `overspeed_drag` 0.5 to 0.35, a boost
+  lingering longer. On the client, the body rolls slower and further (1 Hz and 9 degrees, from 1.3
+  and 6), pitches slower, and the chase camera swings back behind the car a little later
+  (`HEADING_FOLLOW` 5), which shows the nose coming round.
+
+The autopilot could not drive it as it was: it steered at where the nose points, and a rotation
+that gathers and dies slowly took it past its line and back. It now aims from where the rotation
+under way will have taken the nose 0.2 s later (`YAW_LEAD`). That alone is worth more than the
+weight costs:
+
+| Skyway, neutral autopilot | v0.1.43 | v0.1.44 |
+| --- | --- | --- |
+| Gripping, live and six ticks late | 36.5 s, 36.2 s, clean | 30.5 s, 30.5 s, clean |
+| Drifting, live | 29.2 s, clean | 29.1 s, clean |
+| Drifting, six ticks late | 41.5 s, 97 ticks against a wall | 33.9 s, 12 ticks |
+
+The gripping lap is six seconds faster because the autopilot now breaks away seven times a lap at
+full lock, and takes its boosts; drifting with the button still wins. Tried and left:
+`yaw_acceleration` 185 or 170, which put the drifting lap on the walls (5 to 151 ticks), and
+`steering_rate` 12 or 11, which did the same to the late one (16 to 65).
+
 #### What drifting is worth
 
 Measured with the shipped tuning, the autopilot lapping each circuit twice: once never touching the

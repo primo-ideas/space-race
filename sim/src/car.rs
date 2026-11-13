@@ -40,13 +40,14 @@ pub struct Car {
     pub heading: f32,
     /// The angle between where the car travels and its heading, in radians, positive when the
     /// heading is to the left of the travel: the slide of a car that grips, which the rotation puts
-    /// ahead of the velocity and the grip pulls back. Turning hard enough to take it past
-    /// `drift_entry_angle` starts a drift. Nothing while the car drifts, its heading being its
-    /// travel.
+    /// ahead of the velocity and the grip pulls back. It is what carries a gripping car wide of
+    /// where it points, and the grip keeps it small. Nothing while the car drifts, its heading
+    /// being its travel.
     pub slip: f32,
-    /// How far the body is swung off the heading, in radians, positive to the left: the drift
-    /// angle. It is what is drawn and what ends a drift, but it moves the car nowhere. It settles
-    /// back to nothing once a drift is over.
+    /// How far the body is swung off the heading, in radians, positive to the left: the nose
+    /// unscrewing into a turn while the car grips, and the drift angle once it has broken away. It
+    /// is what is drawn, what starts a drift when it goes far enough and what ends one, but it
+    /// moves the car nowhere. It settles back to nothing on a straight.
     pub body: f32,
     /// How fast the body swings, in radians per second, positive to the left. The swing has a
     /// speed of its own so that it starts and stops gently instead of all at once.
@@ -179,13 +180,17 @@ pub struct CarTuning {
 
     /// Slowest speed a drift starts at or keeps going at, in m/s.
     pub drift_min_speed: f32,
-    /// How far off its axis of travel a gripping car must come, in degrees, for its slide to become
-    /// a drift: turning hard enough breaks the car away without the button. A tap of the button
-    /// does it at once.
+    /// How far a gripping car's nose must unscrew into a turn, in degrees, for it to break into a
+    /// drift: turning hard enough does it without the button (see `grip_swing_angle`). A tap of
+    /// the button does it at once.
     pub drift_entry_angle: f32,
     /// How far back into line the body must come, in degrees, with the stick keeping it there, for
     /// a drift to end. Holding the drift button keeps a drift alive however straight the car runs.
     pub drift_exit_angle: f32,
+    /// How far the nose unscrews into a turn while the car grips, in degrees, at full lock at top
+    /// speed: the body swings off the travel in proportion to how hard the car turns, tail out,
+    /// without carrying the car anywhere. Past `drift_entry_angle`, it has broken into a drift.
+    pub grip_swing_angle: f32,
     /// How far the body swings off the travel in a drift, in degrees, with the steering fully into
     /// the drift. Most of it comes with the first half of the steering's travel, easing in from
     /// the center: with the steering a share `s` of the way into the drift, the angle is
@@ -291,6 +296,7 @@ impl CarTuning {
             ("yaw_acceleration", self.yaw_acceleration),
             ("drift_entry_angle", self.drift_entry_angle),
             ("drift_exit_angle", self.drift_exit_angle),
+            ("grip_swing_angle", self.grip_swing_angle),
             ("drift_angle", self.drift_angle),
             ("drift_swing_acceleration", self.drift_swing_acceleration),
             ("drift_swing_rate", self.drift_swing_rate),
@@ -540,7 +546,7 @@ impl Car {
     /// Starts, holds, carries over or ends the drift.
     ///
     /// A **press** of the drift button with the stick turned starts one toward the stick, and so
-    /// does turning hard enough to take the slide past `drift_entry_angle` without it. Nothing has
+    /// does turning hard enough to unscrew the nose past `drift_entry_angle` without it. Nothing has
     /// to be held afterward. The drift ends when the body is back in line with the stick keeping
     /// it there, centered or against the drift, unless the button is held at that moment: held,
     /// it carries the drift down a straight, and with the stick well against the drift it carries
@@ -586,9 +592,9 @@ impl Car {
             let side = if pressed && input.steer().abs() >= DRIFT_PRESS_STICK {
                 // Steering right is a drift to the right, side 1.
                 input.steer().signum() as i8
-            } else if self.slip.abs() >= tuning.drift_entry_angle.to_radians() {
+            } else if self.unscrewed_past(tuning.drift_entry_angle.to_radians(), tuning) {
                 // A nose to the left of the travel is a car coming round to the left, side -1.
-                if self.slip > 0.0 { -1 } else { 1 }
+                if self.body > 0.0 { -1 } else { 1 }
             } else {
                 0
             };
@@ -596,6 +602,14 @@ impl Car {
                 self.start_drift(side);
             }
         }
+    }
+
+    /// Whether the gripping car's nose has unscrewed past `angle` into a turn hard enough to keep
+    /// it there: the body is past it and still asked beyond it, on the same side. A body left
+    /// across by a wall or by a drift just ended is neither.
+    fn unscrewed_past(&self, angle: f32, tuning: &CarTuning) -> bool {
+        let target = self.body_target(tuning);
+        self.body.abs() >= angle && target.abs() >= angle && self.body * target > 0.0
     }
 
     /// Starts a drift toward `side`. The heading becomes the travel, and the body takes over
@@ -632,7 +646,11 @@ impl Car {
     /// otherwise.
     fn body_target(&self, tuning: &CarTuning) -> f32 {
         if !self.is_drifting() {
-            return 0.0;
+            // Gripping, the nose unscrews into the turn as far as the car is turning hard: by
+            // the share its sideways acceleration is of full lock's at top speed.
+            let full = tuning.top_speed * tuning.top_speed / tuning.turn_radius_fast;
+            let share = (self.yaw_rate * self.velocity.length() / full).clamp(-1.5, 1.5);
+            return tuning.grip_swing_angle.to_radians() * share;
         }
         let into = self.drift_stick().clamp(0.0, 1.0);
         // Eases in from the center, where a square root would swing the body on every twitch.
@@ -840,6 +858,27 @@ mod tests {
 
     /// A car standing still in the middle of the first banked turn's arc, on the centerline, drifts
     /// down toward the inside; on flat road it stays put.
+    /// Gripping, the nose unscrews into the turn without carrying the car wide: at half lock the
+    /// body swings well off the travel and holds there, the travel itself staying close to where
+    /// the car steers, and no drift starts. At full lock it goes past the entry angle, and the car
+    /// breaks away.
+    #[test]
+    fn the_nose_unscrews_into_a_turn_without_carrying_the_car_wide() {
+        let track = Track::build(&open_track()).unwrap();
+        let mut car = at_top_speed(&track);
+        run(&mut car, CarInput::new(true, 0.5), 1.5, &track);
+        assert!(!car.is_drifting(), "half lock broke away");
+        // Steering right: the nose is to the right of the heading, a negative angle.
+        let unscrewed = -car.body.to_degrees();
+        assert!(unscrewed > 4.0 && unscrewed < tuning().drift_entry_angle, "{unscrewed}");
+        assert!(car.slip.abs() < unscrewed.to_radians(), "carried wider than it unscrews");
+
+        let mut car = at_top_speed(&track);
+        run(&mut car, CarInput::new(true, 1.0), 1.5, &track);
+        assert!(car.is_drifting(), "full lock never broke away");
+        assert_eq!(car.drift, 1);
+    }
+
     /// A car driving over a speed pad is boosted, for `pad_boost` once it has left it; one driving
     /// beside it is not.
     #[test]
@@ -1437,7 +1476,9 @@ mod tests {
         let mut ticks_left = ticks(6.0);
         while start.velocity.angle_to(gripping.velocity) > -std::f32::consts::FRAC_PI_2 {
             gripping.step(CarInput::new(true, 1.0), &tuning(), &track);
-            gripping.slip = 0.0;
+            // Its nose never unscrews far enough to break away.
+            gripping.body = 0.0;
+            gripping.body_rate = 0.0;
             ticks_left -= 1;
             assert!(ticks_left > 0, "never turned");
         }
