@@ -238,6 +238,9 @@ pub struct CarTuning {
     pub drift_boost_rate: f32,
     /// Longest boost a single drift can give, in seconds.
     pub drift_max_boost: f32,
+    /// Seconds of boost a speed pad gives, counted from when the car leaves it (see
+    /// [`crate::track::Pad`]).
+    pub pad_boost: f32,
     /// Top speed while boosting, in m/s. Above `top_speed`.
     pub boost_top_speed: f32,
     /// Acceleration while boosting, in m/s². It pushes in full up to `top_speed`, then fades to zero
@@ -315,6 +318,7 @@ impl CarTuning {
             ("drift_min_charge", self.drift_min_charge),
             ("drift_boost_rate", self.drift_boost_rate),
             ("drift_max_boost", self.drift_max_boost),
+            ("pad_boost", self.pad_boost),
             ("start_boost", self.start_boost),
             ("wall_impact_friction", self.wall_impact_friction),
             ("wall_friction", self.wall_friction),
@@ -455,6 +459,10 @@ impl Car {
             self.grip(input, tuning, dt);
         }
         self.position += self.velocity * dt;
+        // A speed pad under the car boosts it, as long as it is on it, and for `pad_boost` after.
+        if !track.pads().is_empty() && track.on_pad(&track.project(self.position)) {
+            self.boost = self.boost.max(tuning.pad_boost);
+        }
 
         let hit = self.collide_with_walls(tuning, track, dt);
         let moving = self.velocity.length_squared() > 1e-6;
@@ -832,6 +840,36 @@ mod tests {
 
     /// A car standing still in the middle of the first banked turn's arc, on the centerline, drifts
     /// down toward the inside; on flat road it stays put.
+    /// A car driving over a speed pad is boosted, for `pad_boost` once it has left it; one driving
+    /// beside it is not.
+    #[test]
+    fn a_speed_pad_boosts_whoever_drives_over_it() {
+        use crate::track::Pad;
+        let mut description = open_track();
+        description.pads = vec![Pad {
+            at: 40.0,
+            lateral: 0.0,
+            length: 10.0,
+            width: 6.0,
+        }];
+        let track = Track::build(&description).unwrap();
+        let drive_past = |lateral: f32| {
+            let mut car = Car::new(Vec2::new(0.0, lateral), 0.0);
+            car.velocity = Vec2::new(tuning().top_speed, 0.0);
+            let mut boosted = false;
+            for _ in 0..ticks(2.0) {
+                car.step(ACCELERATE, &tuning(), &track);
+                boosted |= car.is_boosting();
+            }
+            (boosted, car)
+        };
+        let (on, car) = drive_past(0.0);
+        assert!(on, "the pad gave nothing");
+        assert!(car.velocity.length() > tuning().top_speed, "{}", car.velocity.length());
+        let (beside, _) = drive_past(8.0);
+        assert!(!beside, "a car beside the pad was boosted");
+    }
+
     #[test]
     fn a_banked_turn_pulls_a_standing_car_toward_the_inside() {
         for (banking, should_move) in [(30.0, true), (0.0, false)] {

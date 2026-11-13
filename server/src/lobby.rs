@@ -83,9 +83,11 @@ fn ticks(duration: Duration) -> u32 {
 }
 
 /// What a car that has crossed the line is driven with: the drifting autopilot, the style worth
-/// watching.
-fn self_driven(car: &Car, track: &Track) -> CarInput {
-    autopilot::drive_in_style(autopilot::Style::Drift, car, track)
+/// watching, each car with a manner of its own drawn from its number, so the cars that have
+/// finished spread across the road instead of following each other down the middle.
+fn self_driven(car_id: CarId, car: &Car, track: &Track) -> CarInput {
+    let personality = autopilot::Personality::of(u32::from(car_id.0));
+    autopilot::drive_in_style_as(autopilot::Style::Drift, &personality, car, track)
 }
 
 /// The lobby as the directory lists it. Unlike a [`LobbySummary`], it holds deadlines rather than
@@ -873,7 +875,7 @@ impl Lobby {
                     // The race is over, and they crossed the line: their car carries on by
                     // itself while the results show.
                     PlayerStatus::Finished { .. } => {
-                        let input = self_driven(&member.car, track);
+                        let input = self_driven(member.car_id, &member.car, track);
                         member.car.step(input, &self.tuning, track);
                     }
                     PlayerStatus::Racing | PlayerStatus::Spectating => {}
@@ -909,7 +911,7 @@ impl Lobby {
                 // come in, the way a kart carries on over the line: their last input never leaves
                 // a car parked across the road.
                 PlayerStatus::Finished { .. } => {
-                    let input = self_driven(&member.car, track);
+                    let input = self_driven(member.car_id, &member.car, track);
                     member.car.step(input, &self.tuning, track);
                 }
                 PlayerStatus::Driving | PlayerStatus::Spectating => continue,

@@ -151,6 +151,7 @@ mod tests {
             ],
             narrows: Vec::new(),
             scenery: Vec::new(),
+            pads: Vec::new(),
         })
         .unwrap()
     }

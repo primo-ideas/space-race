@@ -236,6 +236,7 @@ fn track_meshes(track: &Track, props: &[Prop]) -> TrackMeshes {
     markings::kerbs(&mut lit, track);
     markings::edge_lines(&mut lit, track);
     markings::grid_boxes(&mut lit, track);
+    markings::pads(&mut neon, &mut glow, track);
     markings::wall_light(&mut glow, track);
     let mut scenery = Geometry::default();
     piers::piers(&mut scenery, &mut neon, track);

@@ -106,7 +106,12 @@ fn send_input(
         match (view.own_car, track) {
             // Waits for the start on screen to press, for a perfect start.
             _ if before_start(&current, &view) => CarInput::default(),
-            (Some(car), Some(track)) => autopilot::drive_in_style(style, &car, &track.0),
+            // With the manner the server gives the same car once it has finished (see lobby.rs).
+            (Some(car), Some(track)) => {
+                let seed = current.0.as_ref().map_or(0, |membership| u32::from(membership.car.0));
+                let personality = autopilot::Personality::of(seed);
+                autopilot::drive_in_style_as(style, &personality, &car, &track.0)
+            }
             _ => CarInput::default(),
         }
     } else {

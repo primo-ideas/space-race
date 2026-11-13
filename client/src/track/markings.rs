@@ -9,6 +9,7 @@
 
 use std::f32::consts::PI;
 
+use bevy::color::LinearRgba;
 use bevy::prelude::*;
 use star_racer_sim::track::Track;
 
@@ -135,6 +136,67 @@ pub(super) fn grid_boxes(lit: &mut Geometry, track: &Track) {
     }
 }
 
+/// The speed pads (see `sim::track::Pad`): on each, three chevrons pointing the way, drawn in the
+/// neon, brighter than white so they bloom, over a pool of the same light added to the road.
+pub(super) fn pads(neon: &mut Geometry, glow: &mut Geometry, track: &Track) {
+    for pad in track.pads() {
+        let half = pad.width / 2.0;
+        let (left, right) = (pad.lateral + half, pad.lateral - half);
+        // The pool under the whole pad, fading toward its ends.
+        let steps = 6;
+        for step in 0..steps {
+            let a = pad.at + pad.length * step as f32 / steps as f32;
+            let b = pad.at + pad.length * (step + 1) as f32 / steps as f32;
+            let fade = |at: f32| {
+                let share = ((at - pad.at) / pad.length * PI).sin();
+                PAD_GLOW.with_alpha(PAD_POOL_ALPHA * share)
+            };
+            let (pa, pb) = (track.point_at(a), track.point_at(b));
+            glow.quad_shaded(
+                [
+                    on_road(track, pa, right, POOL_HEIGHT),
+                    on_road(track, pa, left, POOL_HEIGHT),
+                    on_road(track, pb, left, POOL_HEIGHT),
+                    on_road(track, pb, right, POOL_HEIGHT),
+                ],
+                Vec3::Y,
+                [fade(a), fade(a), fade(b), fade(b)],
+            );
+        }
+        // Chevrons: each arm runs from the pad's edge, behind, to its middle, ahead.
+        for chevron in 0..PAD_CHEVRONS {
+            let back = pad.at + pad.length * (0.12 + 0.3 * chevron as f32);
+            let tip = back + PAD_CHEVRON_DEPTH;
+            for edge in [left, right] {
+                let (pb, pt) = (track.point_at(back), track.point_at(tip));
+                let (pb2, pt2) = (
+                    track.point_at(back + PAD_STROKE),
+                    track.point_at(tip + PAD_STROKE),
+                );
+                neon.quad_facing_up(
+                    [
+                        on_road(track, pb, edge, 2.0 * MARKING_HEIGHT),
+                        on_road(track, pt, pad.lateral, 2.0 * MARKING_HEIGHT),
+                        on_road(track, pt2, pad.lateral, 2.0 * MARKING_HEIGHT),
+                        on_road(track, pb2, edge, 2.0 * MARKING_HEIGHT),
+                    ],
+                    Color::LinearRgba(PAD_NEON),
+                );
+            }
+        }
+    }
+}
+
+/// How many chevrons a pad has, how far each one's tip is ahead of its arms' ends, and how thick
+/// its strokes are, in meters.
+const PAD_CHEVRONS: usize = 3;
+const PAD_CHEVRON_DEPTH: f32 = 2.2;
+const PAD_STROKE: f32 = 0.7;
+/// The pads' neon, an amber brighter than white, and the light it throws on the road.
+const PAD_NEON: LinearRgba = LinearRgba::new(3.4, 1.6, 0.2, 1.0);
+const PAD_GLOW: Color = Color::srgb(1.0, 0.55, 0.1);
+const PAD_POOL_ALPHA: f32 = 0.55;
+
 /// A pool of blue light on the road at the foot of every neon stripe of the walls, brightest at
 /// the wall and in the middle of the stripe, fading out across the road and toward its ends.
 pub(super) fn wall_light(glow: &mut Geometry, track: &Track) {
@@ -194,6 +256,7 @@ mod tests {
             elevation: Vec::new(),
             narrows: Vec::new(),
             scenery: Vec::new(),
+            pads: Vec::new(),
         })
         .unwrap()
     }

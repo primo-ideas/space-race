@@ -563,7 +563,7 @@ feel can be tuned while driving, without recompiling or reconnecting (see
 
 ## Autopilot
 
-`sim::autopilot` drives toward a point ahead on the centerline, at full speed. It is not an
+`sim::autopilot` drives toward a point ahead on its line, at full speed. It is not an
 opponent: it exists so tests can prove a circuit is drivable — a full lap, fast enough, without
 touching a wall — and so the client can drive itself for unattended checks.
 
@@ -611,6 +611,27 @@ late swung from wall to wall through the slaloms, 160 ticks against them in a la
 That margin also turned out to be a latency detector. The first drivable client displayed the race
 770 ms late because of a time-origin bug, and the autopilot, fine in every test, crashed on screen.
 A player would have felt the same delay without being able to name it.
+
+
+### Personalities
+
+Since v0.1.43 (2026-11-13, the user's word "Ajoute de la variance dans les bots, car sur la video,
+ca donne pas envie ils se suivent tous"), every autopilot car drives with a `Personality` of its
+own, drawn from its car number (`Personality::of`, a hash, so the same car drives the same way on
+the server and on a client's screen): where its line runs across the road, as a share of the room
+between the walls less 4.5 m (centered anywhere within 40% of it either side), a weave of 8 to 28%
+of it either side of that, 220 to 520 m long, how far ahead it looks (0.85 to 1.2 of the neutral
+driver), how sharp a turn must be for it to drift (0.75 to 1.35), and how straight the road must be
+for it to fire its turbo (0.8 to 1.6). The cars that have finished a race and are driving
+themselves home, and a client's `--autopilot`, spread out across the road instead of following
+each other down the middle, and take the speed pads or miss them.
+
+The neutral driver, `Personality::default()`, still follows the centerline: it is what the tests
+measure circuits with, and it misses every pad of the skyway, which all stand off the middle, so
+the laps the tests require are the ones they were. Eight personalities on the skyway, drifting from
+live state: laps of 28.1 to 35.0 s (29.2 neutral), at most 12 ticks against a wall; gripping six
+ticks late, 32.3 to 36.1 s. A wider range of lines (55%, weaves to 40%) put the widest drivers on
+the walls for 28 ticks a lap.
 
 ## Tests
 

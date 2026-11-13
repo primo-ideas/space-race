@@ -70,6 +70,64 @@ pub struct TrackDescription {
     /// Decoration standing beside the road, which the simulation never sees (see [`scenery`]).
     #[serde(default)]
     pub scenery: Vec<Prop>,
+    /// Patches of road that boost a car driving over them (see [`Pad`]).
+    #[serde(default)]
+    pub pads: Vec<Pad>,
+}
+
+/// A speed pad: a patch of road, glowing chevrons on it, that boosts any car driving over it as a
+/// drift's release does, to the boost's top speed (see `pad_boost` in the car tuning).
+///
+/// Placed like a [`Narrows`], by its distance along the lap, and across the road by its offset
+/// from the centerline, so it keeps its place when the road around it is redrawn.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Encode, Decode)]
+#[serde(deny_unknown_fields)]
+pub struct Pad {
+    /// Meters along the lap from the start line where the pad begins.
+    pub at: f32,
+    /// How far from the centerline its middle is, in meters, positive to the left.
+    #[serde(default)]
+    pub lateral: f32,
+    /// How long it is along the road, and how wide across it, in meters.
+    #[serde(default = "pad_length")]
+    pub length: f32,
+    #[serde(default = "pad_width")]
+    pub width: f32,
+}
+
+const fn pad_length() -> f32 {
+    10.0
+}
+
+const fn pad_width() -> f32 {
+    6.0
+}
+
+impl Pad {
+    /// Whether a car `distance` meters along a lap `length` meters round and `lateral` meters
+    /// from the centerline is on the pad.
+    pub fn covers(&self, distance: f32, lateral: f32, length: f32) -> bool {
+        (distance - self.at).rem_euclid(length) <= self.length
+            && (lateral - self.lateral).abs() <= self.width / 2.0
+    }
+
+    /// Checks a pad against a lap `length` meters round: it must lie on the lap and on the road,
+    /// whose half width there is `half_width`.
+    fn validate(&self, length: f32, half_width: f32) -> Result<(), &'static str> {
+        if !(self.at.is_finite() && (0.0..length).contains(&self.at)) {
+            return Err("the distance along the track must be between zero and its length");
+        }
+        if !(self.length.is_finite() && self.length > 0.0 && self.length <= 60.0) {
+            return Err("the length must be a number of meters above zero and at most 60");
+        }
+        if !(self.width.is_finite() && self.width > 0.0) {
+            return Err("the width must be a positive number of meters");
+        }
+        if !(self.lateral.is_finite() && self.lateral.abs() + self.width / 2.0 <= half_width) {
+            return Err("the pad must lie on the road, between its walls");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Encode, Decode)]
@@ -328,6 +386,11 @@ pub enum TrackError {
         index: usize,
         reason: &'static str,
     },
+    /// A speed pad cannot be placed as written.
+    InvalidPad {
+        index: usize,
+        reason: &'static str,
+    },
     /// A prop of the scenery cannot be placed or built as written.
     InvalidProp {
         index: usize,
@@ -354,6 +417,7 @@ impl fmt::Display for TrackError {
                  steeper than the {MAX_GRADE} a road may"
             ),
             Self::InvalidNarrows { index, reason } => write!(f, "narrows {index}: {reason}"),
+            Self::InvalidPad { index, reason } => write!(f, "pad {index}: {reason}"),
             Self::InvalidProp { index, reason } => write!(f, "prop {index}: {reason}"),
             Self::NotALoop { total_angle } => write!(
                 f,
@@ -423,6 +487,7 @@ pub struct Track {
     spacing: f32,
     /// A closed loop: the point after the last one is the first one.
     points: Vec<TrackPoint>,
+    pads: Vec<Pad>,
 }
 
 impl Track {
@@ -483,6 +548,11 @@ impl Track {
         if let Some((at, over)) = find_overlap(&centerline, spacing as f32, description.width) {
             return Err(TrackError::Overlaps { at, over });
         }
+        for (index, pad) in description.pads.iter().enumerate() {
+            let half_width = width_at(description, length as f32, pad.at) / 2.0;
+            pad.validate(length as f32, half_width)
+                .map_err(|reason| TrackError::InvalidPad { index, reason })?;
+        }
         for (index, prop) in description.scenery.iter().enumerate() {
             prop.validate(length as f32)
                 .map_err(|reason| TrackError::InvalidProp { index, reason })?;
@@ -500,11 +570,24 @@ impl Track {
             length: length as f32,
             spacing: spacing as f32,
             points,
+            pads: description.pads.clone(),
         })
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The speed pads, in the order the file gives them.
+    pub fn pads(&self) -> &[Pad] {
+        &self.pads
+    }
+
+    /// Whether a car at `projection` is on a speed pad.
+    pub fn on_pad(&self, projection: &TrackProjection) -> bool {
+        self.pads
+            .iter()
+            .any(|pad| pad.covers(projection.distance, projection.lateral, self.length))
     }
 
     /// Half the width of the road where nothing narrows it: the widest it ever is.
@@ -919,6 +1002,25 @@ mod tests {
 
     use super::*;
     use crate::test_support::{banked_oval, oval};
+
+    /// A pad must lie on the lap and on the road, between its walls.
+    #[test]
+    fn a_pad_off_the_road_is_refused() {
+        let mut description = oval(120.0, 45.0, 25.0);
+        description.pads = vec![Pad {
+            at: 10.0,
+            lateral: 6.0,
+            length: 10.0,
+            width: 6.0,
+        }];
+        assert!(matches!(
+            Track::build(&description),
+            Err(TrackError::InvalidPad { index: 0, .. })
+        ));
+        description.pads[0].lateral = 2.0;
+        let track = Track::build(&description).unwrap();
+        assert_eq!(track.pads().len(), 1);
+    }
 
     /// Distance to the middle of the first turn's arc, on [`banked_oval`] with a 100 m straight,
     /// radius 40 and 20 m transitions: half straight, entry transition, half arc.

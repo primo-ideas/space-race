@@ -50,6 +50,7 @@ fn oval_of_width(
         elevation: Vec::new(),
         narrows: Vec::new(),
         scenery: Vec::new(),
+        pads: Vec::new(),
     }
 }
 
@@ -86,6 +87,7 @@ pub fn tuning() -> CarTuning {
         drift_min_charge: 0.3,
         drift_boost_rate: 0.4,
         drift_max_boost: 1.0,
+        pad_boost: 0.6,
         boost_top_speed: 48.0,
         boost_acceleration: 30.0,
         start_boost: 1.5,

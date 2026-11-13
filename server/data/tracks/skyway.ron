@@ -106,6 +106,16 @@
         (at: 1758.0, height: 25.0),
         (at: 1809.0, height: 24.0),
     ],
+    // Speed pads: glowing chevrons on the road that boost whoever drives over them (see
+    // docs/tracks.md#speed-pads). At the exits of the bowl, the spiral and the sink, and twice down
+    // the dive, each off to one side, so a line that takes them is a choice.
+    pads: [
+        (at: 372.0, lateral: 5.0),
+        (at: 745.0, lateral: -5.0),
+        (at: 1205.0, lateral: 4.0),
+        (at: 1290.0, lateral: -6.0),
+        (at: 1508.0, lateral: 6.0),
+    ],
     scenery: [
         // The line, under its arch, between two stands, the city behind them.
         Gantry(at: 0.0),

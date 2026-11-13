@@ -1,9 +1,15 @@
-//! A driver that follows the centerline at full speed. It proves a circuit can be driven in tests,
-//! lets the client drive on its own for unattended checks, and takes over a car once its player has
+//! A driver that follows the road at full speed. It proves a circuit can be driven in tests, lets
+//! the client drive on its own for unattended checks, and takes over a car once its player has
 //! finished the race, while the others come in. It is not an opponent AI.
 //!
 //! It drives in one of two [`Style`]s: gripping all the way, or drifting through the turns, which
-//! also measures what drifting gains on a track.
+//! also measures what drifting gains on a track. And it drives with a [`Personality`]: a line of its
+//! own across the road, weaving from one side toward the other, how far ahead it looks, how eager
+//! it is to drift and to fire its turbo. Without one, the neutral driver the tests measure
+//! circuits with follows the centerline; every car on a track gets one of its own, so a field of
+//! them spreads out instead of following each other down the middle.
+
+use std::f32::consts::TAU;
 
 use std::collections::VecDeque;
 
@@ -53,18 +59,103 @@ pub enum Style {
     Drift,
 }
 
-pub fn drive(car: &Car, track: &Track) -> CarInput {
-    CarInput::new(true, pursue(car, track, LOOK_AHEAD_TIME))
+/// How one autopilot drives, as against another: what makes a field of them spread out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Personality {
+    /// Where its line runs across the road, as a share of the room either side of the centerline
+    /// it keeps clear of the walls: 0 down the middle, positive to the left.
+    pub line: f32,
+    /// How far its line weaves either side of that, as a share of the same room, and how long one
+    /// weave is along the road, in meters, starting `phase` radians into it.
+    pub weave: f32,
+    pub weave_length: f32,
+    pub phase: f32,
+    /// How far ahead it looks, as a share of the neutral driver's.
+    pub look_ahead: f32,
+    /// How sharp a turn ahead must be for it to drift, as a share of the neutral driver's: below 1,
+    /// it drifts into gentler turns.
+    pub drift_threshold: f32,
+    /// How straight the road ahead must be for it to fire its turbo, as a share of the neutral
+    /// driver's: above 1, it fires on bends a careful driver would wait out.
+    pub turbo_nerve: f32,
 }
 
-/// The stick that points the car at a spot of the centerline ahead, `look_ahead_time` seconds of
-/// travel away: full lock for [`FULL_LOCK_ANGLE`] between the heading and the spot, and more than
-/// full lock, beyond 1, when that is not enough. A drift steers its travel with the same stick as
-/// a gripping car steers its nose, on a radius of the same kind, so the one pursuit drives both.
-fn pursue(car: &Car, track: &Track, look_ahead_time: f32) -> f32 {
+impl Default for Personality {
+    /// The neutral driver: down the centerline, as the tests measure circuits.
+    fn default() -> Self {
+        Self {
+            line: 0.0,
+            weave: 0.0,
+            weave_length: 400.0,
+            phase: 0.0,
+            look_ahead: 1.0,
+            drift_threshold: 1.0,
+            turbo_nerve: 1.0,
+        }
+    }
+}
+
+/// How much of the road's half width either side of the centerline a line may use, beyond the
+/// car's own size: what keeps a weaving line off the walls.
+const LINE_MARGIN: f32 = 4.5;
+
+impl Personality {
+    /// A personality of its own for `seed`, the same every time for the same seed: a car keeps
+    /// its manner from lap to lap and from the server to a client's screen.
+    pub fn of(seed: u32) -> Self {
+        // Each number drawn from the seed by a different mixing, so they do not move together.
+        let draw = |salt: u32| {
+            let mut x = seed.wrapping_mul(0x9E37_79B9) ^ salt.wrapping_mul(0x85EB_CA6B);
+            x ^= x >> 16;
+            x = x.wrapping_mul(0x7FEB_352D);
+            x ^= x >> 15;
+            x = x.wrapping_mul(0x846C_A68B);
+            x ^= x >> 16;
+            x as f32 / u32::MAX as f32
+        };
+        let between = |salt: u32, low: f32, high: f32| low + (high - low) * draw(salt);
+        Self {
+            line: between(1, -0.4, 0.4),
+            weave: between(2, 0.08, 0.28),
+            weave_length: between(3, 220.0, 520.0),
+            phase: between(4, 0.0, TAU),
+            look_ahead: between(5, 0.85, 1.2),
+            drift_threshold: between(6, 0.75, 1.35),
+            turbo_nerve: between(7, 0.8, 1.6),
+        }
+    }
+
+    /// How far left of the centerline this driver's line runs `distance` meters along the lap,
+    /// in meters, on a road `half_width` meters from the centerline to either wall there.
+    pub fn offset(&self, distance: f32, half_width: f32) -> f32 {
+        let room = (half_width - LINE_MARGIN).max(0.0);
+        let wave = (TAU * distance / self.weave_length + self.phase).sin();
+        ((self.line + self.weave * wave) * room).clamp(-room, room)
+    }
+}
+
+pub fn drive(car: &Car, track: &Track) -> CarInput {
+    drive_as(&Personality::default(), car, track)
+}
+
+/// [`drive`], with a personality.
+pub fn drive_as(personality: &Personality, car: &Car, track: &Track) -> CarInput {
+    CarInput::new(true, pursue(personality, car, track, LOOK_AHEAD_TIME))
+}
+
+/// The stick that points the car at a spot of its line ahead, `look_ahead_time` seconds of travel
+/// away: full lock for [`FULL_LOCK_ANGLE`] between the heading and the spot, and more than full
+/// lock, beyond 1, when that is not enough. A drift steers its travel with the same stick as a
+/// gripping car steers its nose, on a radius of the same kind, so the one pursuit drives both.
+fn pursue(personality: &Personality, car: &Car, track: &Track, look_ahead_time: f32) -> f32 {
     let here = track.project(car.position);
-    let look_ahead = LOOK_AHEAD_DISTANCE + car.velocity.length() * look_ahead_time;
-    let target = track.point_at(here.distance + look_ahead).position;
+    let look_ahead =
+        (LOOK_AHEAD_DISTANCE + car.velocity.length() * look_ahead_time) * personality.look_ahead;
+    let ahead = here.distance + look_ahead;
+    let point = track.point_at(ahead);
+    let offset = personality.offset(ahead, track.half_width_at(ahead.rem_euclid(track.length())));
+    // The direction is a unit tangent, so its perpendicular is the left of the road.
+    let target = point.position + point.direction.perp() * offset;
     // Positive when the target is on the left; steering is right positive.
     let angle = car.forward().angle_to(target - car.position);
     -angle / FULL_LOCK_ANGLE
@@ -77,15 +168,26 @@ fn pursue(car: &Car, track: &Track, look_ahead_time: f32) -> f32 {
 /// is held only while the pursuit asks for more than full lock into the drift. Coming out of the
 /// turn, the stick straightens, the body comes back into line and the drift pays its boost.
 pub fn drive_in_style(style: Style, car: &Car, track: &Track) -> CarInput {
+    drive_in_style_as(style, &Personality::default(), car, track)
+}
+
+/// [`drive_in_style`], with a personality.
+pub fn drive_in_style_as(
+    style: Style,
+    personality: &Personality,
+    car: &Car,
+    track: &Track,
+) -> CarInput {
     if style == Style::Grip {
-        return drive(car, track);
+        return drive_as(personality, car, track);
     }
-    drift_through_turns(car, track).with_turbo(fires_turbo(car, track))
+    drift_through_turns(personality, car, track)
+        .with_turbo(fires_turbo(personality, car, track))
 }
 
 /// Whether to press the turbo button now: with a charge to spend, out of a drift, and with the
 /// road ahead straight enough to take the speed. A press, not a hold, like the drift's.
-fn fires_turbo(car: &Car, track: &Track) -> bool {
+fn fires_turbo(personality: &Personality, car: &Car, track: &Track) -> bool {
     if car.turbo < 1.0 || car.turbo_button || car.is_boosting() || car.is_drifting() {
         return false;
     }
@@ -93,22 +195,22 @@ fn fires_turbo(car: &Car, track: &Track) -> bool {
     let now = track.point_at(here).direction;
     (1..=TURBO_LOOK_AHEAD_STEPS).all(|step| {
         let ahead = track.point_at(here + step as f32 * TURBO_LOOK_AHEAD_STEP);
-        now.angle_to(ahead.direction).abs() < TURBO_STRAIGHT
+        now.angle_to(ahead.direction).abs() < TURBO_STRAIGHT * personality.turbo_nerve
     })
 }
 
-fn drift_through_turns(car: &Car, track: &Track) -> CarInput {
+fn drift_through_turns(personality: &Personality, car: &Car, track: &Track) -> CarInput {
     if car.is_drifting() {
-        let steer = pursue(car, track, DRIFT_LOOK_AHEAD_TIME);
+        let steer = pursue(personality, car, track, DRIFT_LOOK_AHEAD_TIME);
         // Into the drift is toward its side, which is the sign of `drift` for the stick.
         let holding = steer * f32::from(car.drift) > 1.0;
         return CarInput::new(true, steer).with_drift(holding);
     }
-    let input = drive(car, track);
+    let input = drive_as(personality, car, track);
     // Positive when the road turns left. A left turn is a drift to the left, side -1.
     let turn = turn_ahead(car, track);
     let side = if turn > 0.0 { -1.0 } else { 1.0 };
-    if turn.abs() > DRIFT_START_TURN && input.steer() * side >= 0.0 {
+    if turn.abs() > DRIFT_START_TURN * personality.drift_threshold && input.steer() * side >= 0.0 {
         // A press, not a hold: the button goes down only if it was up, so a press that came too
         // early to start anything is let go of and made again.
         let steer = side * input.steer().abs().max(DRIFT_PRESS_STEER);
@@ -154,6 +256,25 @@ pub fn drive_lap(
     time_limit: f32,
     delay_ticks: usize,
 ) -> LapReport {
+    drive_lap_as(
+        track,
+        tuning,
+        style,
+        &Personality::default(),
+        time_limit,
+        delay_ticks,
+    )
+}
+
+/// [`drive_lap`], with a personality.
+pub fn drive_lap_as(
+    track: &Track,
+    tuning: &CarTuning,
+    style: Style,
+    personality: &Personality,
+    time_limit: f32,
+    delay_ticks: usize,
+) -> LapReport {
     let mut car = Car::on_grid(track, 0);
     let mut seen = VecDeque::from(vec![car; delay_ticks + 1]);
     let mut distance = track.project(car.position).distance;
@@ -171,7 +292,7 @@ pub fn drive_lap(
     let mut drift_start = None;
 
     for tick in 1..=(time_limit * TICK_RATE as f32) as u32 {
-        let input = drive_in_style(style, &seen[0], track);
+        let input = drive_in_style_as(style, personality, &seen[0], track);
         let firing = car.turbo_boost > 0.0;
         car.step(input, tuning, track);
         report.turbos += u32::from(car.turbo_boost > 0.0 && !firing);
@@ -269,6 +390,49 @@ drift: {drift:?}"
         assert!(drift.lap_time.is_some(), "{drift:?}");
         assert!(drift.drift_ticks > 0 && drift.boost_ticks > 0, "{drift:?}");
         assert_eq!(grip.drift_ticks, 0);
+    }
+
+    /// Personalities are each their own, the same for the same seed, and keep their line inside
+    /// the road whatever it weaves.
+    #[test]
+    fn personalities_differ_and_keep_off_the_walls() {
+        assert_eq!(Personality::of(7), Personality::of(7));
+        let lines: Vec<f32> = (0..8).map(|seed| Personality::of(seed).line).collect();
+        let spread = lines.iter().cloned().fold(f32::MIN, f32::max)
+            - lines.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(spread > 0.4, "{lines:?}");
+        for seed in 0..50 {
+            let personality = Personality::of(seed);
+            for step in 0..200 {
+                let offset = personality.offset(step as f32 * 7.0, 17.0);
+                assert!(offset.abs() <= 17.0 - LINE_MARGIN + 1e-4, "{seed} {offset}");
+            }
+        }
+        assert_eq!(Personality::default().offset(123.0, 17.0), 0.0);
+    }
+
+    /// A field of autopilots, each with its own personality, laps an oval on lines of their own
+    /// rather than all down the middle, and none spends the lap on the walls.
+    #[test]
+    fn a_field_of_personalities_spreads_out_and_laps() {
+        let track = Track::build(&banked_oval(110.0, 45.0, 24.0, 30.0)).unwrap();
+        let mut laterals = Vec::new();
+        for seed in 0..6 {
+            let personality = Personality::of(seed);
+            let report = drive_lap_as(&track, &tuning(), Style::Drift, &personality, 60.0, 0);
+            assert!(report.lap_time.is_some(), "{seed}: {report:?}");
+            assert!(report.wall_ticks < 30, "{seed}: {report:?}");
+            // Where it is half a lap in.
+            let mut car = Car::on_grid(&track, 0);
+            for _ in 0..(TICK_RATE * 4) {
+                let input = drive_in_style_as(Style::Grip, &personality, &car, &track);
+                car.step(input, &tuning(), &track);
+            }
+            laterals.push(track.project(car.position).lateral);
+        }
+        let spread = laterals.iter().cloned().fold(f32::MIN, f32::max)
+            - laterals.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(spread > 1.5, "{laterals:?}");
     }
 
     #[test]

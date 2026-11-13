@@ -626,6 +626,7 @@ mod tests {
             elevation,
             narrows: Vec::new(),
             scenery: Vec::new(),
+            pads: Vec::new(),
         })
         .unwrap()
     }

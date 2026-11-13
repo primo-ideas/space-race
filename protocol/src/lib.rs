@@ -19,7 +19,7 @@ pub mod names;
 pub mod ranked;
 
 /// Bump on every incompatible protocol change.
-pub const PROTOCOL_VERSION: u32 = 27;
+pub const PROTOCOL_VERSION: u32 = 28;
 
 /// Local server port. In production, the reverse proxy terminates TLS and forwards here.
 pub const DEFAULT_PORT: u16 = 8080;
@@ -548,7 +548,7 @@ mod tests {
         use glam::Vec2;
 
         use star_racer_sim::track::scenery::{Prop, Side};
-        use star_racer_sim::track::{Elevation, Narrows, Segment};
+        use star_racer_sim::track::{Elevation, Narrows, Pad, Segment};
 
         let welcome = ServerMessage::Welcome {
             tracks: vec![TrackInfo {
@@ -607,6 +607,12 @@ mod tests {
                             clearance: 9.0,
                         },
                     ],
+                    pads: vec![Pad {
+                        at: 200.0,
+                        lateral: -4.0,
+                        length: 10.0,
+                        width: 6.0,
+                    }],
                 },
             }],
             identity: Identity {

@@ -205,6 +205,23 @@ three was the funnel, where the drift out of the right-hander before it passed 0
 At 14 m it had passed 0.1 m from it, which would have made every change to the car's tuning a coin
 toss in CI, so it was opened to 15.
 
+## Speed pads
+
+Since v0.1.43 (protocol 28, the user's word "Rajoute des pads de vitesse"), a track may lay
+**speed pads** on its road: `pads: [(at: 372.0, lateral: 5.0, length: 10.0, width: 6.0)]`, each
+placed by its distance along the lap and its offset from the centerline (positive to the left),
+10 m long and 6 m wide unless the file says otherwise. A car on one is boosted as a drift's release
+boosts it, toward `boost_top_speed`, for as long as it is on it and `pad_boost` (0.8 s) after; the
+simulation checks every tick, so it is predicted like everything else. The client draws three amber
+chevrons on each, brighter than white so they bloom, over a pool of the same light on the road
+(`track/markings.rs`). A pad must lie on the lap and between the walls, or the track is refused
+(`TrackError::InvalidPad`).
+
+The skyway has five, each off to one side so taking one is a choice of line: the exits of the bowl
+(372 m, 5 m left), of the spiral (745 m, 5 m right) and of the sink (1508 m, 6 m left), and twice
+down the dive (1205 m, 4 m left; 1290 m, 6 m right). One in the middle at 1508 m put the neutral
+autopilot six ticks late on a wall once a lap, which the shipped-track test refuses.
+
 ## Scenery
 
 Props stand beside the road: a `scenery` list in the same file, next to the segments that draw it.
