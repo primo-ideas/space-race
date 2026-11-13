@@ -1,6 +1,6 @@
 [package]
 name = "star-racer-logger"
-version = "0.1.41"
+version = "0.1.42"
 edition = "2024"
 license = "Unlicense"
 
